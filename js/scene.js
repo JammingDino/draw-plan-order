@@ -9,6 +9,79 @@
   /* offscreen context used purely for text measurement */
   const mctx = document.createElement('canvas').getContext('2d');
 
+
+  /* ── spatial index ────────────────────────────────────────────────
+     A uniform grid over item bounding boxes, so a redraw or a hit test
+     touches the handful of items near the query instead of every item on
+     the board.
+
+     It is rebuilt wholesale whenever `scene.version` moves rather than
+     being patched on each mutation. That sounds wasteful and is not: the
+     rebuild is one pass over already-cached bboxes, and it makes the index
+     incapable of disagreeing with the scene — an index that silently drops
+     an item makes that item vanish from the screen, which is a far worse
+     bug than a linear scan. The cases that matter (panning, zooming,
+     hovering, hit-testing) change nothing, so they never pay for a rebuild
+     at all; a drag pays one cheap O(n) pass per frame, which is what the
+     old code paid anyway.
+
+     Items larger than a few cells go in `big` and are always considered:
+     scattering a page-sized PDF across four hundred cells costs more than
+     testing it directly. */
+  const CELL = 512;                  // world units
+  const BIG_SPAN = 16;               // cells across before an item counts as big
+
+  class Grid {
+    constructor() { this.version = -1; this.cells = new Map(); this.big = []; }
+
+    sync(scene) {
+      if (this.version === scene.version) return this;
+      this.version = scene.version;
+      this.cells.clear();
+      this.big.length = 0;
+      const items = scene.items;
+      for (let z = 0; z < items.length; z++) {
+        const it = items[z];
+        it._z = z;
+        const b = scene.bbox(it);
+        if (!isFinite(b.x) || !isFinite(b.y2)) { this.big.push(it); continue; }
+        const cx0 = Math.floor(b.x / CELL), cy0 = Math.floor(b.y / CELL);
+        const cx1 = Math.floor(b.x2 / CELL), cy1 = Math.floor(b.y2 / CELL);
+        if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > BIG_SPAN * BIG_SPAN) { this.big.push(it); continue; }
+        for (let cy = cy0; cy <= cy1; cy++)
+          for (let cx = cx0; cx <= cx1; cx++) {
+            const k = cx + ',' + cy;
+            const bucket = this.cells.get(k);
+            if (bucket) bucket.push(it); else this.cells.set(k, [it]);
+          }
+      }
+      return this;
+    }
+
+    /** items whose bbox may overlap `box`, back → front */
+    query(scene, box) {
+      this.sync(scene);
+      const seen = new Set(this.big);
+      const cx0 = Math.floor(box.x / CELL), cy0 = Math.floor(box.y / CELL);
+      const cx1 = Math.floor(box.x2 / CELL), cy1 = Math.floor(box.y2 / CELL);
+      /* A query wider than the whole index is no cheaper to walk cell by
+         cell than to take everything — and much slower if the view is
+         zoomed far out over a sparse board. */
+      if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > this.cells.size * 4 + 64) {
+        return scene.items.filter(it => U.boxesOverlap(box, scene.bbox(it)));
+      }
+      for (let cy = cy0; cy <= cy1; cy++)
+        for (let cx = cx0; cx <= cx1; cx++) {
+          const bucket = this.cells.get(cx + ',' + cy);
+          if (bucket) for (const it of bucket) seen.add(it);
+        }
+      const out = [];
+      for (const it of seen) if (U.boxesOverlap(box, scene.bbox(it))) out.push(it);
+      out.sort((a, b) => a._z - b._z);
+      return out;
+    }
+  }
+
   class Scene {
     constructor(doc) {
       this.items = [];                 // back → front
@@ -18,6 +91,7 @@
       this.tx = null;
       this.version = 0;
       this.onchange = null;
+      this._grid = new Grid();
       if (doc) this.load(doc);
     }
 
@@ -276,15 +350,20 @@
       return U.pointNearPolyline(x, y, this.outlinePoints(item), w);
     }
 
+    /** candidate items overlapping `box`, back → front */
+    near(box) { return this._grid.query(this, box); }
+
     hitTest(x, y, tol = 6) {
-      for (let i = this.items.length - 1; i >= 0; i--) if (this.hitItem(this.items[i], x, y, tol)) return this.items[i];
+      const cand = this.near(U.box(x - tol, y - tol, x + tol, y + tol));
+      for (let i = cand.length - 1; i >= 0; i--) if (this.hitItem(cand[i], x, y, tol)) return cand[i];
       return null;
     }
 
     /** topmost node/note/shape that can host a connector */
     hitNode(x, y) {
-      for (let i = this.items.length - 1; i >= 0; i--) {
-        const it = this.items[i];
+      const cand = this.near(U.box(x, y, x, y));
+      for (let i = cand.length - 1; i >= 0; i--) {
+        const it = cand[i];
         if (it.type === 'node' || it.type === 'note' || it.type === 'text' ||
           (it.type === 'shape' && it.kind !== 'line' && it.kind !== 'arrow')) {
           if (U.pointInBox(x, y, this.bbox(it))) return it;
@@ -294,14 +373,12 @@
     }
 
     itemsInBox(box, contain) {
-      return this.items.filter(it => {
-        const b = this.bbox(it);
-        return contain ? U.boxContains(box, b) : U.boxesOverlap(box, b);
-      });
+      const cand = this.near(box);
+      return contain ? cand.filter(it => U.boxContains(box, this.bbox(it))) : cand;
     }
 
     itemsInLasso(poly) {
-      return this.items.filter(it => {
+      return this.near(U.boxFromPoints(poly, 2, 1)).filter(it => {
         const b = this.bbox(it);
         const c = U.boxCenter(b);
         if (U.pointInPolygon(c.x, c.y, poly)) return true;
@@ -313,10 +390,9 @@
     itemsCrossing(path, radius, filter) {
       const box = U.boxFromPoints(path, 2, radius);
       const out = [];
-      for (const it of this.items) {
+      for (const it of this.near(box)) {
         if (filter && !filter(it)) continue;
         const b = this.bbox(it);
-        if (!U.boxesOverlap(box, b)) continue;
         if (it.type === 'note' || it.type === 'node' || it.type === 'image' || it.type === 'text' || it.type === 'pdfpage') {
           for (let i = 0; i < path.length; i += 2) if (U.pointInBox(path[i], path[i + 1], b)) { out.push(it); break; }
           continue;

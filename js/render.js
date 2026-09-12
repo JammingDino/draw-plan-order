@@ -50,10 +50,9 @@
       this.worldTransform(ctx);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       const view = cam.viewport(this.w, this.h, 80);
-      for (const it of app.scene.items) {
-        if (!U.boxesOverlap(view, app.scene.bbox(it))) continue;
-        this.drawItem(ctx, it);
-      }
+      const visible = app.scene.near(view);
+      this.lastDrawn = visible.length;
+      for (const it of visible) this.drawItem(ctx, it);
     }
 
     /* The theme tokens the painter needs, read once per theme rather than
