@@ -9,6 +9,7 @@
       this.camera = new D.Camera();
       this.renderer = new D.Renderer(this);
       this.editor = new D.TextEditor(this);
+      this.perf = D.Perf ? new D.Perf(this) : null;   // ?perf or Ctrl+Shift+P
       this.selection = [];
       this.clipboard = [];
       this.pointer = null;
@@ -180,9 +181,11 @@
 
     frame() {
       const r = this.renderer;
+      if (this.perf) this.perf.frameStart();
       if (this.needBase) {
         this.needBase = false;
         r.drawScene();
+        if (this.perf) { this.perf.drawn = r.lastDrawn; this.perf.mark('base'); }
         /* drawScene is what tells the PDF layer which pages are on
            screen, so the sweep belongs directly after it: any page not
            asked for during that pass has scrolled away, and its queued
@@ -198,9 +201,14 @@
           this.selBox = this.selection.length ? r.drawSelection(this.selection, { handles: !this.editor.active }) : null;
           if (t.paint) t.paint(r);
         }
+        if (this.perf) this.perf.mark('live');
       }
       if (this.editor.active) this.editor.place();
-      if (this.anim) this.schedule();
+      if (this.perf) this.perf.frameEnd();
+      /* The counter keeps the loop ticking so its readout stays live, but
+         through its own flag: `anim` belongs to the laser trail, and the
+         two would otherwise switch each other off. */
+      if (this.anim || (this.perf && this.perf.on)) this.schedule();
     }
 
     /**

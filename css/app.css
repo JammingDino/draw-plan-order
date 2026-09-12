@@ -239,3 +239,28 @@ kbd{
    stays — the point of an inline board is drawing on it. */
 :root[data-embed="1"] #topbar { display: none; }
 :root[data-embed="1"] #stage { top: 0; }
+
+/* ── frame counter (?perf, or Ctrl+Shift+P) ─────────────────────────
+   Deliberately plain and always on top: it is a measuring instrument,
+   not part of the board. pointer-events:none so it can never swallow a
+   stroke from the thing it is measuring. */
+#perf {
+  position: fixed;
+  right: 10px;
+  bottom: 10px;
+  z-index: 9999;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #10131aec;
+  color: #e7eaf0;
+  box-shadow: 0 6px 22px #00000059;
+  pointer-events: none;
+  user-select: none;
+}
+#perf pre {
+  margin: 6px 0 0;
+  font: 11px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  white-space: pre;
+  letter-spacing: .1px;
+}
+#perf canvas { display: block; border-radius: 3px; background: #ffffff0f; }
