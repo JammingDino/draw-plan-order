@@ -103,11 +103,15 @@
           ctx.fill(p);
         }
       } else {
+        /* 'lines' is squared paper, 'lined' is ruled paper: ruled gets the
+           horizontals only. Both used to draw both — the two branches that
+           chose between them were identical, and the verticals were
+           unconditional — so Ruled rendered as an exact copy of Grid. */
         ctx.strokeStyle = color; ctx.lineWidth = 1;
         ctx.beginPath();
-        for (let x = ox; x < this.w + s; x += s) { ctx.moveTo(Math.round(x) + .5, 0); ctx.lineTo(Math.round(x) + .5, this.h); }
-        if (this.grid !== 'lined') for (let y = oy; y < this.h + s; y += s) { ctx.moveTo(0, Math.round(y) + .5); ctx.lineTo(this.w, Math.round(y) + .5); }
-        if (this.grid === 'lined') for (let y = oy; y < this.h + s; y += s) { ctx.moveTo(0, Math.round(y) + .5); ctx.lineTo(this.w, Math.round(y) + .5); }
+        if (this.grid !== 'lined')
+          for (let x = ox; x < this.w + s; x += s) { ctx.moveTo(Math.round(x) + .5, 0); ctx.lineTo(Math.round(x) + .5, this.h); }
+        for (let y = oy; y < this.h + s; y += s) { ctx.moveTo(0, Math.round(y) + .5); ctx.lineTo(this.w, Math.round(y) + .5); }
         ctx.stroke();
       }
       ctx.restore();
