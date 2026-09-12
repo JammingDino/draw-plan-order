@@ -9,7 +9,9 @@
     "dev": "python -m http.server 5273",
     "tauri": "tauri",
     "app:build": "tauri build",
-    "app:dev": "tauri dev"
+    "app:dev": "tauri dev",
+    "test": "node --test test/*.test.mjs",
+    "bench": "node test/bench.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
