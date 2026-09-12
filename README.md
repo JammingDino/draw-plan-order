@@ -141,11 +141,18 @@ toast. Hiding the tab also forces a full save.
 | `js/store.js` | IndexedDB / localStorage persistence |
 | `js/ui.js` | Tool rail, contextual style panel, sheets |
 | `js/app.js` | Input plumbing, selection, files, decision-tree helpers |
+| `js/perf.js` | Frame counter, off unless asked for |
 
 Two stacked canvases keep it quick: `#base` holds the committed scene and is
 only redrawn when something changes, `#live` holds the stroke currently under
 the pen. Opaque strokes are appended to the live layer incrementally, so ink
 latency does not grow with the size of the board.
+
+Scene queries — what to repaint, what you just tapped, what the eraser
+crossed — go through a uniform grid over bounding boxes rather than a walk
+of every item. The grid is rebuilt whenever `scene.version` moves rather
+than patched on each edit: the rebuild is one pass over cached boxes, and
+it leaves the index unable to disagree with the scene.
 
 ### How ink is drawn
 
@@ -179,6 +186,27 @@ Icons live in one `ICON` map at the top of `js/ui.js` — 24×24 stroked SVG
 paths, `|` separating subpaths. `python tools/make-icons.py` regenerates the
 app icons.
 
+## Tests
+
+```
+npm test        the geometry, document and ink layers, plus the PDF cache
+npm run bench   the numbers behind the performance work
+```
+
+`test/harness.mjs` runs the browser-global modules under node with a small
+DOM stub, so the source needs no build step and no module loader to be
+testable. Anything touching the canvas is asserted on the numbers behind
+the painting, never on pixels.
+
+### When it feels slow
+
+Add `?perf` to the URL, or press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>.
+The counter splits the frame into scene repaint, live layer, and everything
+that is not painting, and shows the worst recent frame beside the average —
+an occasional 200ms stall feels worse than a steady 45fps, and an average
+hides exactly that. `items drawn / items held` says whether the spatial
+index is doing its job; the `pdf` line says whether the page cache is.
+
 ## Layout
 
 ```
@@ -188,4 +216,5 @@ start.cmd                      serve it locally
 src-tauri/                     the desktop shell (Rust, ~250 lines of config)
 tools/pack.py                  web files → dist/, for the bundler
 tools/make-icons.py            regenerates every icon from one description
+test/                          node tests and the benchmark
 ```
