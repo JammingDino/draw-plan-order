@@ -25,6 +25,8 @@
       this.live = new Ring(HISTORY);   // live layer repaint, ms
       this.gap = new Ring(HISTORY);    // wall time between frames, ms
       this.drawn = 0;                  // items painted last scene repaint
+      this.simplified = 0;             // of those, drawn as centrelines
+      this.batches = 0;                // stroke() calls those collapsed into
       this.lastAt = 0;
       this.el = null;
       addEventListener('keydown', e => {
@@ -81,6 +83,7 @@
       const rows = [
         `${fps.toFixed(0).padStart(3)} fps   frame ${fmt(gap.mean())} avg  ${fmt(gap.p95())} p95  ${fmt(gap.max())} worst`,
         `scene  ${fmt(base.mean())} avg  ${fmt(base.max())} worst   ${this.drawn}/${scene.items.length} items drawn`,
+        `  lod  ${this.simplified} of them as centrelines, in ${this.batches} batch${this.batches === 1 ? '' : 'es'}`,
         `live   ${fmt(live.mean())} avg  ${fmt(live.max())} worst`,
         `other  ${fmt(other)} avg   (decode, save, layout, idle)`,
         `board  ${scene.items.length} items   undo ${scene.undoStack.length}   zoom ${Math.round(app.camera.zoom * 100)}%`

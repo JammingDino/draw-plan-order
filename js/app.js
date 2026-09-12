@@ -186,7 +186,12 @@
       if (this.needBase) {
         this.needBase = false;
         r.drawScene();
-        if (this.perf) { this.perf.drawn = r.lastDrawn; this.perf.mark('base'); }
+        if (this.perf) {
+          this.perf.drawn = r.lastDrawn;
+          this.perf.simplified = r.lastSimplified;
+          this.perf.batches = r.lastBatches;
+          this.perf.mark('base');
+        }
         /* drawScene is what tells the PDF layer which pages are on
            screen, so the sweep belongs directly after it: any page not
            asked for during that pass has scrolled away, and its queued
@@ -837,9 +842,8 @@
         const z = Math.min((w - pad * 2) / Math.max(b.w, 1), (h - pad * 2) / Math.max(b.h, 1), 1.4);
         ctx.setTransform(z, 0, 0, z, (w - b.w * z) / 2 - b.x * z, (h - b.h * z) / 2 - b.y * z);
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        for (const it of this.scene.items) {
-          try { this.renderer.drawItem(ctx, it); } catch (_) { }
-        }
+        // the card's scale, not the camera's, decides how much detail survives
+        try { this.renderer.drawItems(ctx, this.scene.items, z); } catch (_) { }
       }
       try { return c.toDataURL('image/webp', 0.7); } catch (_) { return c.toDataURL('image/png'); }
     }

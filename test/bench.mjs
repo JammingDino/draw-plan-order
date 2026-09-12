@@ -3,10 +3,11 @@
    rather than the canvas — which is the point: every case here is one
    that used to be superlinear in board size or stroke length. The
    in-browser frame counter (?perf) covers the painting side. */
-import { core, inked } from './harness.mjs';
+import { core, load, inked } from './harness.mjs';
 
 const D = core();
 const U = D.util, FH = D.freehand;
+const R = load('util.js', 'freehand.js', 'recognize.js', 'scene.js', 'camera.js', 'render.js');
 
 const ms = (label, reps, fn) => {
   fn();                                            // warm
@@ -96,6 +97,44 @@ for (const n of [500, 2000, 8000]) {
       for (let i = s.items.length - 1; i >= 0; i--) if (s.hitItem(s.items[i], x, y, 6)) return s.items[i];
       return null;
     }));
+}
+
+/* Painting is measured in geometry submitted, not milliseconds: node has no
+   rasteriser, so the honest number here is how much work the painter hands
+   over, and how many draw calls it takes to do it. */
+console.log('');
+console.log('Dense handwriting - what a redraw asks the rasteriser to do');
+{
+  const scene = new R.Scene();
+  let seed = 7;
+  const rand = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+  for (let l = 0; l < 40; l++) {
+    for (let c = 0; c < 26; c++) {
+      const x = 40 + c * 30, y = 60 + l * 42;
+      const pts = [];
+      const n = 12 + Math.floor(rand() * 20);
+      for (let k = 0; k < n; k++) pts.push(x + rand() * 22, y + rand() * 26, 0.3 + rand() * 0.7);
+      scene.add(R.make.stroke({ pts, size: 2.5, thinning: 0.55, taper: 6 }));
+    }
+  }
+  const app = { scene, camera: new R.Camera(), requestDraw() {}, opts: {} };
+  const r = new R.Renderer(app);
+  r.grid = 'none';
+  console.log(`  ${scene.items.length} strokes on the board`);
+  console.log('  zoom   visible   path ops   draw calls   as centrelines');
+  for (const z of [0.1, 0.25, 0.5, 1, 2]) {
+    app.camera.zoom = z;
+    r.drawScene();                                   // warm the caches
+    r.bctx.ops = 0; r.bctx.calls.length = 0;
+    r.drawScene();
+    const draws = r.bctx.calls.filter(c => c === 'fill' || c === 'stroke').length;
+    console.log(
+      '  ' + String(z).padEnd(6),
+      String(r.lastDrawn).padStart(7),
+      String(r.bctx.ops).padStart(10),
+      String(draws).padStart(12),
+      String(r.lastSimplified).padStart(16));
+  }
 }
 
 console.log('');

@@ -8,6 +8,29 @@
 
   const imgCache = new Map();
 
+  /* ── level of detail ──────────────────────────────────────────────
+     A stroke is normally a filled outline: a quad per segment plus a disc
+     at every join, which is what gives it pressure, taper and round ends.
+     That is the right picture at reading size and a ridiculous one when
+     the nib is thinner than a pixel — a page of dense working zoomed out
+     hands the rasteriser a few hundred thousand path operations to draw
+     something the size of a postage stamp, and the board goes sticky
+     exactly when the user is trying to find their place in it.
+
+     Below the threshold none of that detail can land on a pixel anyway,
+     so the stroke is drawn as its centreline instead: simplified to the
+     resolution actually on offer, and stroked at the nib's width. Same
+     ink, same colour, same place, a fraction of the geometry.          */
+  const LOD_NIB_PX = 1.5;      // nib width below which no detail survives
+  const LOD_TOL_PX = 0.35;     // how far the centreline may be moved
+  const LOD_MIN_PX = 0.9;      // never draw thinner than this, or it fades
+
+  /* Zoom is snapped to third-octave steps before it reaches the cache, so
+     a pinch rebuilds the simplified paths a handful of times instead of
+     on every frame. */
+  const zoomBucket = z => Math.round(Math.log2(z) * 3);
+  const bucketZoom = b => 2 ** (b / 3);
+
   class Renderer {
     constructor(app) {
       this.app = app;
@@ -52,7 +75,7 @@
       const view = cam.viewport(this.w, this.h, 80);
       const visible = app.scene.near(view);
       this.lastDrawn = visible.length;
-      for (const it of visible) this.drawItem(ctx, it);
+      this.drawItems(ctx, visible);
     }
 
     /* The theme tokens the painter needs, read once per theme rather than
@@ -136,6 +159,80 @@
         this._gridPat = { key, pat };
         return pat;
       } catch (_) { return null; }
+    }
+
+    /**
+     * Paint a run of items, batching the ones that have dropped to their
+     * centreline.
+     *
+     * Consecutive strokes sharing a colour and width become one path and
+     * one stroke() call. It has to be a *consecutive* run, not a grouping
+     * by colour, or the paint order changes and a red annotation drawn
+     * over black working would slide underneath it. In practice handwriting
+     * arrives in long same-coloured runs, so the batches are long.
+     *
+     * `zoom` is a parameter rather than read from the camera because the
+     * dashboard thumbnail paints the whole board at its own scale — the
+     * densest picture the app ever draws, and the one that most wants the
+     * cheap path.
+     */
+    drawItems(ctx, items, zoom = this.app.camera.zoom) {
+      let run = null, batched = 0, simplified = 0;
+
+      const flush = () => {
+        if (!run) return;
+        ctx.strokeStyle = run.color;
+        ctx.lineWidth = run.width;
+        ctx.stroke(run.path);
+        run = null;
+        batched++;
+      };
+
+      for (const it of items) {
+        const lod = it.type === 'stroke' ? this.strokeLod(it, zoom) : null;
+        if (!lod) { flush(); this.drawItem(ctx, it); continue; }
+        if (!run || run.color !== lod.color || run.width !== lod.width) {
+          flush();
+          run = { color: lod.color, width: lod.width, path: new Path2D() };
+        }
+        run.path.addPath(lod.path);
+        simplified++;
+      }
+      flush();
+      // for the frame counter: how much of the board went down the cheap path
+      this.lastSimplified = simplified;
+      this.lastBatches = batched;
+    }
+
+    /**
+     * The cheap form of a stroke, or null if it still deserves its outline.
+     *
+     * Only opaque, normally-composited strokes qualify. A highlighter is
+     * translucent and multiplied, and its outline is one path precisely so
+     * that overlapping itself does not darken; stroking a centreline would
+     * bring that darkening back, so highlighters keep their outline however
+     * small they get.
+     */
+    strokeLod(it, zoom) {
+      if ((it.alpha ?? 1) < 1) return null;
+      if (this.blendFor(it) !== 'source-over') return null;
+      if (it.size * zoom >= LOD_NIB_PX) return null;
+
+      const b = zoomBucket(zoom);
+      if (!it._lod || it._lod.b !== b) {
+        const z = bucketZoom(b);
+        const xy = U.simplify(it.pts, LOD_TOL_PX / z, 3);
+        const path = new Path2D();
+        if (xy.length >= 4) {
+          path.moveTo(xy[0], xy[1]);
+          for (let i = 2; i < xy.length; i += 2) path.lineTo(xy[i], xy[i + 1]);
+        } else if (xy.length === 2) {
+          // a tap: a subpath of zero length still paints a dot under a round cap
+          path.moveTo(xy[0], xy[1]); path.lineTo(xy[0], xy[1]);
+        }
+        it._lod = { b, path, width: Math.max(it.size, LOD_MIN_PX / z) };
+      }
+      return { path: it._lod.path, width: it._lod.width, color: U.color(it.color) };
     }
 
     /* ── item painting ────────────────────────────────────────────── */

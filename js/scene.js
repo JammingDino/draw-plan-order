@@ -100,7 +100,7 @@
     indexOf(item) { return this.items.indexOf(item); }
 
     dirty(item) {
-      if (item) { item._b = null; item._path = null; item._lines = null; }
+      if (item) { item._b = null; item._path = null; item._lod = null; item._lines = null; }
       this.version++;
       if (this.onchange) this.onchange();
     }
@@ -115,7 +115,7 @@
     /** snapshot an item before it is mutated */
     touch(item) {
       if (this.tx && !this.tx.before.has(item.id)) this.tx.before.set(item.id, clone(item));
-      item._b = null; item._path = null; item._lines = null;
+      item._b = null; item._path = null; item._lod = null; item._lines = null;
       return item;
     }
 
@@ -182,7 +182,7 @@
     }
 
     _insert(item, index) {
-      item._b = null; item._path = null; item._lines = null;
+      item._b = null; item._path = null; item._lod = null; item._lines = null;
       this.items.splice(Math.min(index, this.items.length), 0, item);
       this.byId.set(item.id, item);
     }

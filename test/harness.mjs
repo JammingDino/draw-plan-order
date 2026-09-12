@@ -34,6 +34,12 @@ function stubContext() {
     'setTransform', 'transform', 'translate', 'scale', 'rotate', 'setLineDash', 'clip'];
   for (const m of noop) ctx[m] = (...a) => { ctx.calls.push(m); };
   ctx.createPattern = () => ({ setTransform() {} });
+  /* path geometry reaches the context either as a Path2D argument or
+     through the context's own path builder; count both */
+  ctx.ops = 0;
+  for (const m of ['moveTo', 'lineTo', 'closePath']) ctx[m] = () => { ctx.ops++; ctx.calls.push(m); };
+  for (const m of ['arc', 'ellipse', 'roundRect']) ctx[m] = () => { ctx.ops += 8; ctx.calls.push(m); };
+  for (const m of ['fill', 'stroke']) ctx[m] = (p) => { ctx.calls.push(m); if (p && p.ops) ctx.ops += p.ops; };
   ctx.getImageData = (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h });
   return ctx;
 }
@@ -83,7 +89,15 @@ export function load(...files) {
     devicePixelRatio: 2,
     innerWidth: 1280, innerHeight: 800,
     DOMMatrix: class { constructor(v) { this.v = v; } },
-    Path2D: class { moveTo() {} lineTo() {} closePath() {} arc() {} roundRect() {} ellipse() {} },
+    /* counts the geometry handed to it: the honest proxy, under node, for
+       how much work a real rasteriser is being asked to do */
+    Path2D: class {
+      constructor() { this.ops = 0; }
+      moveTo() { this.ops++; } lineTo() { this.ops++; } closePath() { this.ops++; }
+      arc() { this.ops += 8; } roundRect() { this.ops += 8; } ellipse() { this.ops += 8; }
+      quadraticCurveTo() { this.ops += 2; } bezierCurveTo() { this.ops += 3; }
+      addPath(p) { this.ops += (p && p.ops) || 0; }
+    },
     addEventListener() {}
   };
   ctx.window = ctx;

@@ -51,7 +51,7 @@
       if (this.raw.length <= 6) { this.sm = null; this.item.pts = this.raw.slice(); }
       else if (!this.sm || this.sm.length + 3 !== this.raw.length) this.item.pts = this.sm = FH.smooth(this.raw);
       else this.item.pts = FH.smoothStep(this.raw, this.sm);
-      this.item._path = null; this.item._b = null;
+      this.item._path = null; this.item._lod = null; this.item._b = null;
       return true;
     }
 

@@ -154,6 +154,18 @@ of every item. The grid is rebuilt whenever `scene.version` moves rather
 than patched on each edit: the rebuild is one pass over cached boxes, and
 it leaves the index unable to disagree with the scene.
 
+Strokes drop to a cheaper form once the nib is thinner than about a pixel
+on screen. A stroke is normally a filled outline — a quad per segment plus
+a disc at every join — which is what gives it pressure, taper and round
+ends, and is wasted effort when none of that can land on a pixel. Below
+the threshold it is drawn as its centreline instead, simplified to the
+resolution actually on offer, and consecutive strokes of the same colour
+are stroked as one path. A page of dense working zoomed out costs about a
+fifteenth of the geometry it used to, in one draw call rather than a
+thousand. Nothing changes at reading size, and highlighters keep their
+outline at every scale — theirs is a single path precisely so that
+overlapping itself does not darken.
+
 ### How ink is drawn
 
 A stroke is the region swept by a moving disc. Tracing a single outline round
@@ -205,7 +217,9 @@ The counter splits the frame into scene repaint, live layer, and everything
 that is not painting, and shows the worst recent frame beside the average —
 an occasional 200ms stall feels worse than a steady 45fps, and an average
 hides exactly that. `items drawn / items held` says whether the spatial
-index is doing its job; the `pdf` line says whether the page cache is.
+index is doing its job; the `lod` line says how many strokes dropped to
+their centreline and how few draw calls that took; the `pdf` line says
+whether the page cache is keeping up.
 
 ## Layout
 
