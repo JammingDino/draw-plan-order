@@ -42,8 +42,8 @@
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.clearRect(0, 0, this.w, this.h);
 
-      const css = getComputedStyle(document.documentElement);
-      ctx.fillStyle = css.getPropertyValue('--paper').trim() || '#fff';
+      const css = this.tokens();
+      ctx.fillStyle = css.paper;
       ctx.fillRect(0, 0, this.w, this.h);
       this.drawGrid(ctx, css);
 
@@ -56,10 +56,28 @@
       }
     }
 
+    /* The theme tokens the painter needs, read once per theme rather than
+       once per frame: getComputedStyle forces a style recalc, and at the
+       top of drawScene that lands on every pan, zoom and wheel tick. */
+    tokens() {
+      const th = document.documentElement.dataset.theme || '';
+      if (this._tok && this._tok.theme === th) return this._tok;
+      const cs = getComputedStyle(document.documentElement);
+      const v = (n, d) => cs.getPropertyValue(n).trim() || d;
+      return this._tok = {
+        theme: th, dark: th === 'dark',
+        paper: v('--paper', '#fff'), grid: v('--grid', '#0001'),
+        accent: v('--accent', '#4f6bff'), panel: v('--panel-solid', '#fff'),
+        muted: v('--muted', '#8a8f98')
+      };
+    }
+    /** call when the palette changes for a reason other than the theme flag */
+    invalidateStyle() { this._tok = null; this._gridPat = null; }
+
     drawGrid(ctx, css) {
       if (this.grid === 'none') return;
       const cam = this.app.camera;
-      const color = css.getPropertyValue('--grid').trim() || '#0001';
+      const color = css.grid;
       let step = 25;
       while (step * cam.zoom < 14) step *= 4;
       while (step * cam.zoom > 90) step /= 2;
@@ -67,10 +85,24 @@
       const ox = cam.x % s, oy = cam.y % s;
       ctx.save();
       if (this.grid === 'dots') {
-        ctx.fillStyle = color;
         const r = Math.min(1.6, Math.max(0.7, cam.zoom));
-        for (let x = ox; x < this.w + s; x += s)
-          for (let y = oy; y < this.h + s; y += s) { ctx.beginPath(); ctx.arc(x, y, r, 0, 6.284); ctx.fill(); }
+        /* One tiled fill instead of an arc per dot: a dense grid on a large
+           display is tens of thousands of separate fills per frame, which is
+           what makes panning feel heavy long before the drawing does. */
+        const T = Math.max(2, Math.round(s));
+        const pat = this.dotPattern(color, T, r);
+        if (pat) {
+          ctx.fillStyle = pat;
+          const tx = ox - T / 2, ty = oy - T / 2;
+          ctx.translate(tx, ty);
+          ctx.fillRect(-tx, -ty, this.w, this.h);
+        } else {
+          ctx.fillStyle = color;
+          const p = new Path2D();
+          for (let x = ox; x < this.w + s; x += s)
+            for (let y = oy; y < this.h + s; y += s) { p.moveTo(x + r, y); p.arc(x, y, r, 0, 6.284); }
+          ctx.fill(p);
+        }
       } else {
         ctx.strokeStyle = color; ctx.lineWidth = 1;
         ctx.beginPath();
@@ -80,6 +112,27 @@
         ctx.stroke();
       }
       ctx.restore();
+    }
+
+    /** a one-dot tile for the dot grid, cached until spacing or theme moves */
+    dotPattern(color, T, r) {
+      const key = `${T}|${r}|${color}|${this.dpr}`;
+      if (this._gridPat && this._gridPat.key === key) return this._gridPat.pat;
+      try {
+        const d = this.dpr;
+        const c = document.createElement('canvas');
+        c.width = c.height = Math.max(1, Math.round(T * d));
+        const g = c.getContext('2d');
+        g.setTransform(d, 0, 0, d, 0, 0);
+        g.fillStyle = color;
+        g.beginPath(); g.arc(T / 2, T / 2, r, 0, 6.284); g.fill();
+        const pat = this.bctx.createPattern(c, 'repeat');
+        // the tile is in device pixels; the painter works in CSS pixels
+        if (pat && pat.setTransform) pat.setTransform(new DOMMatrix([1 / d, 0, 0, 1 / d, 0, 0]));
+        else return null;
+        this._gridPat = { key, pat };
+        return pat;
+      } catch (_) { return null; }
     }
 
     /* ── item painting ────────────────────────────────────────────── */
@@ -102,7 +155,7 @@
     /* multiply reads as a real highlighter on white paper but turns to mud on
        a dark board — there, plain alpha is the honest equivalent */
     blendFor(it) {
-      if (it.blend === 'multiply') return document.documentElement.dataset.theme === 'dark' ? 'source-over' : 'multiply';
+      if (it.blend === 'multiply') return this.tokens().dark ? 'source-over' : 'multiply';
       return it.blend || 'source-over';
     }
 
@@ -240,7 +293,7 @@
         const L = this.app.scene.layout(t);
         ctx.font = L.font;
         const pad = 4, wdt = L.width + pad * 2;
-        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--paper').trim() || '#fff';
+        ctx.fillStyle = this.tokens().paper;
         ctx.beginPath(); ctx.roundRect(mid.x - wdt / 2, mid.y - L.lh / 2, wdt, L.lh, 4); ctx.fill();
         ctx.fillStyle = U.color(it.color); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(it.label, mid.x, mid.y + 1);
@@ -264,7 +317,7 @@
       /* The sheet under the bitmap has to match the paper the bitmap
          was baked with, or every page flashes white for the frame
          before its render lands. */
-      const dark = document.documentElement.dataset.theme === 'dark';
+      const dark = this.tokens().dark;
       ctx.save();
       ctx.shadowColor = dark ? '#00000059' : '#00000026'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 4;
       ctx.fillStyle = dark ? '#191b1f' : '#ffffff';
@@ -300,7 +353,7 @@
     drawSelection(sel, opts = {}) {
       if (!sel.length) return;
       const ctx = this.liveScreen(), cam = this.app.camera, scene = this.app.scene;
-      const acc = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4f6bff';
+      const acc = this.tokens().accent;
       ctx.save();
       ctx.strokeStyle = acc;
       ctx.lineWidth = 1;
@@ -323,7 +376,7 @@
 
       if (opts.handles !== false) {
         const hs = 8;
-        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--panel-solid').trim() || '#fff';
+        ctx.fillStyle = this.tokens().panel;
         for (const [hx, hy] of [[x, y], [x + w / 2, y], [x + w, y], [x + w, y + h / 2], [x + w, y + h], [x + w / 2, y + h], [x, y + h], [x, y + h / 2]]) {
           ctx.beginPath(); ctx.roundRect(hx - hs / 2, hy - hs / 2, hs, hs, 2); ctx.fill(); ctx.stroke();
         }

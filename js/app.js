@@ -747,10 +747,16 @@
       this.snapshot();
       // the dashboard picture is cheap but not free: refresh it now and then,
       // and always when we are about to leave the board
-      if (force || Date.now() - (this._thumbAt || 0) > 6000) {
+      if (force) {
         this._thumbAt = Date.now();
         this.board.thumb = this.makeThumb();
         this.board.thumbTheme = document.documentElement.dataset.theme;
+      } else if (Date.now() - (this._thumbAt || 0) > 6000) {
+        /* Repainting the whole board and PNG-encoding it is not something to
+           do in the middle of a stroke: on a busy board it is a visible hitch
+           every few seconds. The card can wait for a gap in the drawing. */
+        this._thumbAt = Date.now();
+        this.queueThumb();
       }
       await D.store.save(this.board);
       this._dirty = false;
@@ -781,6 +787,21 @@
         }
       }
       try { return c.toDataURL('image/webp', 0.7); } catch (_) { return c.toDataURL('image/png'); }
+    }
+
+    /** redraw the dashboard card once the user stops long enough not to notice */
+    queueThumb() {
+      if (this._thumbJob) return;
+      const run = () => {
+        this._thumbJob = null;
+        if (!this.board || this.active) return;     // still drawing: catch it next time
+        this.board.thumb = this.makeThumb();
+        this.board.thumbTheme = document.documentElement.dataset.theme;
+        this.markDirty();
+      };
+      this._thumbJob = self.requestIdleCallback
+        ? requestIdleCallback(run, { timeout: 4000 })
+        : setTimeout(run, 400);
     }
 
     /** refresh the thumbnail for the board that is open, then persist it */

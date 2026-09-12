@@ -24,6 +24,24 @@
     return out;
   };
 
+  /**
+   * Append one just-arrived raw sample to an already-smoothed array.
+   *
+   * The filter is causal — each output depends only on the previous output
+   * and the new sample — so a stroke in progress never needs re-filtering
+   * from the start. Doing that on every pointer sample is O(n²) over a
+   * stroke, which is exactly where a long line starts lagging the nib.
+   * `sm` must be the smoothed form of `raw` minus its last sample.
+   */
+  F.smoothStep = (raw, sm, amount = F.STREAMLINE) => {
+    const i = raw.length - 3, n = sm.length;
+    sm.push(
+      sm[n - 3] + (raw[i] - sm[n - 3]) * (1 - amount),
+      sm[n - 2] + (raw[i + 1] - sm[n - 2]) * (1 - amount),
+      sm[n - 1] + (raw[i + 2] - sm[n - 1]) * 0.5);
+    return sm;
+  };
+
   /** Per-point radius from pressure. */
   function radius(size, pressure, thinning) {
     if (!thinning) return size / 2;

@@ -24,6 +24,7 @@
         taper: this.kind === 'highlighter' ? 0 : o.size * 2.5
       });
       this.raw = [];
+      this.sm = null;
       this.snapped = null;
       this.holdAt = null;
       this.lastDrawn = 0;
@@ -44,7 +45,12 @@
         return false;
       }
       this.raw.push(ev.x, ev.y, p);
-      this.item.pts = FH.smooth(this.raw);
+      /* Extend the smoothed copy rather than rebuilding it: filtering the
+         whole stroke on every sample is quadratic, and a pen at 240Hz makes
+         that felt well before the stroke looks long. */
+      if (this.raw.length <= 6) { this.sm = null; this.item.pts = this.raw.slice(); }
+      else if (!this.sm || this.sm.length + 3 !== this.raw.length) this.item.pts = this.sm = FH.smooth(this.raw);
+      else this.item.pts = FH.smoothStep(this.raw, this.sm);
       this.item._path = null; this.item._b = null;
       return true;
     }
@@ -222,7 +228,7 @@
       if (!p) return;
       const s = this.opt.size * app.camera.zoom;
       ctx.save();
-      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
+      ctx.strokeStyle = r.tokens().muted;
       ctx.globalAlpha = .6; ctx.lineWidth = 1.25;
       ctx.beginPath(); ctx.arc(p.sx, p.sy, Math.max(4, s / 2), 0, 6.284); ctx.stroke();
       ctx.restore();
