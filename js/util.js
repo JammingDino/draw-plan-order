@@ -186,6 +186,25 @@ window.DPO = window.DPO || {};
     return _sem[c];
   };
 
+  /* ── input classification ───────────────────────────────────────── */
+
+  /**
+   * Is this event the blunt end of the stylus?
+   *
+   * Windows and Chrome report the eraser end as a pen carrying the X2
+   * button — bit 32 of `buttons`, or `button === 5` on the press itself.
+   * Crucially `buttons` reads 32 while the eraser merely *hovers* in
+   * range, which is what lets a size preview appear before anything has
+   * been rubbed out.
+   *
+   * `pointerType === 'eraser'` is not in the Pointer Events spec, which
+   * lists only mouse, pen and touch — but engines have shipped it, and
+   * testing for it costs nothing.
+   */
+  U.isEraserEnd = e =>
+    !!e && (e.pointerType === 'eraser' ||
+      (e.pointerType === 'pen' && (((e.buttons || 0) & 32) !== 0 || e.button === 5)));
+
   U.escapeXml = s => String(s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
 
   /* ── DOM sugar ──────────────────────────────────────────────────── */

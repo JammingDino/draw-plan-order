@@ -15,6 +15,7 @@
       this.pointer = null;
       this.pointers = new Map();
       this.spaceDown = false;
+      this.hoverEraser = false;      // the stylus eraser end is in range
       this.needBase = true;
       this.needLive = true;
       this.anim = false;
@@ -194,12 +195,26 @@
       }
       if (this.needLive || this.anim) {
         this.needLive = false;
-        const t = this.tool;
+        /* Paint whatever is actually driving the pointer, not whatever is
+           lit up in the tool rail. They differ whenever the input picks the
+           tool for you — a middle-drag pans, and the blunt end of the
+           stylus erases — and the eraser is the case you can see, because
+           it is the one that draws a cursor. */
+        const t = this.active || this.tool;
         if (t.incremental && t.item) t.paint(r);
         else {
           r.clearLive();
           this.selBox = this.selection.length ? r.drawSelection(this.selection, { handles: !this.editor.active }) : null;
+          /* The selected tool still gets a turn underneath when something
+             else has taken the pointer: the laser trail goes on fading
+             while you middle-drag the page around. */
+          if (this.tool !== t && this.tool.paint) this.tool.paint(r);
           if (t.paint) t.paint(r);
+          /* Hovering the eraser end, nothing erased yet. Held space wins over
+             the stylus on the way down, so the ring must not promise an erase
+             that a press would turn into a pan. */
+          if (!this.active && this.hoverEraser && !this.spaceDown && t !== this.tools.eraser)
+            this.tools.eraser.paint(r);
         }
         if (this.perf) this.perf.mark('live');
       }
@@ -328,13 +343,23 @@
       stage.addEventListener('pointermove', e => this.onMove(e), { passive: true });
       addEventListener('pointerup', e => this.onUp(e));
       addEventListener('pointercancel', e => this.onUp(e, true));
+      /* A pen leaving hover range is the only signal that the eraser ring
+         should go: hovering never pressed anything, so there is no
+         pointerup to hang it off. pointerleave rather than pointerout
+         because out bubbles — crossing between the stacked canvases would
+         otherwise blink the ring off and straight back on. */
+      stage.addEventListener('pointerleave', e => this.onPointerLeave(e));
       stage.addEventListener('contextmenu', e => e.preventDefault());
       stage.addEventListener('wheel', e => this.onWheel(e), { passive: false });
       stage.addEventListener('dblclick', e => this.onDoubleClick(e));
       addEventListener('keydown', e => this.onKey(e));
-      addEventListener('keyup', e => { if (e.code === 'Space') { this.spaceDown = false; document.body.classList.remove('grab'); } });
+      addEventListener('keyup', e => {
+        if (e.code !== 'Space') return;
+        this.spaceDown = false; document.body.classList.remove('grab');
+        if (this.hoverEraser) this.requestDrawLive();   // the ring is allowed back
+      });
       addEventListener('paste', e => this.onPaste(e));
-      addEventListener('blur', () => { this.spaceDown = false; });
+      addEventListener('blur', () => { this.spaceDown = false; this.clearHover(); });
       $('#file-input').addEventListener('change', e => this.onFile(e));
       addEventListener('dragover', e => e.preventDefault());
       addEventListener('drop', e => this.onDrop(e));
@@ -385,7 +410,7 @@
          it is also palm rejection for free: a hand resting on the glass
          cannot leave ink. Settings can hand touch back to the tool. */
       const touchPans = e.pointerType === 'touch' && this.opts.general.touchPan;
-      const eraserButton = e.pointerType === 'pen' && (e.buttons & 32 || e.button === 5);
+      const eraserButton = U.isEraserEnd(e);
       const middle = e.button === 1, right = e.button === 2;
 
       let tool;
@@ -422,7 +447,25 @@
       this.pointer = ev;
 
       if (this.active && e.pointerId === this.downId) this.active.move(ev);
-      else if (this.toolName === 'eraser') this.requestDrawLive();
+      else {
+        /* A hovering eraser end has to repaint even on the frame it stops
+           being one, or the ring is left behind when the pen is turned
+           back over. */
+        const was = this.hoverEraser;
+        this.hoverEraser = U.isEraserEnd(e);
+        if (this.hoverEraser || was || this.toolName === 'eraser') this.requestDrawLive();
+      }
+    }
+
+    onPointerLeave(e) {
+      if (e.pointerId === this.downId) return;      // mid-stroke, and captured: not a real exit
+      this.clearHover();
+    }
+
+    clearHover() {
+      if (!this.hoverEraser) return;
+      this.hoverEraser = false;
+      this.requestDrawLive();
     }
 
     onUp(e, cancelled) {
@@ -474,7 +517,11 @@
       if (e.target.matches('input, textarea')) return;
       const k = e.key, ctrl = e.ctrlKey || e.metaKey;
 
-      if (e.code === 'Space' && !this.spaceDown) { this.spaceDown = true; document.body.classList.add('grab'); e.preventDefault(); return; }
+      if (e.code === 'Space' && !this.spaceDown) {
+        this.spaceDown = true; document.body.classList.add('grab'); e.preventDefault();
+        if (this.hoverEraser) this.requestDrawLive();   // space pans instead: drop the ring
+        return;
+      }
 
       if (ctrl) {
         switch (k.toLowerCase()) {
