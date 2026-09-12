@@ -1,0 +1,241 @@
+/* ── Design tokens ─────────────────────────────────────────────────── */
+:root{
+  --bg:#f6f6f8;
+  --paper:#fbfbfd;
+  --grid:#0b0c1015;
+  --panel:#ffffffcc;
+  --panel-solid:#ffffff;
+  --stroke:#0d0f1412;
+  --text:#14161c;
+  --muted:#6b7180;
+  --accent:#4f6bff;
+  --accent-soft:#4f6bff1f;
+  --shadow:0 1px 2px #0b0c1010, 0 8px 24px -6px #0b0c1020, 0 24px 48px -24px #0b0c1024;
+  --r:14px;
+  --ease:cubic-bezier(.22,1,.36,1);
+  color-scheme:light;
+}
+:root[data-theme="dark"]{
+  --bg:#0e1014;
+  --paper:#14171d;
+  --grid:#ffffff10;
+  --panel:#1a1e26d9;
+  --panel-solid:#1a1e26;
+  --stroke:#ffffff14;
+  --text:#e9ecf2;
+  --muted:#98a0b0;
+  --accent:#7d92ff;
+  --accent-soft:#7d92ff26;
+  --shadow:0 1px 2px #0006, 0 10px 30px -8px #0008, 0 30px 60px -30px #000a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none}
+body{
+  background:var(--bg);color:var(--text);
+  font:14px/1.4 "Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,sans-serif;
+  -webkit-user-select:none;user-select:none;
+  touch-action:none;
+}
+svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── Canvas stage ──────────────────────────────────────────────────── */
+#stage{position:fixed;inset:0}
+#stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#live{pointer-events:none}
+#overlay{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+body.grab #stage{cursor:grab}
+body.grabbing #stage{cursor:grabbing}
+
+/* ── Glass chrome ──────────────────────────────────────────────────── */
+.glass{
+  background:var(--panel);
+  -webkit-backdrop-filter:blur(20px) saturate(1.6);
+  backdrop-filter:blur(20px) saturate(1.6);
+  border:1px solid var(--stroke);
+  border-radius:var(--r);
+  box-shadow:var(--shadow);
+  position:fixed;z-index:5;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.icon{
+  width:34px;height:34px;display:grid;place-items:center;border-radius:10px;
+  color:var(--muted);transition:background .16s var(--ease),color .16s var(--ease),transform .16s var(--ease);
+}
+.icon.sm{width:30px;height:30px}
+.icon:hover{background:var(--accent-soft);color:var(--text)}
+.icon:active{transform:scale(.92)}
+.icon.on{background:var(--accent);color:#fff}
+.icon[disabled]{opacity:.35;pointer-events:none}
+.sep{width:1px;height:20px;background:var(--stroke);margin:0 4px}
+.sep.v{width:1px;height:18px;background:var(--stroke);margin:0 2px}
+
+/* ── Top bar ───────────────────────────────────────────────────────── */
+#topbar{top:12px;left:12px;display:flex;align-items:center;gap:2px;padding:5px 8px}
+#board-title{
+  background:none;border:0;outline:0;color:var(--text);font:600 14px/1 inherit;
+  padding:6px 8px;border-radius:8px;width:170px;
+}
+#board-title:hover{background:var(--accent-soft)}
+#board-title:focus{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.saved{font-size:11px;color:var(--muted);padding:0 6px;min-width:44px;opacity:.85}
+
+/* ── Tool rail ─────────────────────────────────────────────────────── */
+#rail{
+  left:12px;top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;gap:2px;padding:6px;
+}
+#rail .tool{position:relative;width:38px;height:38px}
+#rail .tool svg{width:21px;height:21px}
+#rail .tool .badge{
+  position:absolute;right:3px;bottom:2px;width:0;height:0;
+  border-left:5px solid transparent;border-bottom:5px solid currentColor;opacity:.5;
+}
+#rail .divider{height:1px;background:var(--stroke);margin:4px 6px}
+
+/* flyout for tool variants */
+.flyout{
+  position:fixed;z-index:9;display:flex;gap:2px;padding:6px;
+  background:var(--panel-solid);border:1px solid var(--stroke);border-radius:12px;box-shadow:var(--shadow);
+  animation:pop .16s var(--ease);
+}
+@keyframes pop{from{opacity:0;transform:translateX(-6px) scale(.96)}}
+
+/* ── Style panel ───────────────────────────────────────────────────── */
+#style{
+  right:12px;top:50%;transform:translateY(-50%);
+  width:206px;padding:12px;display:flex;flex-direction:column;gap:14px;
+  max-height:calc(100vh - 120px);overflow:auto;scrollbar-width:thin;
+}
+#style .group{display:flex;flex-direction:column;gap:8px}
+#style h4{margin:0;font:600 10.5px/1 inherit;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+/* flex, not a fixed grid: the custom-colour button is the 9th swatch on rows
+   that offer it and must sit on the same line as the palette. */
+.swatches{display:flex;gap:5px}
+.sw{flex:1 1 0;min-width:0;aspect-ratio:1;border-radius:50%;border:1px solid #0002;position:relative;transition:transform .14s var(--ease)}
+.sw:hover{transform:scale(1.15)}
+.sw.on{box-shadow:0 0 0 2px var(--panel-solid),0 0 0 4px var(--accent)}
+.sw.custom{display:grid;place-items:center;overflow:hidden}
+.sw.custom input{position:absolute;inset:-8px;opacity:0;cursor:pointer}
+.sizes{display:flex;gap:6px;align-items:center}
+.size{flex:1;height:32px;border-radius:9px;display:grid;place-items:center;transition:background .14s var(--ease)}
+.size:hover{background:var(--accent-soft)}
+.size.on{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.size i{display:block;background:currentColor;border-radius:99px}
+.seg{display:flex;background:var(--accent-soft);border-radius:10px;padding:3px;gap:3px}
+.seg button{flex:1;padding:6px 4px;border-radius:8px;font-size:12px;color:var(--muted);transition:.14s var(--ease)}
+.seg button.on{background:var(--panel-solid);color:var(--text);box-shadow:0 1px 3px #0002}
+input[type=range]{width:100%;accent-color:var(--accent);background:none}
+.rowlbl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted)}
+.check{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);cursor:pointer}
+.check input{accent-color:var(--accent);width:15px;height:15px}
+.actions{display:flex;gap:4px}
+.actions .icon{flex:1 1 0;width:auto;min-width:0}
+.actions .icon.danger:hover{background:#e5484d1f;color:#e5484d}
+
+/* ── View bar ──────────────────────────────────────────────────────── */
+#viewbar{left:12px;bottom:12px;display:flex;align-items:center;gap:2px;padding:5px}
+.zoomval{font-size:12px;color:var(--muted);padding:6px 8px;border-radius:8px;min-width:52px;font-variant-numeric:tabular-nums}
+.zoomval:hover{background:var(--accent-soft);color:var(--text)}
+
+/* ── Toast ─────────────────────────────────────────────────────────── */
+#toast{
+  position:fixed;bottom:22px;left:50%;transform:translate(-50%,20px);z-index:20;
+  background:var(--panel-solid);border:1px solid var(--stroke);border-radius:12px;
+  box-shadow:var(--shadow);padding:9px 14px;font-size:13px;display:flex;gap:12px;align-items:center;
+  opacity:0;pointer-events:none;transition:.24s var(--ease);
+}
+#toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#toast button{color:var(--accent);font-weight:600}
+
+/* ── Sheet ─────────────────────────────────────────────────────────── */
+#sheet-backdrop{position:fixed;inset:0;background:#0007;z-index:29;animation:fade .2s}
+@keyframes fade{from{opacity:0}}
+#sheet{
+  z-index:30;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(560px,92vw);max-height:80vh;display:flex;flex-direction:column;
+  background:var(--panel-solid);animation:sheetin .22s var(--ease);
+}
+@keyframes sheetin{from{opacity:0;transform:translate(-50%,-46%) scale(.97)}}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 8px}
+.sheet-head h2{margin:0;font-size:16px;white-space:nowrap}
+.sheet-actions{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px}
+.pill{padding:7px 12px;border-radius:999px;background:var(--accent-soft);font-size:12.5px;transition:.14s var(--ease)}
+.pill:hover{background:var(--accent);color:#fff}
+/* boards dashboard */
+#board-search{
+  flex:1;margin:0 10px;background:var(--accent-soft);border:1px solid transparent;border-radius:9px;
+  padding:7px 10px;color:var(--text);font:inherit;font-size:12.5px;outline:0;min-width:0;
+}
+#board-search:focus{border-color:var(--accent)}
+#board-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:12px;
+  padding:2px 16px 16px;overflow:auto;flex:1;align-content:start;
+}
+.board-card{
+  position:relative;border-radius:12px;overflow:hidden;cursor:pointer;text-align:left;
+  border:1px solid var(--stroke);background:var(--paper);
+  transition:transform .16s var(--ease),box-shadow .16s var(--ease),border-color .16s var(--ease);
+}
+.board-card:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:var(--accent)}
+.board-card.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.board-card .shot{
+  display:block;width:100%;aspect-ratio:16/10;object-fit:cover;background:var(--paper);
+  border-bottom:1px solid var(--stroke);
+}
+.board-card .shot.empty{display:grid;place-items:center;color:var(--muted);font-size:11.5px}
+.board-card .meta{padding:8px 10px 10px;background:var(--panel-solid)}
+.board-card .nm{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.board-card .dt{font-size:11px;color:var(--muted);margin-top:2px}
+.board-card .del{
+  position:absolute;top:6px;right:6px;width:26px;height:26px;border-radius:8px;opacity:0;
+  background:var(--panel-solid);border:1px solid var(--stroke);color:var(--muted);
+  display:grid;place-items:center;transition:.14s var(--ease);
+}
+.board-card .del svg{width:15px;height:15px}
+.board-card:hover .del{opacity:1}
+.board-card .del:hover{color:#e5484d;border-color:#e5484d}
+.board-card .badge-now{
+  position:absolute;top:6px;left:6px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+  background:var(--accent);color:#fff;border-radius:6px;padding:2px 6px;font-weight:600;
+}
+.board-empty{grid-column:1/-1;text-align:center;color:var(--muted);font-size:12.5px;padding:26px 0}
+.sheet-foot{border-top:1px solid var(--stroke);padding:10px 16px 14px;font-size:12.5px;color:var(--muted)}
+.sheet-foot summary{cursor:pointer;outline:0}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 12px;margin-top:10px}
+.keys .wide{grid-column:1/-1;line-height:1.5;opacity:.85}
+kbd{
+  font:11px/1 ui-monospace,Consolas,monospace;background:var(--accent-soft);
+  border:1px solid var(--stroke);border-radius:5px;padding:2px 5px;margin-right:2px;color:var(--text)
+}
+
+/* ── Text editing overlay ──────────────────────────────────────────── */
+.text-edit{
+  position:absolute;pointer-events:auto;outline:0;border:0;background:transparent;resize:none;
+  overflow:hidden;white-space:pre-wrap;word-break:break-word;transform-origin:0 0;
+  caret-color:var(--accent);-webkit-user-select:text;user-select:text;
+  box-shadow:0 0 0 1.5px var(--accent);border-radius:4px;padding:0;
+}
+.text-edit.node{text-align:center;box-shadow:none}
+
+.hint{
+  position:absolute;padding:4px 8px;border-radius:8px;font-size:11.5px;
+  background:var(--panel-solid);border:1px solid var(--stroke);box-shadow:var(--shadow);
+  color:var(--muted);transform:translate(-50%,-160%);white-space:nowrap;
+  animation:pop .14s var(--ease);
+}
+@media (max-width:720px){
+  #style{display:none}
+  #style.mobile-open{display:flex}
+}
+
+[hidden]{display:none!important}
+
+/* ── embedded in a host document ─────────────────────────────────────
+   Set by app.js when the board is opened with ?embed, which the Obsidian
+   plugin uses for a board inline in a note. The board is a panel in
+   someone else page there, not the whole window: the top bar belongs to
+   the host, and the canvas should get the room instead. The tool palette
+   stays — the point of an inline board is drawing on it. */
+:root[data-embed="1"] #topbar { display: none; }
+:root[data-embed="1"] #stage { top: 0; }

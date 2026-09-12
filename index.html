@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Draw · Plan · Order</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e1014" id="theme-color">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="base"></canvas>
+  <canvas id="live"></canvas>
+  <div id="overlay"></div>
+</div>
+
+<!-- ── Top bar ───────────────────────────────────────────────────────── -->
+<header id="topbar" class="glass">
+  <button class="icon" id="btn-menu" title="Boards &amp; files (Ctrl+M)">
+    <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+  <input id="board-title" spellcheck="false" value="Untitled board">
+  <span class="sep"></span>
+  <button class="icon" id="btn-undo" title="Undo (Ctrl+Z)">
+    <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12H9"/></svg>
+  </button>
+  <button class="icon" id="btn-redo" title="Redo (Ctrl+Shift+Z)">
+    <svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h5"/></svg>
+  </button>
+  <span class="sep"></span>
+  <button class="icon" id="btn-theme" title="Toggle theme">
+    <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+  </button>
+  <span class="saved" id="save-state">saved</span>
+</header>
+
+<!-- ── Tool rail ─────────────────────────────────────────────────────── -->
+<nav id="rail" class="glass"></nav>
+
+<!-- ── Style panel ───────────────────────────────────────────────────── -->
+<aside id="style" class="glass"></aside>
+
+<!-- ── Zoom / view ───────────────────────────────────────────────────── -->
+<footer id="viewbar" class="glass">
+  <button class="icon sm" id="btn-zoom-out" title="Zoom out (Ctrl+-)"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+  <button class="zoomval" id="btn-zoom-reset" title="Reset zoom (Ctrl+0)">100%</button>
+  <button class="icon sm" id="btn-zoom-in" title="Zoom in (Ctrl+=)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  <span class="sep v"></span>
+  <button class="icon sm" id="btn-fit" title="Zoom to fit (Shift+1)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+  <button class="icon sm" id="btn-grid" title="Grid (Ctrl+')"><svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M9 4v16M15 4v16"/></svg></button>
+</footer>
+
+<!-- ── Toast ─────────────────────────────────────────────────────────── -->
+<div id="toast"></div>
+
+<!-- ── Board / file sheet ────────────────────────────────────────────── -->
+<div id="sheet-backdrop" hidden></div>
+<section id="sheet" class="glass" hidden>
+  <div class="sheet-head">
+    <h2>Boards</h2>
+    <input id="board-search" type="search" placeholder="Search boards…" spellcheck="false">
+    <button class="icon sm" id="sheet-close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="sheet-actions">
+    <button class="pill" id="act-new">＋ New board</button>
+    <button class="pill" id="act-duplicate">⧉ Duplicate</button>
+    <button class="pill" id="act-export-json">↧ Export .board</button>
+    <button class="pill" id="act-import">↥ Import board</button>
+    <button class="pill" id="act-open-pdf">＋ Add a PDF</button>
+    <button class="pill" id="act-export-png">↧ PNG</button>
+    <button class="pill" id="act-export-svg">↧ SVG</button>
+    <button class="pill" id="act-install" hidden>⊞ Install as an app</button>
+  </div>
+  <div id="board-grid"></div>
+  <div class="sheet-foot">
+    <details><summary>Keyboard &amp; pen shortcuts</summary>
+      <div class="keys">
+        <div><kbd>V</kbd> select</div><div><kbd>P</kbd> pen</div><div><kbd>H</kbd> highlighter</div>
+        <div><kbd>E</kbd> eraser</div><div><kbd>L</kbd> line</div><div><kbd>R</kbd> rectangle</div>
+        <div><kbd>O</kbd> ellipse</div><div><kbd>A</kbd> arrow</div><div><kbd>T</kbd> text</div>
+        <div><kbd>N</kbd> node</div><div><kbd>C</kbd> connector</div><div><kbd>K</kbd> sticky</div>
+        <div><kbd>Q</kbd> laser</div><div><kbd>Space</kbd>+drag pan</div><div><kbd>Alt</kbd>+drag duplicate</div>
+        <div><kbd>Tab</kbd> child node</div><div><kbd>Enter</kbd> sibling node</div><div><kbd>F2</kbd> edit text</div>
+        <div><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate</div><div><kbd>Ctrl</kbd>+<kbd>G</kbd> group</div><div><kbd>Del</kbd> delete</div>
+        <div><kbd>[</kbd> / <kbd>]</kbd> z-order</div><div><kbd>1</kbd>–<kbd>8</kbd> colour</div><div><kbd>Shift</kbd> constrain</div>
+        <div class="wide">Hold the pen still at the end of a stroke to snap it into a clean shape. Scribble over ink to rub it out. Flip the Surface Pen to erase. The eraser only takes ink — PDFs, images, notes and nodes are removed with the select tool and Delete.</div>
+      </div>
+    </details>
+  </div>
+</section>
+
+<input type="file" id="file-input" hidden accept=".board,.json,.pdf,image/*">
+
+<script src="js/util.js"></script>
+<script src="js/freehand.js"></script>
+<script src="js/recognize.js"></script>
+<script src="js/pdf.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/render.js"></script>
+<script src="js/store.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

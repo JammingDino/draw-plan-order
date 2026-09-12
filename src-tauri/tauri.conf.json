@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Draw Plan Order",
+  "version": "0.1.0",
+  "identifier": "nz.co.aec.drawplanorder",
+  "build": {
+    "frontendDist": "../dist",
+    "beforeBuildCommand": "python tools/pack.py"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Draw · Plan · Order",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 640,
+        "minHeight": 460,
+        "resizable": true,
+        "center": true,
+        "decorations": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "category": "Productivity",
+    "shortDescription": "Endless canvas for pen and diagrams",
+    "longDescription": "An endless canvas for stylus notes, diagrams and decision trees. Write with the pen, type into text boxes, hold a rough shape to snap it clean, scribble to rub things out.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

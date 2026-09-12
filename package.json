@@ -1,0 +1,20 @@
+{
+  "name": "draw-plan-order",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An endless canvas for pen, keyboard and decision trees",
+  "scripts": {
+    "pack": "python tools/pack.py",
+    "icons": "python tools/make-icons.py",
+    "dev": "python -m http.server 5273",
+    "tauri": "tauri",
+    "app:build": "tauri build",
+    "app:dev": "tauri dev"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38"
+  }
+}

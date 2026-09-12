@@ -1,0 +1,172 @@
+/* ── pdf.js ── dropping a PDF onto the board ─────────────────────────
+   Pages are not flattened into images at import time. The document is
+   stored once and each page is rendered on demand at a resolution that
+   suits the current zoom, so a 40-page PDF costs one copy of the file
+   rather than forty bitmaps, and it stays sharp when you zoom in to
+   annotate it.
+
+   pdf.js is vendored under vendor/pdfjs so the desktop app works with
+   no network at all. It is loaded the first time a PDF appears.       */
+(function (D) {
+  'use strict';
+  const U = D.util;
+  const P = D.pdf = {};
+
+  const MAX_SCALE = 4;            // render resolution ceiling, in device px per world px
+  const CACHE_MAX = 48;           // rendered pages kept in memory
+
+  let lib = null;                 // the pdf.js module, once loaded
+  const docs = new Map();         // assetId → Promise<PDFDocumentProxy>
+  const cache = new Map();        // "asset:page" → {bitmap, scale, at}
+  const pending = new Set();
+
+  P.available = () => true;
+
+  async function load() {
+    if (lib) return lib;
+    // a bare specifier here would resolve against js/, not the page
+    lib = await import(new URL('vendor/pdfjs/pdf.min.mjs', document.baseURI).href);
+    lib.GlobalWorkerOptions.workerSrc = new URL('vendor/pdfjs/pdf.worker.min.mjs', document.baseURI).href;
+    return lib;
+  }
+
+  /** open (and keep) a document from raw bytes */
+  async function open(assetId, bytes) {
+    if (docs.has(assetId)) return docs.get(assetId);
+    const p = (async () => {
+      const l = await load();
+      const base = new URL('vendor/pdfjs/', document.baseURI).href;
+      return l.getDocument({
+        data: bytes.slice(0),
+        isEvalSupported: false,
+        // both are vendored: without the base-14 font data a page using
+        // Helvetica never finishes rendering, and CJK needs the cmaps
+        standardFontDataUrl: base + 'standard_fonts/',
+        cMapUrl: base + 'cmaps/',
+        cMapPacked: true
+      }).promise;
+    })();
+    docs.set(assetId, p);
+    return p;
+  }
+  P.open = open;
+
+  /**
+   * Import a PDF file: store the bytes as a board asset and lay its pages
+   * out down the canvas.
+   * @returns the created page items
+   */
+  P.import = async (app, file, at) => {
+    app.toast(`Reading ${file.name}…`);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const assetId = U.uid();
+    await app.putAsset(assetId, bytes, { name: file.name, type: 'application/pdf' });
+
+    const doc = await open(assetId, bytes);
+    const gap = 28;
+    const items = [];
+    let y = at.y;
+    // size every page first so the stack is laid out before anything renders
+    for (let n = 1; n <= doc.numPages; n++) {
+      const page = await doc.getPage(n);
+      const vp = page.getViewport({ scale: 1 });
+      const w = Math.min(vp.width, 1000);
+      const h = vp.height * (w / vp.width);
+      items.push(D.make.pdfpage({
+        asset: assetId, page: n, pages: doc.numPages, label: file.name,
+        x: at.x - w / 2, y, w, h
+      }));
+      y += h + gap;
+    }
+
+    app.scene.begin('add pdf');
+    for (const it of items) app.scene.add(it, 0);      // behind anything already drawn
+    app.scene.commit();
+    app.afterEdit();
+    app.toast(`${file.name} · ${doc.numPages} page${doc.numPages === 1 ? '' : 's'}`);
+    return items;
+  };
+
+  /**
+   * The rendered bitmap for a page, if we have one at a good enough
+   * resolution. Otherwise kicks off a render and returns what we have (or
+   * null) so the caller can draw a placeholder now and repaint later.
+   */
+  P.bitmap = (app, item, wantScale) => {
+    const key = item.asset + ':' + item.page;
+    const hit = cache.get(key);
+    const want = Math.min(wantScale, MAX_SCALE);
+    if (hit) {
+      hit.at = performance.now();
+      if (hit.scale >= want * 0.85) return hit.bitmap;
+    }
+    render(app, item, want, key);
+    return hit ? hit.bitmap : null;
+  };
+
+  async function render(app, item, scale, key) {
+    if (pending.has(key + ':' + scale.toFixed(2))) return;
+    const token = key + ':' + scale.toFixed(2);
+    pending.add(token);
+    try {
+      const bytes = await app.getAsset(item.asset);
+      if (!bytes) return;
+      const doc = await open(item.asset, bytes);
+      const page = await doc.getPage(item.page);
+      const base = page.getViewport({ scale: 1 });
+      // item.w is the page's width in world units; scale is device px per world px
+      const vp = page.getViewport({ scale: (item.w / base.width) * scale });
+      /* OffscreenCanvas where we can: no DOM node per cached page, and
+         drawImage takes it directly. */
+      const w = Math.max(1, Math.round(vp.width));
+      const h = Math.max(1, Math.round(vp.height));
+      let c;
+      if (typeof OffscreenCanvas !== 'undefined') c = new OffscreenCanvas(w, h);
+      else { c = document.createElement('canvas'); c.width = w; c.height = h; }
+      const ctx = c.getContext('2d', { alpha: false });
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, w, h);
+      /* pdf.js paces its painting with requestAnimationFrame, which stops
+         while the window is hidden or minimised, so a render started then
+         never finishes. Cancel it rather than leaving the slot occupied
+         forever — the first frame after the window comes back asks again
+         (App.bindInput retries on visibilitychange). */
+      const task = page.render({ canvasContext: ctx, viewport: vp });
+      const stall = setTimeout(() => { try { task.cancel(); } catch (_) { } }, 15000);
+      try { await task.promise; } finally { clearTimeout(stall); }
+
+      cache.set(key, { bitmap: c, scale, at: performance.now() });
+      trim();
+      app.requestDraw();
+    } catch (e) {
+      const prev = cache.get(key);
+      // a failed re-render must not throw away a good bitmap we already have
+      if (!prev || !prev.bitmap) cache.set(key, { bitmap: null, scale: MAX_SCALE, at: performance.now(), failed: true, err: String(e && e.message || e) });
+      else prev.err = String(e && e.message || e);
+    } finally {
+      pending.delete(token);
+    }
+  }
+
+  function trim() {
+    if (cache.size <= CACHE_MAX) return;
+    const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at);
+    for (let i = 0; i < oldest.length - CACHE_MAX; i++) cache.delete(oldest[i][0]);
+  }
+
+  /** forget everything for a document (used when its board closes) */
+  P.forget = assetId => {
+    docs.delete(assetId);
+    for (const k of [...cache.keys()]) if (k.startsWith(assetId + ':')) cache.delete(k);
+  };
+
+  P.clear = () => { docs.clear(); cache.clear(); };
+
+  /* visible for diagnostics: what is cached, at what resolution */
+  P.stats = () => ({
+    docs: [...docs.keys()],
+    pending: [...pending],
+    cache: [...cache.entries()].map(([k, v]) => ({ k, scale: +v.scale.toFixed(2), px: v.bitmap && v.bitmap.width, failed: !!v.failed, err: v.err }))
+  });
+
+})(window.DPO);
