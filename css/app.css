@@ -151,7 +151,7 @@ input[type=range]{width:100%;accent-color:var(--accent);background:none}
 /* ── Sheet ─────────────────────────────────────────────────────────── */
 #sheet-backdrop{position:fixed;inset:0;background:#0007;z-index:29;animation:fade .2s}
 @keyframes fade{from{opacity:0}}
-#sheet{
+#sheet,#settings{
   z-index:30;left:50%;top:50%;transform:translate(-50%,-50%);
   width:min(560px,92vw);max-height:80vh;display:flex;flex-direction:column;
   background:var(--panel-solid);animation:sheetin .22s var(--ease);
@@ -202,6 +202,26 @@ input[type=range]{width:100%;accent-color:var(--accent);background:none}
 .board-empty{grid-column:1/-1;text-align:center;color:var(--muted);font-size:12.5px;padding:26px 0}
 .sheet-foot{border-top:1px solid var(--stroke);padding:10px 16px 14px;font-size:12.5px;color:var(--muted)}
 .sheet-foot summary{cursor:pointer;outline:0}
+.foot-links{display:flex;gap:16px;margin-top:10px}
+.foot-links a{color:var(--muted);text-decoration:none}
+.foot-links a:hover{color:var(--accent)}
+.pill:disabled{opacity:.5;pointer-events:none}
+
+/* ── Settings ──────────────────────────────────────────────────────── */
+#settings{width:min(480px,92vw)}
+#settings-body{overflow:auto;padding:0 16px 14px}
+.set{padding:12px 0 14px;border-top:1px solid var(--stroke);display:flex;flex-direction:column;gap:9px}
+.set:first-child{border-top:0;padding-top:2px}
+.set h3{margin:0 0 2px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.set-row{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:12.5px;color:var(--muted)}
+.set-row .seg{flex:0 1 260px}
+.set .path{
+  font:12px/1.45 ui-monospace,Consolas,monospace;color:var(--text);background:var(--accent-soft);
+  border-radius:9px;padding:8px 10px;word-break:break-all;user-select:text;-webkit-user-select:text;
+}
+.set .note{margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
+.set .ver{font:12px ui-monospace,Consolas,monospace;color:var(--text)}
+.set-actions{display:flex;flex-wrap:wrap;gap:6px}
 .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 12px;margin-top:10px}
 .keys .wide{grid-column:1/-1;line-height:1.5;opacity:.85}
 kbd{

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Draw Plan Order",
-  "version": "0.1.0",
+  "version": "../package.json",
   "identifier": "nz.co.aec.drawplanorder",
   "build": {
     "frontendDist": "../dist",
@@ -28,6 +28,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "category": "Productivity",
     "shortDescription": "Endless canvas for pen and diagrams",
     "longDescription": "An endless canvas for stylus notes, diagrams and decision trees. Write with the pen, type into text boxes, hold a rough shape to snap it clean, scribble to rub things out.",
@@ -41,6 +42,15 @@
       "nsis": {
         "installMode": "currentUser",
         "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYyODIwNTRGQTg0OTFBRApSV1N0a1lUNlZDQW9Ed2FydlFIVEduQXFaTkY0Undyazc3LzNVeFRaQ01HNmNUSE9WNVlqcjd4bwo=",
+      "endpoints": ["https://github.com/JammingDino/draw-plan-order/releases/latest/download/latest.json"],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

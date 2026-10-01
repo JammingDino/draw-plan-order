@@ -12,9 +12,11 @@
 //   <vault>/<folder>/.dpo/<id>.bin      a dropped PDF
 //
 // The vault comes from --vault on the command line (the plugin passes it
-// when it hands a board over) and is remembered in vault.json in the
-// app's config dir. The folder is read from the plugin's own settings,
-// so there is one place to change it.
+// when it hands a board over), or from the folder chosen in Settings, and
+// is remembered in vault.json in the app's config dir. The folder is read
+// from the plugin's own settings, so there is one place to change it.
+// Any folder will do, vault or not: outside a vault the boards go straight
+// into it, in the same layout.
 //
 // The commands are async so the disk work runs on a worker thread. A
 // plain #[tauri::command] fn runs on the main thread, which is the one
@@ -27,10 +29,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::ipc::{InvokeBody, Request, Response};
-use tauri::{Manager, State};
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_updater::UpdaterExt;
 
 const PLUGIN_ID: &str = "draw-plan-order";
 const DEFAULT_FOLDER: &str = "Drawings";
+/// where releases, issues and the feature-request form live
+const REPO_URL: &str = "https://github.com/JammingDino/draw-plan-order";
 
 struct Vault {
     root: Option<PathBuf>,
@@ -40,7 +47,7 @@ struct Vault {
 struct Ctx {
     vault: Mutex<Vault>,
     /// what this launch was asked to open: board, pdf, file, name, page
-    launch: Map<String, Value>,
+    launch: Mutex<Map<String, Value>>,
 }
 
 /* ── paths ────────────────────────────────────────────────────────── */
@@ -168,27 +175,58 @@ fn plugin_folder(root: &Path) -> String {
         .unwrap_or_else(|| DEFAULT_FOLDER.into())
 }
 
-fn load_vault(app: &tauri::AppHandle, args: &Map<String, Value>) -> Vault {
-    let cfg = app.path().app_config_dir().ok().map(|d| d.join("vault.json"));
-    let saved: Map<String, Value> = cfg
-        .as_ref()
+fn is_vault(dir: &Path) -> bool { dir.join(".obsidian").is_dir() }
+
+/// The folder boards go in when there is nothing more specific to go on:
+/// the plugin's in a vault, the chosen folder itself anywhere else.
+fn default_folder(root: &Path) -> String {
+    if is_vault(root) { plugin_folder(root) } else { String::new() }
+}
+
+/// Where boards land when someone points the app at `dir`. Inside an
+/// Obsidian vault the root stays the vault and `dir` becomes the folder,
+/// so the index keeps vault-relative paths the plugin can follow; `None`
+/// means "whatever folder the plugin is set to".
+fn locate(dir: &Path) -> (PathBuf, Option<String>) {
+    if is_vault(dir) { return (dir.into(), None); }
+    for up in dir.ancestors().skip(1) {
+        if is_vault(up) {
+            let rel = dir.strip_prefix(up).map(|r| r.to_string_lossy().to_string()).unwrap_or_default();
+            return (up.into(), Some(norm(&rel)));
+        }
+    }
+    (dir.into(), Some(String::new()))
+}
+
+fn vault_cfg(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("vault.json"))
+}
+
+fn remember_vault(app: &AppHandle, root: &Path, folder: Option<&str>) -> Result<(), String> {
+    let p = vault_cfg(app).ok_or("no config dir")?;
+    let mut cfg = json!({ "vault": root });
+    if let Some(f) = folder { cfg["folder"] = json!(f); }
+    write_atomic(&p, to_json(&cfg)?.as_bytes())
+}
+
+fn load_vault(app: &AppHandle, args: &Map<String, Value>) -> Vault {
+    let saved: Map<String, Value> = vault_cfg(app)
         .and_then(|p| fs::read_to_string(p).ok())
         .and_then(|s| serde_json::from_str::<Value>(&s).ok())
         .and_then(|v| v.as_object().cloned())
         .unwrap_or_default();
 
-    let root = args.get("vault").or(saved.get("vault"))
-        .and_then(|v| v.as_str())
-        .map(PathBuf::from)
-        .filter(|p| p.join(".obsidian").is_dir());
+    let handed = args.get("vault").and_then(|v| v.as_str()).map(PathBuf::from).filter(|p| is_vault(p));
+    let root = handed.clone().or_else(|| {
+        saved.get("vault").and_then(|v| v.as_str()).map(PathBuf::from).filter(|p| p.is_dir())
+    });
 
     // remember a vault we were handed, so a plain launch finds it too
-    if let (Some(r), Some(p), Some(_)) = (&root, &cfg, args.get("vault")) {
-        if let Ok(body) = to_json(&json!({ "vault": r })) { let _ = write_atomic(p, body.as_bytes()); }
-    }
+    if let Some(r) = &handed { let _ = remember_vault(app, r, None); }
 
     let folder = args.get("folder").and_then(|v| v.as_str()).map(norm)
-        .or_else(|| root.as_deref().map(plugin_folder))
+        .or_else(|| if handed.is_some() { None } else { saved.get("folder").and_then(|f| f.as_str()).map(norm) })
+        .or_else(|| root.as_deref().map(default_folder))
         .unwrap_or_else(|| DEFAULT_FOLDER.into());
     Vault { root, folder }
 }
@@ -223,10 +261,21 @@ fn pct_decode(s: &str) -> Option<String> {
 
 /* ── commands: the store.js KV contract ───────────────────────────── */
 
-#[tauri::command]
-fn dpo_config(ctx: State<Ctx>) -> Value {
+fn config(app: &AppHandle, ctx: &Ctx) -> Value {
     let v = ctx.vault.lock().unwrap();
-    json!({ "vault": v.root, "folder": v.folder, "launch": ctx.launch })
+    let dir = v.root.as_ref().map(|r| if v.folder.is_empty() { r.clone() } else { r.join(&v.folder) });
+    json!({
+        "vault": v.root, "folder": v.folder, "dir": dir,
+        "obsidian": v.root.as_deref().is_some_and(is_vault),
+        "launch": *ctx.launch.lock().unwrap(),
+        "version": app.package_info().version.to_string(),
+        "repo": REPO_URL
+    })
+}
+
+#[tauri::command]
+async fn dpo_config(app: AppHandle, ctx: State<'_, Ctx>) -> Result<Value, String> {
+    Ok(config(&app, &ctx))
 }
 
 #[tauri::command]
@@ -367,19 +416,77 @@ async fn dpo_keys(ctx: State<'_, Ctx>) -> Result<Vec<String>, String> {
     Ok(k)
 }
 
+/* ── commands: settings ───────────────────────────────────────────── */
+
+/// Ask where boards should be kept from now on. Nothing is moved: boards
+/// already saved stay where they were, and the page reloads onto the new
+/// place. Whatever this launch was asked to open belonged to the old one.
+#[tauri::command]
+async fn dpo_choose_folder(app: AppHandle, ctx: State<'_, Ctx>) -> Result<Option<Value>, String> {
+    let start = ctx.vault.lock().unwrap().root.clone();
+    let mut pick = app.dialog().file().set_title("Where should boards be saved?");
+    if let Some(r) = start { pick = pick.set_directory(r); }
+    let Some(dir) = pick.blocking_pick_folder() else { return Ok(None) };
+    let (root, folder) = locate(&dir.into_path().map_err(e)?);
+    remember_vault(&app, &root, folder.as_deref())?;
+    {
+        let mut v = ctx.vault.lock().unwrap();
+        v.folder = folder.unwrap_or_else(|| default_folder(&root));
+        v.root = Some(root);
+    }
+    ctx.launch.lock().unwrap().clear();
+    Ok(Some(config(&app, &ctx)))
+}
+
+#[tauri::command]
+async fn dpo_reveal_folder(app: AppHandle, ctx: State<'_, Ctx>) -> Result<(), String> {
+    let dir = { let v = ctx.vault.lock().unwrap(); v.abs(&v.folder)? };
+    fs::create_dir_all(&dir).map_err(e)?;
+    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(e)
+}
+
+/// Only ever this project's own pages, so the page cannot be talked into
+/// opening anything else on the machine.
+#[tauri::command]
+async fn dpo_open_url(app: AppHandle, url: String) -> Result<(), String> {
+    if !url.starts_with(&format!("{REPO_URL}/")) { return Err("not a link this app opens".into()); }
+    app.opener().open_url(url, None::<&str>).map_err(e)
+}
+
+/// The newest release on GitHub, if it is newer than this one. The
+/// manifest is signed, and the updater refuses one that fails the check.
+#[tauri::command]
+async fn dpo_check_update(app: AppHandle) -> Result<Option<Value>, String> {
+    let update = app.updater().map_err(e)?.check().await.map_err(e)?;
+    Ok(update.map(|u| json!({ "version": u.version, "current": u.current_version, "notes": u.body })))
+}
+
+/// Download, install and restart. On Windows the installer takes over and
+/// the app exits underneath it, so the page saves before asking for this.
+#[tauri::command]
+async fn dpo_install_update(app: AppHandle) -> Result<(), String> {
+    let update = app.updater().map_err(e)?.check().await.map_err(e)?.ok_or("already up to date")?;
+    update.download_and_install(|_, _| {}, || {}).await.map_err(e)?;
+    app.restart();
+}
+
 fn main() {
     let args = parse_args();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let vault = load_vault(app.handle(), &args);
             let launch = ["board", "pdf", "file", "name", "page"].iter()
                 .filter_map(|k| args.get(*k).map(|v| ((*k).to_string(), v.clone())))
                 .collect();
-            app.manage(Ctx { vault: Mutex::new(vault), launch });
+            app.manage(Ctx { vault: Mutex::new(vault), launch: Mutex::new(launch) });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            dpo_config, dpo_get, dpo_asset, dpo_set, dpo_put_asset, dpo_del, dpo_keys
+            dpo_config, dpo_get, dpo_asset, dpo_set, dpo_put_asset, dpo_del, dpo_keys,
+            dpo_choose_folder, dpo_reveal_folder, dpo_open_url, dpo_check_update, dpo_install_update
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Draw · Plan · Order");

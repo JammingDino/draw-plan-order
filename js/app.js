@@ -127,6 +127,8 @@
       const moved = D.store.migrated;
       if (moved) setTimeout(() => this.toast(`Moved ${moved} board${moved > 1 ? 's' : ''} into the vault`), 800);
       this.registerServiceWorker();
+      // after the board is up and any toast about it has had its turn
+      if (D.desktop.on && D.desktop.autoUpdate) setTimeout(() => this.offerUpdate(), 6000);
 
       /* ?pdf=<host path> — this board exists to annotate that document.
          Attached after the UI is up so the progress toasts are visible
@@ -171,6 +173,23 @@
       D.store.setLast(board.id);
       this.requestDraw();
       if (this.ui) this.ui.refresh();
+    }
+
+    /* ── updates (desktop app) ────────────────────────────────────── */
+    /* Quietly: an offline start, or GitHub being unreachable, is not worth
+       interrupting anyone over. Settings → Check now says so out loud. */
+    async offerUpdate() {
+      let u = null;
+      try { u = await D.desktop.checkUpdate(); } catch (err) { console.warn('[dpo] update check', err); }
+      if (u) this.ui.toast(`Version ${u.version} is available`, 'Update', () => this.installUpdate(u), 15000);
+    }
+
+    async installUpdate(u) {
+      this.ui.closeSettings();
+      this.ui.toast(`Downloading version ${u.version}… the app restarts when it is done`, null, null, 60000);
+      await this.saveNow(true);     // the installer closes the app underneath us
+      try { await D.desktop.installUpdate(); }
+      catch (err) { this.toast('The update did not install: ' + err); }
     }
 
     /* ── frame loop ───────────────────────────────────────────────── */
@@ -543,6 +562,7 @@
           case 'g': e.preventDefault(); this.toggleGroup(); return;
           case 's': e.preventDefault(); this.saveNow(); this.toast('Saved'); return;
           case 'm': e.preventDefault(); this.ui.openSheet(); return;
+          case ',': e.preventDefault(); this.ui.openSettings(); return;
           case '\\': e.preventDefault(); this.ui.toggleFolds(); return;
           case '0': e.preventDefault(); this.camera.zoomTo(1, innerWidth / 2, innerHeight / 2); this.requestDraw(); this.ui.refresh(); return;
           case '=': case '+': e.preventDefault(); this.camera.zoomBy(1.25, innerWidth / 2, innerHeight / 2); this.requestDraw(); this.ui.refresh(); return;
@@ -553,6 +573,10 @@
       }
 
       if (k === 'Delete' || k === 'Backspace') { e.preventDefault(); this.deleteSelection(); return; }
+      if (k === 'Escape' && !($('#sheet').hidden && $('#settings').hidden)) {
+        this.ui.closeSheet(); this.ui.closeSettings();
+        return;
+      }
       if (k === 'Escape') {
         // Escape unwinds one step at a time: abandon what is in progress and
         // drop the selection, then — if there was nothing to drop — fall back

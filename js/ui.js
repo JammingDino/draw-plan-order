@@ -142,6 +142,7 @@
       $('#btn-redo').onclick = () => app.redo();
       $('#btn-menu').onclick = () => this.openSheet();
       $('#btn-theme').onclick = () => app.toggleTheme();
+      $('#btn-settings').onclick = () => this.openSettings();
       const t = $('#board-title');
       t.addEventListener('input', () => { app.board.name = t.value; app.markDirty(); });
       t.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') t.blur(); });
@@ -421,7 +422,7 @@
           this.check('Snap to grid', g.snapGrid, v => { g.snapGrid = v; this.app.savePrefs(); }),
           this.check('Touch pans the canvas', g.touchPan, v => { g.touchPan = v; this.app.savePrefs(); }),
           this.check('Keep drawing tool after each shape', g.stickyTools, v => { g.stickyTools = v; this.app.savePrefs(); })),
-        this.group('Storage', el('div', { class: 'rowlbl' }, el('span', {}, 'Saved in ' + (D.store.backend || '…'))))
+        this.group('', this.pill('⚙ All settings…', () => this.openSettings()))
       );
     }
 
@@ -462,7 +463,12 @@
     buildSheet() {
       const app = this.app;
       $('#sheet-close').onclick = () => this.closeSheet();
-      $('#sheet-backdrop').onclick = () => this.closeSheet();
+      $('#sheet-backdrop').onclick = () => { this.closeSheet(); this.closeSettings(); };
+      $('#settings-close').onclick = () => this.closeSettings();
+      $('#act-settings').onclick = () => this.openSettings();
+      for (const a of document.querySelectorAll('[data-link]')) {
+        a.onclick = e => { e.preventDefault(); D.desktop.open(D.desktop.links[a.dataset.link]); };
+      }
       $('#act-new').onclick = () => app.newBoard();
       $('#act-duplicate').onclick = () => app.duplicateBoard();
       $('#act-export-json').onclick = () => app.exportJSON();
@@ -528,8 +534,139 @@
     }
     closeSheet() { $('#sheet').hidden = true; $('#sheet-backdrop').hidden = true; }
 
+    /* ── settings ────────────────────────────────────────────────── */
+    /* Everything that is not about the ink in your hand: where boards are
+       kept, how the canvas looks, what the pen and touch do, updates, and
+       where to ask for things. Rebuilt on every open, so it shows the state
+       as it is now rather than as it was when the page loaded. */
+    async openSettings() {
+      this.closeSheet();
+      const X = D.desktop;
+      const cfg = X.on ? await X.config().catch(() => null) : null;
+      const body = $('#settings-body');
+      body.textContent = '';
+      body.append(...[
+        this.setStorage(cfg),
+        this.setCanvas(),
+        this.setInput(),
+        X.on ? this.setUpdates(cfg) : null,
+        this.setFeedback(cfg)
+      ].filter(Boolean));
+      $('#settings').hidden = false; $('#sheet-backdrop').hidden = false;
+    }
+    closeSettings() { $('#settings').hidden = true; $('#sheet-backdrop').hidden = true; }
+
+    section(title, ...kids) { return el('section', { class: 'set' }, el('h3', {}, title), ...kids); }
+    row(label, control) { return el('div', { class: 'set-row' }, el('span', {}, label), control); }
+    note(text) { return el('p', { class: 'note' }, text); }
+    pill(label, onclick) { return el('button', { class: 'pill', onclick }, label); }
+
+    /* seg() rebuilds the style panel to show its pick; this one marks its
+       own, because the settings page is not rebuilt underneath you */
+    setSeg(options, current, onpick) {
+      const wrap = el('div', { class: 'seg' });
+      for (const [v, label] of options) {
+        const b = el('button', { class: current === v ? 'on' : '' }, label);
+        b.onclick = () => { for (const x of wrap.children) x.classList.toggle('on', x === b); onpick(v); this.refresh(); };
+        wrap.append(b);
+      }
+      return wrap;
+    }
+
+    setStorage(cfg) {
+      const app = this.app, X = D.desktop;
+      const path = text => el('div', { class: 'path' }, text);
+
+      if (!X.on) {
+        const where = {
+          host: 'In your Obsidian vault, by the Draw · Plan · Order plugin',
+          indexedDB: 'In this browser, on this computer',
+          localStorage: 'In this browser’s local storage, on this computer',
+          memory: 'Nowhere — this board is not being saved',
+          scratch: 'Nowhere — a ?scratch board is thrown away when you close it'
+        }[D.store.backend] || 'In this browser';
+        return this.section('Saving', path(where),
+          this.note(D.store.backend === 'host'
+            ? 'The folder is set in the plugin’s settings inside Obsidian.'
+            : 'Each browser keeps its own boards. Export a board from ☰ to move it elsewhere, or use the desktop app to keep boards as files in a folder you choose.'));
+      }
+
+      const choose = this.pill(cfg && cfg.dir ? 'Change folder…' : 'Choose a folder…', async () => {
+        await app.saveNow(true);              // the board on screen belongs to where it came from
+        let next;
+        try { next = await X.chooseFolder(); }
+        catch (err) { app.toast('Could not use that folder: ' + err); return; }
+        if (next) location.replace(location.pathname);    // start again against the new folder
+      });
+
+      if (!cfg || !cfg.dir) {
+        let copied = false;
+        try { copied = !localStorage.getItem('dpo:migrated-to-vault'); } catch (_) { }
+        return this.section('Saving', path('Inside the app, on this computer'),
+          this.note('Choose a folder to keep boards as ordinary files you can back up, sync, or open from Obsidian.' +
+            (copied ? ' The boards you have now are copied into it.' : '')),
+          el('div', { class: 'set-actions' }, choose));
+      }
+
+      return this.section('Saving', path(cfg.dir),
+        cfg.obsidian ? this.note('This is an Obsidian vault, so the Draw · Plan · Order plugin opens these same boards.') : null,
+        this.note('Changing the folder leaves the boards already saved where they are; switch back to reach them.'),
+        el('div', { class: 'set-actions' }, choose,
+          this.pill('Open folder', () => X.revealFolder().catch(err => app.toast('Could not open the folder: ' + err)))));
+    }
+
+    setCanvas() {
+      const app = this.app, dark = () => document.documentElement.dataset.theme === 'dark';
+      return this.section('Canvas',
+        this.row('Theme', this.setSeg([['light', 'Light'], ['dark', 'Dark']], dark() ? 'dark' : 'light',
+          v => { if ((v === 'dark') !== dark()) app.toggleTheme(); })),
+        this.row('Paper', this.setSeg([['dots', 'Dots'], ['lines', 'Grid'], ['lined', 'Ruled'], ['none', 'Plain']], app.renderer.grid,
+          v => { app.renderer.grid = v; app.requestDraw(); app.savePrefs(); })));
+    }
+
+    setInput() {
+      const g = this.app.opts.general, set = (k, v) => { g[k] = v; this.app.savePrefs(); this.refresh(); };
+      return this.section('Pen and touch',
+        this.check('Hold the pen still to snap a shape clean', g.holdToSnap, v => set('holdToSnap', v)),
+        this.check('Scribble over ink to erase it', g.scribbleErase, v => set('scribbleErase', v)),
+        this.check('Snap to grid', g.snapGrid, v => set('snapGrid', v)),
+        this.check('A finger pans and zooms instead of drawing', g.touchPan, v => set('touchPan', v)),
+        this.check('Keep the drawing tool after each shape', g.stickyTools, v => set('stickyTools', v)));
+    }
+
+    setUpdates(cfg) {
+      const app = this.app, X = D.desktop;
+      const status = el('div', { class: 'note' });
+      const check = this.pill('Check now', async () => {
+        check.disabled = true;
+        status.textContent = 'Checking…';
+        try {
+          const u = await X.checkUpdate();
+          status.textContent = u ? `Version ${u.version} is ready to install.` : 'You have the newest version.';
+          if (u) status.append(' ', el('button', { class: 'pill', onclick: () => app.installUpdate(u) }, 'Install and restart'));
+        } catch (err) {
+          status.textContent = 'Could not reach GitHub to check: ' + err;
+        }
+        check.disabled = false;
+      });
+      return this.section('Updates',
+        this.row('Version', el('span', { class: 'ver' }, cfg ? cfg.version : '…')),
+        this.check('Check for updates when the app starts', X.autoUpdate, v => { X.autoUpdate = v; }),
+        el('div', { class: 'set-actions' }, check), status);
+    }
+
+    setFeedback() {
+      const X = D.desktop, go = k => () => X.open(X.links[k]);
+      return this.section('Ideas and problems',
+        this.note('Something missing, or something that would make this better to work with? Requests and bug reports live on GitHub (you will need a free account to post one).'),
+        el('div', { class: 'set-actions' },
+          this.pill('💡 Suggest a feature', go('feature')),
+          this.pill('Report a problem', go('bug')),
+          this.pill('What’s new', go('releases'))));
+    }
+
     /* ── toast ───────────────────────────────────────────────────── */
-    toast(msg, actionLabel, action) {
+    toast(msg, actionLabel, action, ms = 4200) {
       const t = $('#toast');
       t.textContent = '';
       t.append(el('span', {}, msg));
@@ -540,7 +677,7 @@
       }
       t.classList.add('show');
       clearTimeout(this._toastT);
-      this._toastT = setTimeout(() => this.hideToast(), 4200);
+      this._toastT = setTimeout(() => this.hideToast(), ms);
     }
     hideToast() { $('#toast').classList.remove('show'); }
   }
