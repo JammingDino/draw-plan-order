@@ -1,0 +1,78 @@
+name: Release
+
+# Every push to master ships a release, unless the version in package.json
+# has already been released. So: bump the version, push, and the installer,
+# its signed update and latest.json appear under Releases. Installed copies
+# find the update the next time they start (Settings → Updates).
+#
+# The update is signed with the private key in the TAURI_SIGNING_PRIVATE_KEY
+# secret; the app trusts only the matching public key in tauri.conf.json.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      released: ${{ steps.v.outputs.released }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "v$version is already released. Bump the version in package.json to ship a new one." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.released == 'false'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: npm ci
+      - run: npm test
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: Draw · Plan · Order v__VERSION__
+          releaseBody: |
+            **New install:** download the `_x64-setup.exe` below and run it. It installs for you alone, so no admin prompt.
+
+            **Already installed?** The app finds this update on its own the next time it starts, or straight away from Settings → Updates → Check now.
+
+            Ideas and problems: [suggest a feature](https://github.com/JammingDino/draw-plan-order/issues/new?template=feature_request.yml) · [report a problem](https://github.com/JammingDino/draw-plan-order/issues/new?template=bug_report.yml)
+          releaseDraft: false
+          prerelease: false

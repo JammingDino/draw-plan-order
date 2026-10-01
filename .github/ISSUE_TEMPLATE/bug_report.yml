@@ -1,0 +1,42 @@
+name: Something is wrong
+description: Report a bug, a crash, or something that feels slow
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: And what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can it be made to happen again?
+      placeholder: |
+        1. Open a board with a PDF on it
+        2. Zoom in past 400%
+        3. …
+  - type: textarea
+    id: perf
+    attributes:
+      label: If it is slow, the frame counter
+      description: Press Ctrl+Shift+P (or add ?perf to the address) and paste or screenshot what it says while the slowness happens.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings → Updates shows it in the desktop app.
+      placeholder: "0.2.0"
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where?
+      multiple: true
+      options:
+        - Desktop app (Windows)
+        - In the browser
+        - Inside Obsidian
+    validations:
+      required: true

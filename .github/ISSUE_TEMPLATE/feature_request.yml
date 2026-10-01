@@ -1,0 +1,48 @@
+name: Feature request
+description: Suggest something that would make Draw · Plan · Order better to work with
+title: "[Idea] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. The most useful requests describe the moment you wanted this: what you were drawing or planning, and what got in the way. That matters more than the exact solution.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What were you trying to do?
+      description: The situation, and what got in the way.
+      placeholder: I was annotating a lecture PDF and wanted to…
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: How you picture it working. Rough is fine, and a sketch or screenshot is very welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How do you manage today?
+      description: Any workaround you use now, or another app that does this well.
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where do you use it?
+      multiple: true
+      options:
+        - Desktop app (Windows)
+        - In the browser
+        - Inside Obsidian
+  - type: dropdown
+    id: input
+    attributes:
+      label: What do you mostly draw with?
+      multiple: true
+      options:
+        - Pen / stylus
+        - Touch
+        - Mouse
+        - Keyboard

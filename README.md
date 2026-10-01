@@ -12,13 +12,21 @@ restart; opened as a file it falls back to `localStorage`.)
 
 ### The desktop app
 
+Download the `_x64-setup.exe` from
+[Releases](https://github.com/JammingDino/draw-plan-order/releases/latest)
+and run it. It updates itself: on start it checks GitHub for a newer
+release and offers to install it (Settings → Updates turns that off, or
+checks on demand).
+
+To build it yourself:
+
 ```bash
 npm install
 npm run app:build
 ```
 
 Produces a Windows installer at
-`src-tauri/target/release/bundle/nsis/Draw Plan Order_0.1.0_x64-setup.exe`,
+`src-tauri/target/release/bundle/nsis/Draw Plan Order_<version>_x64-setup.exe`,
 and the bare `.exe` next to it. It is a Tauri shell — a few megabytes, using
 the WebView2 runtime Windows already ships, so pen pressure and coalesced
 pointer events behave exactly as they do in Edge. `npm run app:dev` runs it
@@ -29,9 +37,13 @@ picks up `src-tauri/`, `node_modules/` or the tooling. Native file
 drag-and-drop is switched off in `tauri.conf.json` so the canvas keeps
 handling dropped images itself.
 
-The desktop app keeps its boards in its own WebView2 profile — separate from
-whatever you have in the browser. Move work across with ↧ Export .board / ↥
-Import.
+The desktop app saves boards as plain files in a folder you choose under
+**Settings → Saving** (<kbd>Ctrl</kbd>+<kbd>,</kbd>), one `.dpo` file per
+board. Point it at an Obsidian vault and it uses the Draw · Plan · Order
+plugin's layout and folder, so the same boards open in either. Until a
+folder is chosen, boards live in the app's own WebView2 profile, and they
+are copied into the folder the first time one is set. The browser keeps its
+own boards; move work across with ↧ Export .board / ↥ Import.
 
 ### Making it a standalone app in the browser instead
 
@@ -142,6 +154,7 @@ toast. Hiding the tab also forces a full save.
 | `js/ui.js` | Tool rail, contextual style panel, sheets |
 | `js/app.js` | Input plumbing, selection, files, decision-tree helpers |
 | `js/perf.js` | Frame counter, off unless asked for |
+| `js/desktop.js` | What the desktop shell adds: folders, links, updates |
 
 Two stacked canvases keep it quick: `#base` holds the committed scene and is
 only redrawn when something changes, `#live` holds the stroke currently under
@@ -198,6 +211,28 @@ Icons live in one `ICON` map at the top of `js/ui.js` — 24×24 stroked SVG
 paths, `|` separating subpaths. `python tools/make-icons.py` regenerates the
 app icons.
 
+## Ideas and bugs
+
+Settings → **Suggest a feature** (also at the foot of the ☰ menu) opens the
+[feature request form](https://github.com/JammingDino/draw-plan-order/issues/new?template=feature_request.yml);
+**Report a problem** opens the
+[bug form](https://github.com/JammingDino/draw-plan-order/issues/new?template=bug_report.yml).
+
+## Releases
+
+Bump `version` in `package.json` and push to `master`. The release
+workflow sees a version with no release yet, builds the installer on
+Windows, signs the update, and publishes it with the `latest.json` that
+installed copies check on start. A push that does not change the version
+only runs the tests. `tauri.conf.json` reads its version from
+`package.json`, so that is the only number to change.
+
+Updates are signed with a key pair made by `npx tauri signer generate`.
+The public half is in `tauri.conf.json`; the private half and its password
+are the `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository secrets. Lose the private
+key and installed copies can no longer be updated, only reinstalled.
+
 ## Tests
 
 ```
@@ -227,7 +262,8 @@ whether the page cache is keeping up.
 index.html  css/  js/          the app — this alone runs in a browser
 sw.js  manifest.webmanifest    the PWA/offline half
 start.cmd                      serve it locally
-src-tauri/                     the desktop shell (Rust, ~250 lines of config)
+src-tauri/                     the desktop shell: window, vault storage, updater
+.github/                       issue forms, test and release workflows
 tools/pack.py                  web files → dist/, for the bundler
 tools/make-icons.py            regenerates every icon from one description
 test/                          node tests and the benchmark
