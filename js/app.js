@@ -123,6 +123,7 @@
       this.setTool('pen');
       this.requestDraw();
       this.ui.refresh();
+      this.ui.restoreFolds();      // the panels you had folded away last time
       this.registerServiceWorker();
 
       /* ?pdf=<host path> — this board exists to annotate that document.
@@ -540,6 +541,7 @@
           case 'g': e.preventDefault(); this.toggleGroup(); return;
           case 's': e.preventDefault(); this.saveNow(); this.toast('Saved'); return;
           case 'm': e.preventDefault(); this.ui.openSheet(); return;
+          case '\\': e.preventDefault(); this.ui.toggleFolds(); return;
           case '0': e.preventDefault(); this.camera.zoomTo(1, innerWidth / 2, innerHeight / 2); this.requestDraw(); this.ui.refresh(); return;
           case '=': case '+': e.preventDefault(); this.camera.zoomBy(1.25, innerWidth / 2, innerHeight / 2); this.requestDraw(); this.ui.refresh(); return;
           case '-': e.preventDefault(); this.camera.zoomBy(0.8, innerWidth / 2, innerHeight / 2); this.requestDraw(); this.ui.refresh(); return;

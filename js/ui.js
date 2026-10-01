@@ -33,6 +33,15 @@
     ungroup: svg('M3.5 4h7v7h-7z|M13.5 13h7v7h-7z')
   };
 
+  /* chevrons for the panel folds: one per direction, named for the way the
+     panel travels rather than the way the arrow points */
+  const CHEV = {
+    up: 'M6 14l6-6 6 6',
+    down: 'M6 10l6 6 6-6',
+    left: 'M14 6l-6 6 6 6',
+    right: 'M10 6l6 6-6 6'
+  };
+
   const PALETTE = ['ink', '#5b6472', '#4f6bff', '#0ea5e9', '#12a150', '#f5a524', '#e5484d', '#8e4ec6'];
   const PALETTE_DARK = ['ink', '#a3adbd', '#7d92ff', '#38bdf8', '#3ecf8e', '#fbbf24', '#ff6b6b', '#c084fc'];
   const HL = ['#ffe066', '#a7f3d0', '#bfdbfe', '#fbcfe8', '#fed7aa', '#ddd6fe', '#bbf7d0', '#fecaca'];
@@ -47,6 +56,7 @@
       this.buildRail();
       this.buildTop();
       this.buildViewBar();
+      this.buildFolds();
       this.buildSheet();
       this.refresh();
     }
@@ -144,6 +154,81 @@
       $('#btn-zoom-reset').onclick = () => { c.zoomTo(1, innerWidth / 2, innerHeight / 2); app.requestDraw(); this.refresh(); };
       $('#btn-fit').onclick = () => app.zoomToFit();
       $('#btn-grid').onclick = () => app.cycleGrid();
+    }
+
+    /* ── folding the chrome away ─────────────────────────────────── */
+    /* Four pieces of chrome, one fold each. A panel's chevron points the
+       way it is about to travel and the tab it leaves behind points back,
+       so the direction of the arrow is always "press it and the panel goes
+       this way". The two tall panels get a handle stuck to their edge
+       instead of a chevron in the corner: the rail and the style panel are
+       narrow enough that a corner button would sit on a tool or a swatch,
+       and the style panel is long enough to scroll, which would carry a
+       child of its own out of reach. The style panel's handle therefore
+       hangs off the body — see #style-fold in css/app.css. */
+    buildFolds() {
+      const foldable = [
+        { k: 'top', id: 'topbar-fold', tab: 'topbar-tab', into: '#topbar', what: 'top bar', away: 'up', back: 'down' },
+        { k: 'rail', id: 'rail-fold', tab: 'rail-tab', into: '#rail', what: 'tool rail', away: 'left', back: 'right', stick: true },
+        { k: 'style', id: 'style-fold', tab: 'style-tab', into: null, what: 'style panel', away: 'right', back: 'left', stick: true },
+        { k: 'view', id: 'viewbar-fold', tab: 'viewbar-tab', into: '#viewbar', what: 'zoom bar', away: 'down', back: 'up' }
+      ];
+      this.folds = {};
+      for (const f of foldable) {
+        const fold = el('button', {
+          id: f.id, class: 'collapse' + (f.stick ? ' stick' : ''),
+          title: 'Hide the ' + f.what + '  ·  Ctrl+\\', html: svg(CHEV[f.away])
+        });
+        fold.onclick = () => this.setFold(f.k, true);
+        (f.into ? $(f.into) : document.body).append(fold);
+
+        const tab = el('button', {
+          id: f.tab, class: 'tab',
+          title: 'Show the ' + f.what + '  ·  Ctrl+\\', html: svg(CHEV[f.back])
+        });
+        tab.onclick = () => this.setFold(f.k, false);
+        document.body.append(tab);
+
+        this.folds[f.k] = { fold, tab, folded: false };
+      }
+    }
+
+    setFold(name, folded) {
+      const f = this.folds[name];
+      if (!f || f.folded === folded) return;
+      f.folded = folded;
+      document.body.classList.toggle('fold-' + name, folded);
+      if (folded && name === 'rail') this.closeFlyout();   // it would point at nothing
+      this.rememberFolds();
+      this.app.requestDraw();      // the canvas just gained or lost the room
+    }
+
+    /* Fold state belongs to the window you are sitting at, not to the
+       board, so it is kept in localStorage rather than in the board's
+       prefs: the same board opened on a bigger screen, or inline in a
+       note, should not arrive with its panels hidden. */
+    rememberFolds() {
+      const on = Object.keys(this.folds).filter(k => this.folds[k].folded);
+      try { localStorage.setItem('dpo:fold', on.join(',')); } catch (_) { }
+    }
+
+    restoreFolds() {
+      let on = [];
+      try { on = (localStorage.getItem('dpo:fold') || '').split(','); } catch (_) { }
+      for (const k in this.folds) {
+        if (!on.includes(k)) continue;
+        this.folds[k].folded = true;
+        document.body.classList.add('fold-' + k);
+      }
+    }
+
+    /* One key for "give me the canvas": everything folded comes back, and
+       with nothing folded everything goes away. It is always the same key
+       home, so hiding the panels is never a one-way door. */
+    toggleFolds() {
+      const any = Object.keys(this.folds).some(k => this.folds[k].folded);
+      for (const k in this.folds) this.setFold(k, !any);
+      this.app.toast(any ? 'Panels back' : 'Panels hidden — Ctrl+\\ brings them back');
     }
 
     /* ── contextual style panel ──────────────────────────────────── */

@@ -227,7 +227,101 @@ kbd{
 @media (max-width:720px){
   #style{display:none}
   #style.mobile-open{display:flex}
+  /* the panel is hidden at this width, so its edge handle has nothing to
+     belong to: it would sit on the canvas and fold nothing */
+  #style-fold{display:none}
 }
+
+/* ── Folding the chrome away ─────────────────────────────────────────
+   The top bar, the tool rail, the style panel and the zoom bar each fold
+   away so a drawing that has grown to the edges gets the whole window.
+   The chevron points the way the panel is about to travel, and the tab a
+   folded panel leaves behind sits in the panel's own place with the arrow
+   reversed — so nothing folded is ever lost, only out of the way. Ctrl+\
+   folds or restores the lot (see UI.buildFolds and app.js onKey).
+
+   The bars are told from the panels here: a bar is wide and short, so its
+   chevron lives inside it at the end of the row, while a panel is tall and
+   narrow and gets a handle stuck to the edge, outside it, which is also
+   what keeps the handle from scrolling off with the panel's contents and
+   from sitting on top of a tool. */
+/* z-index 6 is deliberate: the panels are .glass at z-index 5, and a
+   handle that lands under its own panel reads as a clipped stub rather
+   than a tab. A handle is always drawn over the panel it belongs to. */
+.collapse{
+  width:30px;height:30px;border-radius:8px;display:grid;place-items:center;
+  color:var(--muted);
+  transition:background .16s var(--ease),color .16s var(--ease);
+}
+.collapse svg{width:15px;height:15px}
+.collapse:hover{background:var(--accent-soft);color:var(--text)}
+
+/* The two tall panels get a grip on their edge instead, because their
+   contents fill the panel and a button inside would sit on a tool or a
+   swatch. It sticks 22px clear of the panel, which is the whole point of
+   it: something to grab.
+
+   Opaque, and without a backdrop-filter, on purpose. The two grips do not
+   share a parent — one is appended to #rail, which is itself a
+   backdrop-filter panel and so establishes a backdrop root, the other to
+   <body> — and an element's backdrop-filter samples whatever root it finds
+   itself in. That made the two grips sit at noticeably different opacities
+   for no reason the eye could account for. A solid fill cannot drift. */
+.collapse.stick{
+  position:absolute;z-index:6;width:22px;height:40px;
+  background:var(--panel-solid);border:1px solid var(--stroke);
+}
+.collapse.stick svg{width:15px;height:15px}
+.collapse.stick:hover{background:var(--accent-soft);color:var(--text)}
+
+/* the tab a folded panel leaves behind, in the panel's own place */
+.tab{
+  display:none;place-items:center;position:fixed;z-index:5;
+  width:34px;height:34px;padding:0;color:var(--muted);
+  background:var(--panel);border:1px solid var(--stroke);border-radius:12px;
+  box-shadow:var(--shadow);
+  -webkit-backdrop-filter:blur(20px) saturate(1.6);
+  backdrop-filter:blur(20px) saturate(1.6);
+  transition:background .16s var(--ease),color .16s var(--ease);
+}
+.tab svg{width:16px;height:16px}
+.tab:hover{color:var(--text);background:var(--panel-solid)}
+
+/* ── top bar: folds up ─────────────────────────────────────────────── */
+/* The chevron is a child of the bar, not a thing floating over it, so it
+   is measured into the bar's width and picks up the bar's own 8px padding
+   and 2px gap exactly like the buttons beside it. Nothing to override:
+   the bar keeps its original symmetric padding. */
+#topbar-tab{top:12px;left:12px}
+body.fold-top #topbar{display:none}
+body.fold-top #topbar-tab{display:grid}
+
+/* ── tool rail: folds left ─────────────────────────────────────────── */
+/* left:100% is the rail's own padding box, so calc(+1px) is its outer
+   edge: the grip sits exactly against the panel, whatever width the
+   tools are given */
+#rail-fold{left:calc(100% + 1px);top:50%;transform:translateY(-50%);border-radius:0 9px 9px 0;border-left:0}
+#rail-tab{left:12px;top:50%;transform:translateY(-50%)}
+body.fold-rail #rail{display:none}
+body.fold-rail #rail-tab{display:grid}
+
+/* ── style panel: folds right ──────────────────────────────────────── */
+/* the panel's own inset + its own width, so the grip's edge is where the
+   panel's edge is and the two always agree */
+#style-fold{position:fixed;right:calc(12px + 206px);top:50%;transform:translateY(-50%);border-radius:9px 0 0 9px;border-right:0}
+#style-tab{right:12px;top:50%;transform:translateY(-50%)}
+body.fold-style #style{display:none}
+body.fold-style #style-fold{display:none}
+body.fold-style #style-tab{display:grid}
+
+/* ── zoom bar: folds down ──────────────────────────────────────────── */
+#viewbar-tab{left:12px;bottom:12px}
+body.fold-view #viewbar{display:none}
+body.fold-view #viewbar-tab{display:grid}
+
+/* inside a host document the top bar belongs to the host: there is
+   nothing behind the tab to bring back, so there is no tab */
+:root[data-embed="1"] #topbar-tab{display:none!important}
 
 [hidden]{display:none!important}
 
