@@ -270,6 +270,15 @@
 
     group(title, ...kids) { return el('div', { class: 'group' }, title ? el('h4', {}, title) : null, ...kids); }
 
+    /* Every control in the style panel ends here. The tool options they
+       change — pen colour, size, opacity, pressure, eraser mode and the
+       rest — are part of the prefs, but only the canvas and behaviour
+       switches used to save them, so a restart put the pen back to its
+       defaults. savePrefs is debounced, so a slider being dragged costs one
+       write when it stops. On a selection the same controls restyle items
+       rather than tools; saving the unchanged prefs then is harmless. */
+    picked() { this.app.savePrefs(); }
+
     swatches(colors, current, onpick, allowCustom = true) {
       const wrap = el('div', { class: 'swatches' });
       for (const c of colors) {
@@ -281,13 +290,13 @@
               : c === 'paper' ? 'background:var(--paper)'
                 : `background:${c}`
         });
-        b.onclick = () => { onpick(c); this.buildPanel(); this.app.requestDraw(); };
+        b.onclick = () => { onpick(c); this.picked(); this.buildPanel(); this.app.requestDraw(); };
         wrap.append(b);
       }
       if (allowCustom) {
         const off = /^#/.test(current) && !colors.includes(current);   // a colour picked by hand
         const inp = el('input', { type: 'color', value: /^#/.test(current) ? current : '#4f6bff' });
-        inp.oninput = () => { onpick(inp.value); this.app.requestDraw(); };
+        inp.oninput = () => { onpick(inp.value); this.picked(); this.app.requestDraw(); };
         wrap.append(el('button', {
           class: 'sw custom' + (off ? ' on' : ''), title: 'Custom colour',
           style: off ? `background:${current}` : 'background:conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)'
@@ -301,7 +310,7 @@
       for (const s of list) {
         const b = el('button', { class: 'size' + (s === current ? ' on' : ''), title: s + 'px' },
           el('i', { style: `width:${Math.min(22, 3 + s * .9)}px;height:${Math.min(22, 3 + s * .9)}px;background:${color || 'currentColor'}` }));
-        b.onclick = () => { onpick(s); this.buildPanel(); };
+        b.onclick = () => { onpick(s); this.picked(); this.buildPanel(); };
         wrap.append(b);
       }
       return wrap;
@@ -311,7 +320,7 @@
       const wrap = el('div', { class: 'seg' });
       for (const [v, label] of options) {
         const b = el('button', { class: current === v ? 'on' : '' }, label);
-        b.onclick = () => { onpick(v); this.buildPanel(); this.app.requestDraw(); };
+        b.onclick = () => { onpick(v); this.picked(); this.buildPanel(); this.app.requestDraw(); };
         wrap.append(b);
       }
       return wrap;
@@ -320,14 +329,14 @@
     slider(label, value, min, max, step, oninput, fmt = v => v) {
       const out = el('span', {}, fmt(value));
       const r = el('input', { type: 'range', min, max, step, value });
-      r.oninput = () => { out.textContent = fmt(+r.value); oninput(+r.value); };
+      r.oninput = () => { out.textContent = fmt(+r.value); oninput(+r.value); this.picked(); };
       return el('div', { class: 'group' }, el('div', { class: 'rowlbl' }, el('span', {}, label), out), r);
     }
 
     check(label, value, onchange) {
       const i = el('input', { type: 'checkbox' });
       i.checked = value;
-      i.onchange = () => { onchange(i.checked); };
+      i.onchange = () => { onchange(i.checked); this.picked(); };
       return el('label', { class: 'check' }, i, label);
     }
 
