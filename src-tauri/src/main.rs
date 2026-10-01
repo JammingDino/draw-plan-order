@@ -15,6 +15,11 @@
 // when it hands a board over) and is remembered in vault.json in the
 // app's config dir. The folder is read from the plugin's own settings,
 // so there is one place to change it.
+//
+// The commands are async so the disk work runs on a worker thread. A
+// plain #[tauri::command] fn runs on the main thread, which is the one
+// pumping the window's input, so every autosave used to freeze the canvas
+// for as long as the board took to write.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde_json::{json, Map, Value};
@@ -225,7 +230,7 @@ fn dpo_config(ctx: State<Ctx>) -> Value {
 }
 
 #[tauri::command]
-fn dpo_get(ctx: State<Ctx>, key: String) -> Result<Value, String> {
+async fn dpo_get(ctx: State<'_, Ctx>, key: String) -> Result<Value, String> {
     let v = ctx.vault.lock().unwrap();
     let idx = v.read_index()?;
     Ok(match key.as_str() {
@@ -260,7 +265,7 @@ fn dpo_get(ctx: State<Ctx>, key: String) -> Result<Value, String> {
 /// An asset's bytes as a raw ArrayBuffer: no JSON array of numbers and no
 /// base64, which for a 15MB PDF is most of the point of leaving Obsidian.
 #[tauri::command]
-fn dpo_asset(ctx: State<Ctx>, id: String) -> Result<Response, String> {
+async fn dpo_asset(ctx: State<'_, Ctx>, id: String) -> Result<Response, String> {
     let path = {
         let v = ctx.vault.lock().unwrap();
         let rel = match id.strip_prefix("vault:") { Some(p) => norm(p), None => v.asset_path(&id) };
@@ -270,7 +275,7 @@ fn dpo_asset(ctx: State<Ctx>, id: String) -> Result<Response, String> {
 }
 
 #[tauri::command]
-fn dpo_set(ctx: State<Ctx>, key: String, value: Value) -> Result<(), String> {
+async fn dpo_set(ctx: State<'_, Ctx>, key: String, value: Value) -> Result<(), String> {
     let v = ctx.vault.lock().unwrap();
     let mut idx = v.read_index()?;
     match key.as_str() {
@@ -310,7 +315,7 @@ fn dpo_set(ctx: State<Ctx>, key: String, value: Value) -> Result<(), String> {
 /// Store a dropped PDF. The bytes are the raw request body; the id and
 /// metadata ride in headers so nothing has to be JSON-encoded.
 #[tauri::command]
-fn dpo_put_asset(ctx: State<Ctx>, request: Request) -> Result<(), String> {
+async fn dpo_put_asset(ctx: State<'_, Ctx>, request: Request<'_>) -> Result<(), String> {
     let hdr = |k: &str| request.headers().get(k).and_then(|h| h.to_str().ok()).map(String::from);
     let id = hdr("dpo-id").ok_or("missing dpo-id")?;
     if id.contains(['/', '\\']) || id.contains("..") || id.starts_with("vault:") {
@@ -331,7 +336,7 @@ fn dpo_put_asset(ctx: State<Ctx>, request: Request) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn dpo_del(ctx: State<Ctx>, key: String) -> Result<(), String> {
+async fn dpo_del(ctx: State<'_, Ctx>, key: String) -> Result<(), String> {
     let v = ctx.vault.lock().unwrap();
     let mut idx = v.read_index()?;
     if let Some(id) = key.strip_prefix("b:") {
@@ -351,7 +356,7 @@ fn dpo_del(ctx: State<Ctx>, key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn dpo_keys(ctx: State<Ctx>) -> Result<Vec<String>, String> {
+async fn dpo_keys(ctx: State<'_, Ctx>) -> Result<Vec<String>, String> {
     let v = ctx.vault.lock().unwrap();
     let idx = v.read_index()?;
     let mut k: Vec<String> = vec!["index".into(), "last".into(), "prefs".into()];

@@ -165,7 +165,7 @@
       if (this.board && this.board.id !== board.id) { D.pdf.clear(); this._assets = new Map(); }
       this.board = board;
       this.scene.load(board.doc);
-      this.camera.load(board.camera);
+      this.camera.load(readView(board.id) || board.camera);
       $('#board-title').value = board.name;
       this.selection = [];
       D.store.setLast(board.id);
@@ -896,7 +896,20 @@
       try { localStorage.setItem('dpo:rescue', JSON.stringify(this.snapshot())); } catch (_) { /* board too big: the DB copy stands */ }
     }
 
-    saveView() { this.board.camera = this.camera.toJSON(); this.saveDebounced(); }
+    /* Where you are looking is kept apart from the board. Writing it used
+       to schedule a full save, so every pan ended in a re-serialisation of
+       the whole board half a second after you let go — about 150ms on a
+       2,000-stroke board, landing just as you put the pen down to pan
+       again, which is why the hitch was only ever at the start of a move.
+       It also rewrote the board file in the vault, and so churned the
+       sync, for nothing but a scroll. The view now goes to a few bytes of
+       localStorage, and rides along in the board record whenever the board
+       is saved for a real edit. */
+    saveView() {
+      if (!this.board) return;
+      this.board.camera = this.camera.toJSON();
+      try { localStorage.setItem(VIEW + this.board.id, JSON.stringify(this.board.camera)); } catch (_) { }
+    }
 
     savePrefs() {
       D.store.setPrefs({ theme: document.documentElement.dataset.theme, grid: this.renderer.grid, opts: this.opts });
@@ -930,6 +943,7 @@
 
     async deleteBoard(id) {
       await D.store.remove(id);
+      try { localStorage.removeItem(VIEW + id); } catch (_) { }
       await D.store.sweepAssets();          // don't leave a deleted board's PDFs behind
       if (id === this.board.id) {
         const list = await D.store.list();
@@ -1116,6 +1130,15 @@
     } catch (_) { return null; }
   }
   function clearRescue() { try { localStorage.removeItem('dpo:rescue'); } catch (_) { } }
+
+  /** the last view of a board in this window, if it has one — see saveView */
+  const VIEW = 'dpo:view:';
+  function readView(id) {
+    try {
+      const c = JSON.parse(localStorage.getItem(VIEW + id));
+      return c && isFinite(c.x) && isFinite(c.y) && c.zoom > 0 ? c : null;
+    } catch (_) { return null; }
+  }
 
   function deepAssign(target, src) {
     for (const k in src) {
