@@ -98,7 +98,81 @@
     };
   }
 
+  /* ── desktop backend ───────────────────────────────────────────────
+     In the Tauri build the shell answers the same contract against the
+     Obsidian vault, in the plugin's exact on-disk layout, so a board is
+     one file whichever of the two has it open. Asset bytes cross the
+     bridge raw in both directions: a PDF is never turned into a JSON
+     array of numbers on its way to pdf.js. */
+  function tauriBackend(invoke) {
+    return {
+      name: 'vault',
+      get: async k => {
+        const v = await invoke('dpo_get', { key: k });
+        if (v && String(k).startsWith('a:')) {
+          v.bytes = new Uint8Array(await invoke('dpo_asset', { id: k.slice(2) }));
+        }
+        return v;
+      },
+      set: (k, v) => {
+        if (!String(k).startsWith('a:')) return invoke('dpo_set', { key: k, value: v });
+        const { bytes, b64, ...meta } = v;
+        const raw = bytes ? new Uint8Array(bytes) : b64 ? fromB64(b64) : new Uint8Array();
+        return invoke('dpo_put_asset', raw, {
+          headers: { 'dpo-id': k.slice(2), 'dpo-meta': encodeURIComponent(JSON.stringify(meta)) }
+        });
+      },
+      del: k => invoke('dpo_del', { key: k }),
+      keys: () => invoke('dpo_keys')
+    };
+  }
+
+  /* Boards drawn in the desktop app before it knew about the vault live
+     in this profile's IndexedDB. Copy each one across the first time the
+     vault is available — never overwriting a board already there, and
+     leaving IndexedDB untouched so nothing is lost if this goes wrong. */
+  async function migrateFromIdb(vault) {
+    const FLAG = 'dpo:migrated-to-vault';
+    try { if (localStorage.getItem(FLAG)) return 0; } catch (e) { return 0; }
+    let old;
+    try { old = await Promise.race([idb(), new Promise((_, r) => setTimeout(r, 3000))]); }
+    catch (e) { return 0; }
+
+    const have = new Set((await vault.keys()).filter(k => k.startsWith('b:') || k.startsWith('a:')));
+    for (const k of await old.keys()) {
+      const s = String(k);
+      if (!s.startsWith('a:') || have.has(s)) continue;
+      const rec = await old.get(k);
+      if (rec) await vault.set(s, rec);
+    }
+    let n = 0;
+    for (const entry of (await old.get(INDEX)) || []) {
+      const b = await old.get('b:' + entry.id);
+      if (!b) continue;
+      if (have.has('b:' + b.id)) {
+        const there = await vault.get('b:' + b.id);
+        if (there && there.created === b.created) continue;   // already moved
+        b.id = U.uid();                                        // a different board wearing the same id
+      }
+      delete b.file;                                           // lives in the boards folder
+      await vault.set('b:' + b.id, b);
+      const idx = (await vault.get(INDEX)) || [];
+      idx.unshift({ id: b.id, name: b.name, updated: b.updated || Date.now(),
+        count: b.doc.items.length, thumb: b.thumb, thumbTheme: b.thumbTheme });
+      idx.sort((x, y) => y.updated - x.updated);
+      await vault.set(INDEX, idx);
+      n++;
+    }
+    if (!(await vault.get('prefs'))) {
+      const p = await old.get('prefs');
+      if (p) await vault.set('prefs', p);
+    }
+    try { localStorage.setItem(FLAG, String(Date.now())); } catch (e) { }
+    return n;
+  }
+
   const S = D.store = {};
+  S.migrated = 0;
 
   S.init = async () => {
     // ?scratch — a throwaway board that never touches your saved work.
@@ -111,6 +185,27 @@
       backend = hostBackend();
       S.backend = backend.name;
       return S.backend;
+    }
+    /* The desktop app, once it knows where the vault is. What it was
+       launched to open (the plugin's "open in app") goes on the query
+       string, so the rest of boot reads it exactly as it does inside
+       the plugin's frame. */
+    const invoke = self.__TAURI_INTERNALS__ && self.__TAURI_INTERNALS__.invoke;
+    if (invoke) {
+      try {
+        const cfg = await invoke('dpo_config');
+        if (cfg && cfg.vault) {
+          backend = tauriBackend(invoke);
+          S.backend = backend.name;
+          S.vault = cfg;
+          const q = new URLSearchParams(location.search);
+          for (const [k, v] of Object.entries(cfg.launch || {})) if (!q.has(k)) q.set(k, v);
+          const qs = q.toString();
+          history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+          S.migrated = await migrateFromIdb(backend).catch(err => { console.error('[dpo] migration', err); return 0; });
+          return S.backend;
+        }
+      } catch (e) { console.error('[dpo] vault unavailable, using this profile', e); }
     }
     try {
       if (self.indexedDB && location.protocol !== 'file:') {

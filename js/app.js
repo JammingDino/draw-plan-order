@@ -124,6 +124,8 @@
       this.requestDraw();
       this.ui.refresh();
       this.ui.restoreFolds();      // the panels you had folded away last time
+      const moved = D.store.migrated;
+      if (moved) setTimeout(() => this.toast(`Moved ${moved} board${moved > 1 ? 's' : ''} into the vault`), 800);
       this.registerServiceWorker();
 
       /* ?pdf=<host path> — this board exists to annotate that document.
