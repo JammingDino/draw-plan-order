@@ -70,18 +70,16 @@
       if (it.type === 'node') {
         const pad = it.kind === 'decision' ? it.w * 0.2 : 12;
         size = it.textSize || 15;
-        const L = scene.layout({ text: it.text, size, w: it.w - pad * 2 });
+        const L = scene.layout({ text: it.text, size, w: it.w - pad * 2, font: it.font });
         x = it.x + pad; w = it.w - pad * 2;
-        y = it.y + (it.h - L.lines.length * L.lh) / 2 + (L.lh - size) / 2;
+        y = it.y + (it.h - L.lines.length * L.lh) / 2;
         color = it.textColor || it.color; align = 'center';
       }
-      if (it.type === 'text') {
-        const L = scene.layout(it);
-        y += (L.lh - it.size) / 2;
-      }
+      /* No nudging: the textarea's line boxes start where the painter's do,
+         and the painter puts each baseline where CSS will (layout().base). */
 
       const p = cam.toScreen(x, y);
-      const L = scene.layout(it.type === 'text' ? it : { text: it.text, size, w });
+      const L = scene.layout(it.type === 'text' ? it : { text: it.text, size, w, font: it.font });
       const ta = this.ta;
       ta.style.left = p.x + 'px';
       ta.style.top = p.y + 'px';

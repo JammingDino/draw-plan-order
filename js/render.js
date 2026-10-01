@@ -311,15 +311,24 @@
       ctx.fillStyle = U.color(color); ctx.fill();
     }
 
+    /* The text being typed into is shown by the editor's textarea, which
+       sits exactly over it. Painting it on the canvas as well gave two
+       copies, and the browser's line box never puts glyphs on precisely
+       the pixel the canvas's 'top' baseline does, so they doubled up a
+       couple of pixels apart: the ghosting. On screen the textarea is the
+       only copy; thumbnails and exports still get the text. */
+    editing(ctx, it) { return ctx === this.bctx && this.app.editor && this.app.editor.item === it; }
+
     drawText(ctx, it) {
+      if (this.editing(ctx, it)) return;
       const L = this.app.scene.layout(it);
       ctx.font = L.font;
       ctx.fillStyle = U.color(it.color);
-      ctx.textBaseline = 'top';
+      ctx.textBaseline = 'alphabetic';
       ctx.textAlign = it.align || 'left';
       const w = it.autoWidth ? L.width : it.w;
       const ax = it.align === 'center' ? it.x + w / 2 : it.align === 'right' ? it.x + w : it.x;
-      L.lines.forEach((ln, i) => ctx.fillText(ln, ax, it.y + i * L.lh + (L.lh - it.size) / 2));
+      L.lines.forEach((ln, i) => ctx.fillText(ln, ax, it.y + i * L.lh + L.base));
     }
 
     drawNote(ctx, it) {
@@ -329,12 +338,13 @@
       ctx.shadowColor = '#0000002e'; ctx.shadowBlur = 14; ctx.shadowOffsetY = 4;
       ctx.fillStyle = U.color(it.color); ctx.fill(p);
       ctx.restore();
+      if (this.editing(ctx, it)) return;
       const pad = 14;
       const t = { text: it.text, x: it.x + pad, y: it.y + pad, w: it.w - pad * 2, size: it.size, color: it.textColor || '#22252c', align: it.align, font: it.font };
       const L = this.app.scene.layout(t);
-      ctx.font = L.font; ctx.fillStyle = U.color(t.color); ctx.textBaseline = 'top'; ctx.textAlign = t.align || 'left';
+      ctx.font = L.font; ctx.fillStyle = U.color(t.color); ctx.textBaseline = 'alphabetic'; ctx.textAlign = t.align || 'left';
       const ax = t.align === 'center' ? t.x + t.w / 2 : t.align === 'right' ? t.x + t.w : t.x;
-      L.lines.forEach((ln, i) => { if (t.y + (i + 1) * L.lh < it.y + it.h) ctx.fillText(ln, ax, t.y + i * L.lh); });
+      L.lines.forEach((ln, i) => { if (t.y + (i + 1) * L.lh < it.y + it.h) ctx.fillText(ln, ax, t.y + i * L.lh + L.base); });
     }
 
     nodePath(it) {
@@ -351,13 +361,13 @@
       const p = this.nodePath(it);
       if (it.fill && it.fill !== 'none') { ctx.fillStyle = U.color(it.fill); ctx.fill(p); }
       ctx.lineWidth = it.size; ctx.strokeStyle = U.color(it.color); ctx.stroke(p);
-      if (!it.text) return;
+      if (!it.text || this.editing(ctx, it)) return;
       const pad = it.kind === 'decision' ? it.w * 0.2 : 12;
       const t = { text: it.text, x: it.x + pad, y: 0, w: it.w - pad * 2, size: it.textSize || 15, align: 'center', font: it.font };
       const L = this.app.scene.layout(t);
-      ctx.font = L.font; ctx.fillStyle = U.color(it.textColor || it.color); ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+      ctx.font = L.font; ctx.fillStyle = U.color(it.textColor || it.color); ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'center';
       const top = it.y + (it.h - L.lines.length * L.lh) / 2;
-      L.lines.forEach((ln, i) => ctx.fillText(ln, it.x + it.w / 2, top + i * L.lh + (L.lh - t.size) / 2));
+      L.lines.forEach((ln, i) => ctx.fillText(ln, it.x + it.w / 2, top + i * L.lh + L.base));
     }
 
     drawEdge(ctx, it) {
@@ -549,7 +559,7 @@
         const pts = scene.outlinePoints({ ...it, type: 'shape', kind: it.kind === 'decision' ? 'diamond' : 'rect' }).map(v => U.round(v, 1));
         const d = 'M' + pts.filter((_, i) => i % 2 === 0).map((x, i) => `${x},${pts[i * 2 + 1]}`).join('L') + 'Z';
         const L = scene.layout({ text: it.text, size: it.textSize || 15, w: it.w - 20 });
-        const top = it.y + (it.h - L.lines.length * L.lh) / 2 + L.lh * 0.75;
+        const top = it.y + (it.h - L.lines.length * L.lh) / 2 + L.base;
         const tx = L.lines.map((ln, i) => `<text x="${it.x + it.w / 2}" y="${top + i * L.lh}" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="${it.textSize || 15}" fill="${U.color(it.textColor || it.color)}">${U.escapeXml(ln)}</text>`).join('');
         return `<g${op}><path d="${d}" fill="${U.color(it.fill)}" stroke="${U.color(it.color)}" stroke-width="${it.size}"/>${tx}</g>`;
       }
@@ -581,7 +591,7 @@
   function svgText(scene, it, op = '') {
     const L = scene.layout(it);
     return `<g${op}>` + L.lines.map((ln, i) =>
-      `<text x="${it.x}" y="${U.round(it.y + i * L.lh + it.size, 1)}" font-family="Segoe UI, sans-serif" font-size="${it.size}" fill="${U.color(it.color)}">${U.escapeXml(ln)}</text>`).join('') + '</g>';
+      `<text x="${it.x}" y="${U.round(it.y + i * L.lh + L.base, 1)}" font-family="Segoe UI, sans-serif" font-size="${it.size}" fill="${U.color(it.color)}">${U.escapeXml(ln)}</text>`).join('') + '</g>';
   }
 
   D.Renderer = Renderer;
