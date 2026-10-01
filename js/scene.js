@@ -215,7 +215,7 @@
 
     /* ── geometry ─────────────────────────────────────────────────── */
     bbox(item) {
-      if (item._b) return item._b;
+      if (item._b && (item.type !== 'edge' || this._edgeBoxFresh(item))) return item._b;
       let b;
       switch (item.type) {
         case 'stroke':
@@ -231,13 +231,34 @@
         }
         case 'edge': {
           const pts = this.edgePath(item);
-          b = U.boxFromPoints(pts, 2, item.size + 8); break;
+          b = U.boxFromPoints(pts, 2, item.size + 8);
+          item._ends = this._edgeEnds(item);
+          break;
         }
         default:
           b = U.box(item.x, item.y, item.x + item.w, item.y + item.h);
       }
       item._b = b;
       return b;
+    }
+
+    /* A connector's box depends on the boxes of the things it is attached
+       to, and moving one of those clears only that item's cache — the
+       edge never hears about it. A connector whose node had moved kept
+       its old box, so the spatial index filed it where the line used to
+       be: it vanished once that spot scrolled off, and could not be
+       clicked where it was actually drawn. So the edge remembers which
+       endpoint boxes it was measured against. A moved, resized, undone or
+       re-typed item always gets a new box object, which makes identity a
+       complete and nearly free check. */
+    _edgeEnds(edge) {
+      const f = edge.from.id && this.byId.get(edge.from.id);
+      const t = edge.to.id && this.byId.get(edge.to.id);
+      return [f ? this.bbox(f) : null, t ? this.bbox(t) : null];
+    }
+    _edgeBoxFresh(edge) {
+      const was = edge._ends, now = this._edgeEnds(edge);
+      return !!was && was[0] === now[0] && was[1] === now[1];
     }
 
     /** text layout with word wrap; cached on the item */

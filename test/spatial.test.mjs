@@ -165,3 +165,26 @@ test('a stroke is found by the ink it covers, not just its corners', () => {
   assert.ok(s.hitTest(1000, 1000, 6), 'hit on the line');
   assert.equal(s.hitTest(1000, 200, 6), null, 'miss off the line');
 });
+
+/* A connector's box is derived from the nodes it joins. Moving a node
+   used to leave the connector's cached box where the line had been, so
+   the index filed it there: off screen it vanished, on screen it could
+   not be clicked where it was drawn. */
+test('a connector follows a node that moves, through the index and through undo', () => {
+  const s = new D.Scene();
+  const a = s.add(D.make.node({ x: 0, y: 0, w: 160, h: 80 }));
+  const b = s.add(D.make.node({ x: 400, y: 200, w: 160, h: 80 }));
+  const e = s.add(D.make.edge({ from: { id: a.id }, to: { id: b.id }, style: 'line' }));
+  assert.ok(s.near(U.box(200, 100, 260, 160)).includes(e), 'found mid-way before the move');
+
+  s.begin('move'); s.translate(b, -3000, -3000); s.commit();
+  const mid = U.box(-1400, -1450, -1300, -1350);   // on the line's new course, nowhere near the old one
+  assert.ok(s.near(mid).includes(e), 'the index finds the connector on its new course');
+  assert.ok(!s.near(U.box(380, 160, 420, 200)).includes(e), 'and no longer where it was');
+  const p = s.edgePath(e);
+  assert.equal(s.hitTest((p[0] + p[2]) / 2, (p[1] + p[3]) / 2, 6), e, 'clickable where it is drawn');
+
+  s.undo();
+  assert.ok(s.near(U.box(200, 100, 260, 160)).includes(e), 'back where it was after undo');
+  assert.ok(!s.near(mid).includes(e));
+});
