@@ -82,7 +82,21 @@ window.DPO = window.DPO || {};
   /** Does polyline A (flat [x,y,...]) come within `tol` of polyline B? */
   U.polylineNear = (a, b, tol) => {
     const t2 = tol * tol;
+    /* Every segment of A against every segment of B is a lot of pairs —
+       a lasso of a few hundred points against each stroke inside its box
+       ran to tens of millions a pointer move. A segment of A that misses
+       B's box (grown by tol) cannot touch B or come within tol of it, so
+       it is skipped whole: the same answer, for a fraction of the work. */
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    for (let j = 0; j < b.length; j += 2) {
+      const x = b[j], y = b[j + 1];
+      if (x < x1) x1 = x; if (x > x2) x2 = x;
+      if (y < y1) y1 = y; if (y > y2) y2 = y;
+    }
+    x1 -= tol; y1 -= tol; x2 += tol; y2 += tol;
     for (let i = 0; i < a.length - 2; i += 2) {
+      const ax = a[i], ay = a[i + 1], bx = a[i + 2], by = a[i + 3];
+      if ((ax < x1 && bx < x1) || (ax > x2 && bx > x2) || (ay < y1 && by < y1) || (ay > y2 && by > y2)) continue;
       for (let j = 0; j < b.length - 2; j += 2) {
         if (U.segmentsIntersect(a[i], a[i + 1], a[i + 2], a[i + 3], b[j], b[j + 1], b[j + 2], b[j + 3])) return true;
         if (U.distToSegment2(a[i], a[i + 1], b[j], b[j + 1], b[j + 2], b[j + 3]) < t2) return true;

@@ -170,8 +170,21 @@
            appears to do nothing, so drop the ones that changed nothing. */
         if (now && !sameItem(before, now)) updates.push({ id, before, after: clone(now) });
       }
-      if (!t.adds.length && !t.removes.length && !updates.length) return;
-      const op = { label: t.label, adds: t.adds.map(clone), removes: t.removes.map(r => ({ item: clone(r.item), index: r.index })), updates };
+      /* Something both made and removed within the step — a piece of a
+         stroke the pixel eraser cut, then cut again before lifting — was
+         never on the board before or after it. Undo used to put it back
+         anyway, as a stray duplicate over the restored stroke. */
+      let adds = t.adds, removes = t.removes;
+      if (adds.length && removes.length) {
+        const made = new Set(adds);
+        const passing = new Set(removes.filter(r => made.has(r.item)).map(r => r.item));
+        if (passing.size) {
+          adds = adds.filter(it => !passing.has(it));
+          removes = removes.filter(r => !passing.has(r.item));
+        }
+      }
+      if (!adds.length && !removes.length && !updates.length) return;
+      const op = { label: t.label, adds: adds.map(clone), removes: removes.map(r => ({ item: clone(r.item), index: r.index })), updates };
       op.weight = weigh(op);
       this.undoStack.push(op);
       this.redoStack.length = 0;

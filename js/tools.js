@@ -190,6 +190,7 @@
 
     down(ev) {
       this.path = [ev.x, ev.y];
+      this.done = 0;                          // how much of the path has been applied
       this.app.scene.begin('erase');
       this.erase();
       this.app.requestDrawLive();
@@ -200,16 +201,24 @@
       this.erase();
       this.app.requestDrawLive();
     }
+    /* Only the part of the path since the last call is new: everything
+       the earlier part crossed has already been taken. That part is the
+       new samples plus the point before them, so it joins on. It used to
+       be the last four points, which a fast pen can outrun — several
+       coalesced samples arrive per move — leaving ink untouched between
+       them; and the pixel eraser cut each stroke against the whole path
+       so far, so a long rub got slower the longer it went on. */
     erase() {
       const app = this.app, scene = app.scene;
       const rad = this.opt.size / 2;          // in world units, like the pen
-      const tail = this.path.slice(Math.max(0, this.path.length - 8));
-      const hits = scene.itemsCrossing(tail.length >= 4 ? tail : this.path, rad, D.erasable);
+      const seg = this.path.slice(Math.max(0, this.done - 2));
+      this.done = this.path.length;
+      const hits = scene.itemsCrossing(seg, rad, D.erasable);
       if (!hits.length) return;
       if (this.opt.mode === 'partial') {
         for (const it of hits) {
           if (it.type !== 'stroke') { scene.remove(it); continue; }
-          const parts = splitStroke(it, this.path, rad);
+          const parts = splitStroke(it, seg, rad);
           if (parts === null) continue;
           const idx = scene.indexOf(it);
           scene.remove(it);
