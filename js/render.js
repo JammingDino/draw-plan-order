@@ -62,7 +62,96 @@
     }
 
     /* ── scene ────────────────────────────────────────────────────── */
-    drawScene() {
+    /**
+     * Repaint the board. `scroll` is the caller's word that nothing but
+     * the camera's position may have changed since the last paint (see
+     * App.requestPan); the painter still checks, and repaints everything
+     * whenever anything else differs.
+     */
+    drawScene(scroll) {
+      const cam = this.app.camera, editor = this.app.editor;
+      const st = {
+        x: cam.x, y: cam.y, zoom: cam.zoom, dpr: this.dpr, w: this.w, h: this.h,
+        theme: U.theme(), grid: this.grid, v: this.app.scene.version, edit: editor && editor.item
+      };
+      const was = this._painted;
+      this._painted = st;
+      if (scroll && was && this.scrollFrom(was, st)) return;
+      this.paintAll();
+    }
+
+    /**
+     * A pan, painted as a pan: the picture already on the canvas is
+     * shifted by however far the camera moved, and only the strips that
+     * uncovered are painted. Panning used to repaint everything visible on
+     * every frame — on a dense board zoomed out, tens of thousands of
+     * strokes, sixty times a second, which is where panning went heavy.
+     *
+     * Only when the shift is a whole number of device pixels, so the old
+     * pixels land exactly where a fresh paint would put them (pans are
+     * made in whole device pixels for this; App.panScreen). Anything else
+     * — a zoom, an edit, a resize, a theme — and the caller repaints.
+     */
+    scrollFrom(was, st) {
+      for (const k of ['zoom', 'dpr', 'w', 'h', 'theme', 'grid', 'v', 'edit']) if (was[k] !== st[k]) return false;
+      const fx = (st.x - was.x) * st.dpr, fy = (st.y - was.y) * st.dpr;
+      const dx = Math.round(fx), dy = Math.round(fy);
+      if (Math.abs(fx - dx) > 1e-6 || Math.abs(fy - dy) > 1e-6) return false;
+      const W = this.base.width, H = this.base.height;
+      if (Math.abs(dx) * 3 > W || Math.abs(dy) * 3 > H) return false;   // mostly new anyway
+      if (!dx && !dy) { this.notePages(); return true; }
+
+      const ctx = this.bctx;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'copy';
+      ctx.drawImage(this.base, dx, dy);
+      ctx.restore();
+
+      let drawn = 0;
+      if (dx) drawn += this.paintRegion(dx > 0 ? 0 : W + dx, 0, Math.abs(dx), H);
+      if (dy) drawn += this.paintRegion(0, dy > 0 ? 0 : H + dy, W, Math.abs(dy));
+      this.lastDrawn = drawn;
+      this.notePages();
+      return true;
+    }
+
+    /** paint one rectangle of the canvas (device pixels) from scratch */
+    paintRegion(x, y, w, h) {
+      const ctx = this.bctx, d = this.dpr, cam = this.app.camera;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      ctx.setTransform(d, 0, 0, d, 0, 0);
+      const css = this.tokens();
+      ctx.fillStyle = css.paper;
+      ctx.fillRect(x / d, y / d, w / d, h / d);
+      this.drawGrid(ctx, css);
+      this.worldTransform(ctx);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      // padded as paintAll pads the view, so a shadow reaching in is drawn
+      const a = cam.toWorld(x / d - 80, y / d - 80), b = cam.toWorld((x + w) / d + 80, (y + h) / d + 80);
+      const items = this.app.scene.near(U.box(a.x, a.y, b.x, b.y));
+      this.drawItems(ctx, items);
+      ctx.restore();
+      return items.length;
+    }
+
+    /* A PDF page learns it is on screen by being painted (D.pdf.bitmap),
+       and stops being rendered for once it has gone unasked for a while.
+       A pan paints only the strips, so the pages still in view say so
+       here — or a long pan would cancel their sharp renders. */
+    notePages() {
+      const scene = this.app.scene, cam = this.app.camera;
+      if (!this._pdfs || this._pdfs.v !== scene.version)
+        this._pdfs = { v: scene.version, list: scene.items.filter(i => i.type === 'pdfpage') };
+      if (!this._pdfs.list.length) return;
+      const view = cam.viewport(this.w, this.h, 80);
+      for (const it of this._pdfs.list)
+        if (U.boxesOverlap(view, scene.bbox(it))) D.pdf.bitmap(this.app, it, cam.zoom * this.dpr);
+    }
+
+    paintAll() {
       const ctx = this.bctx, app = this.app, cam = app.camera;
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.clearRect(0, 0, this.w, this.h);

@@ -203,6 +203,27 @@
       this._raf = requestAnimationFrame(() => { this._raf = null; this.frame(); });
     }
     requestDraw() { this.needBase = true; this.needLive = true; this.schedule(); }
+    /* Only the camera's position changed: the scene layer may shift what
+       it already has instead of repainting (Renderer.scrollFrom). Anything
+       else asking for a draw in the same frame still gets a full one. */
+    requestPan() { this.needPan = true; this.needLive = true; this.schedule(); }
+
+    /**
+     * Pan by a screen distance, in whole device pixels.
+     *
+     * Moves that land on the device-pixel grid are what let a pan shift
+     * the picture already painted instead of repainting it. The part of
+     * each move that does not fit is carried into the next, so the board
+     * still follows the pointer to within half a device pixel.
+     */
+    panScreen(dx, dy) {
+      const d = this.renderer.dpr, rest = this._panRest || (this._panRest = { x: 0, y: 0 });
+      const tx = dx + rest.x, ty = dy + rest.y;
+      const qx = Math.round(tx * d) / d, qy = Math.round(ty * d) / d;
+      rest.x = tx - qx; rest.y = ty - qy;
+      this.camera.panBy(qx, qy);
+      this.requestPan();
+    }
     requestDrawLive() { this.needLive = true; this.schedule(); }
     startAnim() { this.anim = true; this.schedule(); }
     stopAnim() { this.anim = false; }
@@ -210,9 +231,10 @@
     frame() {
       const r = this.renderer;
       if (this.perf) this.perf.frameStart();
-      if (this.needBase) {
-        this.needBase = false;
-        r.drawScene();
+      if (this.needBase || this.needPan) {
+        const full = this.needBase;
+        this.needBase = this.needPan = false;
+        r.drawScene(!full);
         if (this.perf) {
           this.perf.drawn = r.lastDrawn;
           this.perf.simplified = r.lastSimplified;
@@ -518,12 +540,12 @@
       if (e.ctrlKey || e.metaKey) {
         const f = Math.exp(-e.deltaY * 0.0035);
         this.camera.zoomBy(f, e.clientX, e.clientY);
+        this.requestDraw();
       } else if (e.shiftKey) {
-        this.camera.panBy(-e.deltaY - e.deltaX, 0);
+        this.panScreen(-e.deltaY - e.deltaX, 0);
       } else {
-        this.camera.panBy(-e.deltaX, -e.deltaY);
+        this.panScreen(-e.deltaX, -e.deltaY);
       }
-      this.requestDraw();
       $('#btn-zoom-reset').textContent = Math.round(this.camera.zoom * 100) + '%';
       this.saveViewDebounced();
     }

@@ -520,9 +520,8 @@
     down(ev) { this.last = { x: ev.sx, y: ev.sy }; document.body.classList.add('grabbing'); }
     move(ev) {
       if (!this.last) return;
-      this.app.camera.panBy(ev.sx - this.last.x, ev.sy - this.last.y);
+      this.app.panScreen(ev.sx - this.last.x, ev.sy - this.last.y);
       this.last = { x: ev.sx, y: ev.sy };
-      this.app.requestDraw();
     }
     up() { this.last = null; document.body.classList.remove('grabbing'); this.app.saveView(); }
     cancel() { this.last = null; document.body.classList.remove('grabbing'); }
