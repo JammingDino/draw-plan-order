@@ -228,11 +228,19 @@ Settings → **Suggest a feature** (also at the foot of the ☰ menu) opens the
 
 ## Releases
 
-Bump `version` in `package.json` and push to `master`. The release
-workflow sees a version with no release yet, builds the installer on
-Windows, signs the update, and publishes it with the `latest.json` that
-installed copies check on start. A push that does not change the version
-only runs the tests. `tauri.conf.json` reads its version from
+Every push to `master` that changes the app is released automatically:
+the release workflow builds the installer on Windows, signs the update,
+and publishes it with the `latest.json` that installed copies check on
+start. Pushes that only touch docs, tests or the issue forms just run the
+tests.
+
+The version comes from `package.json`. If it has not been released yet,
+that is the version shipped — so for a minor or major release (`0.4.0`,
+`1.0.0`), bump it there and push. Otherwise the workflow takes the newest
+release, adds one to the patch number (`0.3.0` → `0.3.1`), and commits that
+bump back to `master`, so pull before your next change. A build that fails
+leaves its version unreleased, and the next push (or **Run workflow** on the
+Actions tab) ships it. `tauri.conf.json` reads its version from
 `package.json`, so that is the only number to change.
 
 Updates are signed with a key pair made by `npx tauri signer generate`.

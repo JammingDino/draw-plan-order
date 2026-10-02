@@ -1,9 +1,19 @@
 name: Release
 
-# Every push to master ships a release, unless the version in package.json
-# has already been released. So: bump the version, push, and the installer,
-# its signed update and latest.json appear under Releases. Installed copies
-# find the update the next time they start (Settings → Updates).
+# Every push to master that changes the app ships a release. Installed
+# copies find it the next time they start (Settings → Updates).
+#
+# The version comes from package.json:
+# - if that version has not been released yet, it is the one shipped, so a
+#   minor or major bump (0.3.0, 1.0.0) is made by editing package.json and
+#   pushing;
+# - otherwise the patch number goes up by one from the newest release
+#   (0.3.0 → 0.3.1), and the workflow commits that bump back to master so
+#   the repository always says what was last shipped.
+#
+# Pushes that only touch docs, tests or the issue forms do not release.
+# A failed build leaves its version unreleased, so the next push (or
+# "Run workflow" on the Actions tab) ships it.
 #
 # The update is signed with the private key in the TAURI_SIGNING_PRIVATE_KEY
 # secret; the app trusts only the matching public key in tauri.conf.json.
@@ -11,6 +21,11 @@ name: Release
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - '**.md'
+      - 'test/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.claude/**'
   workflow_dispatch:
 
 concurrency:
@@ -21,32 +36,50 @@ permissions:
   contents: write
 
 jobs:
-  check:
+  version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
-      released: ${{ steps.v.outputs.released }}
+      sha: ${{ steps.v.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: master          # the newest master, not the commit that triggered this
+          fetch-depth: 0
       - id: v
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(node -p "require('./package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "released=true" >> "$GITHUB_OUTPUT"
-            echo "v$version is already released. Bump the version in package.json to ship a new one." >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          current=$(node -p "require('./package.json').version")
+          latest=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 100 --json tagName \
+            -q '.[].tagName' | sed -n 's/^v//p' | sort -V | tail -n1)
+          latest=${latest:-0.0.0}
+
+          if [ "$(printf '%s\n%s\n' "$latest" "$current" | sort -V | tail -n1)" = "$current" ] && [ "$current" != "$latest" ]; then
+            version=$current
+            echo "Releasing v$version, as set in package.json." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "released=false" >> "$GITHUB_OUTPUT"
+            IFS=. read -r major minor patch <<< "$latest"
+            version="$major.$minor.$((patch + 1))"
+            echo "v$latest is the newest release; releasing v$version." >> "$GITHUB_STEP_SUMMARY"
+            npm version "$version" --no-git-tag-version   # package.json and package-lock.json
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -am "Release v$version"
+            # pushes made with the workflow token start no workflows, so this cannot loop
+            git push origin HEAD:master
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
-    needs: check
-    if: needs.check.outputs.released == 'false'
+    needs: version
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -68,6 +101,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: Draw · Plan · Order v__VERSION__
+          releaseCommitish: ${{ needs.version.outputs.sha }}
           releaseBody: |
             **New install:** download the `_x64-setup.exe` below and run it. It installs for you alone, so no admin prompt.
 
