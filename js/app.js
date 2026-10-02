@@ -168,9 +168,10 @@
     }
 
     setBoard(board) {
-      if (this.board && this.board.id !== board.id) { D.pdf.clear(); this._assets = new Map(); }
+      if (this.board && this.board.id !== board.id) { D.pdf.clear(); this.renderer.forgetPictures(); this._assets = new Map(); }
       this.board = board;
       this.scene.load(board.doc);
+      this.movePicturesOut();
       this.camera.load(readView(board.id) || board.camera);
       $('#board-title').value = board.name;
       this.selection = [];
@@ -647,9 +648,29 @@
 
     copy() {
       if (!this.selection.length) return;
-      this.clipboard = this.selection.map(D.clone);
-      // also offer it to the system clipboard, so it can be pasted into another board
-      try { navigator.clipboard.writeText(JSON.stringify({ dpo: true, items: this.clipboard })).catch(() => { }); } catch (_) { }
+      const items = this.clipboard = this.selection.map(D.clone);
+      /* Also offer it to the system clipboard, so it can be pasted into
+         another board. Pictures go with it: they are assets now, and the
+         window it lands in — another browser, the desktop app — may keep
+         its assets somewhere else entirely. (PDF pages travel as a
+         reference, as they always have; a whole document is too much.) */
+      (async () => {
+        const assets = {};
+        for (const id of new Set(items.filter(i => i.type === 'image' && i.asset).map(i => i.asset))) {
+          const bytes = await this.getAsset(id);
+          const meta = (this.board.assets || []).find(a => a.id === id) || {};
+          if (bytes) assets[id] = { name: meta.name, type: meta.type, b64: D.store.toB64(bytes) };
+        }
+        await navigator.clipboard.writeText(JSON.stringify({ dpo: true, items, assets }));
+      })().catch(() => { });
+    }
+
+    /** store any pictures a paste brought with it that this window lacks */
+    async adoptAssets(assets) {
+      for (const [id, a] of Object.entries(assets || {})) {
+        if (await this.getAsset(id).catch(() => null)) continue;
+        await this.putAsset(id, D.store.fromB64(a.b64), { name: a.name || 'picture', type: a.type || 'image/png' });
+      }
     }
 
     pasteItems(items, at) {
@@ -686,7 +707,11 @@
       if (text) {
         try {
           const j = JSON.parse(text);
-          if (j && j.dpo && Array.isArray(j.items)) { e.preventDefault(); this.pasteItems(j.items, at); return; }
+          if (j && j.dpo && Array.isArray(j.items)) {
+            e.preventDefault();
+            this.adoptAssets(j.assets).catch(err => console.warn('[dpo] paste', err)).then(() => this.pasteItems(j.items, at));
+            return;
+          }
         } catch (_) { }
         e.preventDefault();
         const o = this.opts.text;
@@ -737,21 +762,69 @@
       return bytes;
     }
 
-    insertImageFile(file, at) {
-      const fr = new FileReader();
-      fr.onload = () => {
-        const img = new Image();
-        img.onload = () => {
-          const max = 520;
-          const s = Math.min(1, max / Math.max(img.width, img.height));
-          const it = mk.image({ src: fr.result, w: img.width * s, h: img.height * s });
-          it.x = at.x - it.w / 2; it.y = at.y - it.h / 2;
-          this.scene.begin('image'); this.scene.add(it); this.scene.commit();
-          this.setTool('select'); this.select([it]); this.afterEdit();
-        };
-        img.src = fr.result;
-      };
-      fr.readAsDataURL(file);
+    /**
+     * Put a picture on the board.
+     *
+     * The file is kept as an asset, like a PDF, and the board holds only
+     * its id. Pictures used to ride inside the board as data URLs, so a
+     * few pasted screenshots made the board record megabytes long, and
+     * every autosave — after every stroke — copied all of it again: into
+     * IndexedDB here, and across the bridge and onto disk in the desktop
+     * app, where it also churned the vault's sync. Stored at full
+     * resolution either way; nothing is recompressed.
+     */
+    async insertImageFile(file, at) {
+      let size;
+      try {
+        const bmp = await createImageBitmap(file);
+        size = { w: bmp.width, h: bmp.height };
+        if (bmp.close) bmp.close();
+      } catch (err) { return this.toast('Could not read that picture'); }
+      const max = 520;
+      const s = Math.min(1, max / Math.max(size.w, size.h));
+      const type = file.type || 'image/png';
+      let it;
+      try {
+        const id = U.uid();
+        await this.putAsset(id, new Uint8Array(await file.arrayBuffer()), { name: file.name || 'picture', type });
+        it = mk.image({ asset: id, mime: type, w: size.w * s, h: size.h * s });
+      } catch (err) {
+        // nowhere to keep it apart from the board: carry it inline, as before
+        console.warn('[dpo] picture kept inline', err);
+        it = mk.image({ src: await dataUrlOf(file), w: size.w * s, h: size.h * s });
+      }
+      it.x = at.x - it.w / 2; it.y = at.y - it.h / 2;
+      this.scene.begin('image'); this.scene.add(it); this.scene.commit();
+      this.setTool('select'); this.select([it]); this.afterEdit();
+    }
+
+    /**
+     * Boards from before pictures were assets carry them inline. Move each
+     * one out, once, when the board is opened — the same picture pasted
+     * twice becomes one asset. The items change in place rather than
+     * through history: nothing about the board's content changes, and
+     * undoing back to the inline form would draw just the same.
+     */
+    async movePicturesOut() {
+      const board = this.board;
+      const inline = this.scene.items.filter(i => i.type === 'image' && !i.asset && /^data:[^,]*;base64,/.test(i.src || ''));
+      if (!inline.length) return;
+      const made = new Map();
+      for (const it of inline) {
+        if (this.board !== board) return;           // switched boards meanwhile
+        let a = made.get(it.src);
+        if (!a) {
+          const comma = it.src.indexOf(',');
+          const type = it.src.slice(5, comma).replace(/;base64$/, '') || 'image/png';
+          a = { id: U.uid(), type };
+          try { await this.putAsset(a.id, D.store.fromB64(it.src.slice(comma + 1)), { name: 'picture', type }); }
+          catch (err) { console.warn('[dpo] picture left inline', err); return; }
+          made.set(it.src, a);
+        }
+        this.renderer.renamePicture(it.src, a.id);   // already decoded: no flicker
+        it.asset = a.id; it.mime = a.type; delete it.src;
+      }
+      if (this.board === board) this.markDirty();
     }
 
     arrange(mode) {
@@ -982,6 +1055,10 @@
     }
 
     async deleteBoard(id) {
+      /* The sweep below keeps the assets that saved boards refer to, so
+         the board on screen has to be saved first: a picture pasted a
+         moment ago is not in its saved copy yet. */
+      if (this._dirty) await this.saveNow();
       await D.store.remove(id);
       try { localStorage.removeItem(VIEW + id); } catch (_) { }
       await D.store.sweepAssets();          // don't leave a deleted board's PDFs behind
@@ -1204,6 +1281,15 @@
      side or 268M pixels in all, and a quarter of that is already a gigabyte
      of RGBA to hold and encode — so stay well inside both. */
   const PNG_MAX_SIDE = 16384, PNG_MAX_AREA = 64e6;
+
+  function dataUrlOf(file) {
+    return new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => rej(fr.error);
+      fr.readAsDataURL(file);
+    });
+  }
 
   function safeName(s) { return (s || 'board').replace(/[^\w\-. ]+/g, '_').trim() || 'board'; }
 

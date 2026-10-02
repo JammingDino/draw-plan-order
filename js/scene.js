@@ -766,7 +766,9 @@
     note: (o) => Object.assign({ id: U.uid(), type: 'note', x: 0, y: 0, w: 190, h: 190, text: '', color: '#ffe58a', size: 16, align: 'left', alpha: 1 }, o),
     node: (o) => Object.assign({ id: U.uid(), type: 'node', kind: 'process', x: 0, y: 0, w: 170, h: 68, text: '', color: '#111', fill: '#ffffff', size: 2, align: 'center', textSize: 15, alpha: 1 }, o),
     edge: (o) => Object.assign({ id: U.uid(), type: 'edge', from: { x: 0, y: 0 }, to: { x: 0, y: 0 }, color: '#111', size: 2, dash: 0, style: 'elbow', arrowEnd: true, arrowStart: false, label: '', alpha: 1 }, o),
-    image: (o) => Object.assign({ id: U.uid(), type: 'image', x: 0, y: 0, w: 0, h: 0, src: '', alpha: 1 }, o),
+    /* `asset` names the stored file (with its `mime`); `src`, a data URL,
+       is how pictures were carried before they were assets */
+    image: (o) => Object.assign({ id: U.uid(), type: 'image', x: 0, y: 0, w: 0, h: 0, alpha: 1 }, o),
     pdfpage: (o) => Object.assign({ id: U.uid(), type: 'pdfpage', asset: '', page: 1, pages: 1, label: '', x: 0, y: 0, w: 0, h: 0, alpha: 1 }, o)
   };
 

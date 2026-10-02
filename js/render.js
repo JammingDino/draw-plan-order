@@ -6,6 +6,8 @@
   'use strict';
   const U = D.util, FH = D.freehand;
 
+  /* Decoded pictures, by asset id (or, for a picture still carried inline,
+     its data URL): { img, ready }. Emptied when the board changes. */
   const imgCache = new Map();
 
   /* ── level of detail ──────────────────────────────────────────────
@@ -433,15 +435,51 @@
     }
 
     drawImage(ctx, it) {
-      let img = imgCache.get(it.src);
-      if (!img) {
-        img = new Image();
-        img.onload = () => this.app.requestDraw();
-        img.src = it.src;
-        imgCache.set(it.src, img);
-      }
-      if (img.complete && img.naturalWidth) ctx.drawImage(img, it.x, it.y, it.w, it.h);
+      const p = this.picture(it);
+      if (p.img) ctx.drawImage(p.img, it.x, it.y, it.w, it.h);
       else { ctx.fillStyle = '#8884'; ctx.fillRect(it.x, it.y, it.w, it.h); }
+    }
+
+    /**
+     * A picture's decoded form, started on first sight: { img, ready }.
+     * img stays null until it has decoded; ready settles when it has (or
+     * cannot), which is what an export waits on — a picture never yet
+     * scrolled into view would otherwise export as a grey box.
+     */
+    picture(it) {
+      const key = it.asset || it.src || '';
+      let p = imgCache.get(key);
+      if (p) return p;
+      p = { img: null, ready: null };
+      imgCache.set(key, p);
+      const done = img => { p.img = img; this.app.requestDraw(); };
+      if (it.asset) {
+        p.ready = Promise.resolve(this.app.getAsset(it.asset))
+          .then(bytes => bytes && createImageBitmap(new Blob([bytes], { type: it.mime || '' })))
+          .then(img => { if (img) done(img); })
+          .catch(err => console.warn('[dpo] picture', it.asset, err));
+      } else if (key) {
+        p.ready = new Promise(res => {
+          const img = new Image();
+          img.onload = () => { done(img); res(); };
+          img.onerror = () => res();
+          img.src = key;
+        });
+      } else p.ready = Promise.resolve();
+      return p;
+    }
+
+    /** a picture moved out to an asset keeps the copy already decoded */
+    renamePicture(from, to) {
+      const p = imgCache.get(from);
+      if (p && !imgCache.has(to)) imgCache.set(to, p);
+      imgCache.delete(from);
+    }
+
+    /** a different board: release the pictures decoded for this one */
+    forgetPictures() {
+      for (const p of imgCache.values()) if (p.img && p.img.close) p.img.close();
+      imgCache.clear();
     }
 
     /** a page of a dropped PDF: paper, drop shadow, then the rendered page */
@@ -567,6 +605,7 @@
      * borrowing the theme safe: the screen never draws while it is lent.
      */
     async paintExport(ctx, items, zoom, look) {
+      await Promise.all(items.filter(it => it.type === 'image').map(it => this.picture(it).ready));
       const paint = fn => U.paintAs(look.theme, fn);
       let run = [];
       const flush = () => {
@@ -615,7 +654,11 @@
     }
 
     /** a picture's source as something an SVG can carry */
-    async imageHref(it) { return it.src || ''; }
+    async imageHref(it) {
+      if (!it.asset) return it.src || '';
+      const bytes = await this.app.getAsset(it.asset);
+      return bytes ? `data:${it.mime || 'image/png'};base64,${D.store.toB64(bytes)}` : '';
+    }
   }
 
   function midOf(pts) {
