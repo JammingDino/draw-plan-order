@@ -395,6 +395,8 @@
       const entry = { bitmap: c, scale, dark, at: performance.now(), bytes: bytesOf(c) };
       if (isThumb) { thumbs.set(key, entry); trim(thumbs, THUMB_BUDGET); }
       else { hi.set(key, entry); trim(hi, HI_BUDGET); }
+      // the page looks different now, which the scene cannot know
+      if (app.renderer && app.renderer.invalidate) app.renderer.invalidate();
       app.requestDraw();
     } catch (e) {
       /* A cancelled render is how we stop wasted work; it is not a

@@ -26,6 +26,7 @@
   const LOD_NIB_PX = 1.5;      // nib width below which no detail survives
   const LOD_TOL_PX = 0.35;     // how far the centreline may be moved
   const LOD_MIN_PX = 0.9;      // never draw thinner than this, or it fades
+  const LOD_RUN = 200;         // strokes per batched path, at most
 
   /* Zoom is snapped to third-octave steps before it reaches the cache, so
      a pinch rebuilds the simplified paths a handful of times instead of
@@ -69,15 +70,48 @@
      * whenever anything else differs.
      */
     drawScene(scroll) {
-      const cam = this.app.camera, editor = this.app.editor;
+      const cam = this.app.camera, editor = this.app.editor, scene = this.app.scene;
       const st = {
         x: cam.x, y: cam.y, zoom: cam.zoom, dpr: this.dpr, w: this.w, h: this.h,
-        theme: U.theme(), grid: this.grid, v: this.app.scene.version, edit: editor && editor.item
+        theme: U.theme(), grid: this.grid, v: scene.version, edit: editor && editor.item,
+        edits: scene.edits, count: scene.items.length
       };
       const was = this._painted;
       this._painted = st;
+      if (was && this.addedOnly(was, st)) return;
       if (scroll && was && this.scrollFrom(was, st)) return;
       this.paintAll();
+    }
+
+    /** the next paint must be a whole one: something changed that the scene cannot see */
+    invalidate() { this._painted = null; }
+
+    /**
+     * Items were only added on top since the last paint — a stroke just
+     * drawn, a shape, a pasted picture — so paint those over the picture
+     * already there. A stroke used to cost a repaint of the whole board
+     * as the pen lifted, which zoomed out on a dense board was a stall of
+     * half a second or more after every stroke.
+     *
+     * Scene.edits stands still only while nothing already on the board
+     * has changed, moved, gone or been reordered, so the old picture is
+     * still right underneath. Async arrivals that change how an item
+     * looks (a PDF render, a decoded picture) call invalidate().
+     */
+    addedOnly(was, st) {
+      if (st.v === was.v || st.edits !== was.edits || st.count <= was.count) return false;
+      for (const k of ['x', 'y', 'zoom', 'dpr', 'w', 'h', 'theme', 'grid', 'edit']) if (was[k] !== st[k]) return false;
+      const scene = this.app.scene, cam = this.app.camera;
+      const view = cam.viewport(this.w, this.h, 80);
+      const fresh = scene.items.slice(was.count).filter(it => U.boxesOverlap(view, scene.bbox(it)));
+      const ctx = this.bctx;
+      ctx.save();
+      this.worldTransform(ctx);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      this.drawItems(ctx, fresh);
+      ctx.restore();
+      this.lastDrawn = fresh.length;
+      return true;
     }
 
     /**
@@ -279,11 +313,20 @@
       let run = null, batched = 0, simplified = 0;
       this.paintZoom = zoom;     // for the few painters that draw hairlines
 
+      /* A run is stroked with bevel joins and kept to a couple of hundred
+         strokes. Both are invisible at these widths — under a pixel and a
+         half, no join shape survives — and both matter to the rasteriser,
+         which outlines a stroked path before filling it: round joins at
+         every vertex, and one path spanning the whole screen, made a
+         zoomed-out repaint of a dense board several times slower. */
       const flush = () => {
         if (!run) return;
         ctx.strokeStyle = run.color;
         ctx.lineWidth = run.width;
+        const join = ctx.lineJoin;
+        ctx.lineJoin = 'bevel';
         ctx.stroke(run.path);
+        ctx.lineJoin = join;
         run = null;
         batched++;
       };
@@ -291,10 +334,11 @@
       for (const it of items) {
         const lod = it.type === 'stroke' ? this.strokeLod(it, zoom) : null;
         if (!lod) { flush(); this.drawItem(ctx, it); continue; }
-        if (!run || run.color !== lod.color || run.width !== lod.width) {
+        if (!run || run.color !== lod.color || run.width !== lod.width || run.n >= LOD_RUN) {
           flush();
-          run = { color: lod.color, width: lod.width, path: new Path2D() };
+          run = { color: lod.color, width: lod.width, path: new Path2D(), n: 0 };
         }
+        run.n++;
         if (lod.dx || lod.dy) run.path.addPath(lod.path, new DOMMatrix([1, 0, 0, 1, lod.dx, lod.dy]));
         else run.path.addPath(lod.path);
         simplified++;
@@ -554,7 +598,7 @@
       if (p) return p;
       p = { img: null, ready: null };
       imgCache.set(key, p);
-      const done = img => { p.img = img; this.app.requestDraw(); };
+      const done = img => { p.img = img; this.invalidate(); this.app.requestDraw(); };
       if (it.asset) {
         p.ready = Promise.resolve(this.app.getAsset(it.asset))
           .then(bytes => bytes && createImageBitmap(new Blob([bytes], { type: it.mime || '' })))

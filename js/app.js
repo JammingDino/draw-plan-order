@@ -902,6 +902,7 @@
       /* PDF pages are baked light or dark at render time, so the cache
          is stale the moment the board flips. */
       D.pdf.themeChanged();
+      this.renderer.invalidate();
     }
 
     /* ── feedback ─────────────────────────────────────────────────── */

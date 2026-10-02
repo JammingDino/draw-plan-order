@@ -113,6 +113,11 @@
       this.redoStack = [];
       this.tx = null;
       this.version = 0;
+      /* Moves on every change except adding an item on top. While it
+         stands still, everything already on the board is exactly as it
+         was, so the painter may draw just the new items over its last
+         picture instead of repainting the board (Renderer.drawScene). */
+      this.edits = 0;
       this.onchange = null;
       this._grid = new Grid();
       if (doc) this.load(doc);
@@ -124,6 +129,7 @@
 
     dirty(item) {
       if (item) { item._b = null; item._path = null; item._lod = null; item._lines = null; }
+      this.edits++;
       this.version++;
       if (this.onchange) this.onchange();
     }
@@ -139,6 +145,7 @@
     touch(item) {
       if (this.tx && !this.tx.before.has(item.id)) this.tx.before.set(item.id, clone(item));
       item._b = null; item._path = null; item._lod = null; item._lines = null;
+      this.edits++;
       return item;
     }
 
@@ -156,6 +163,7 @@
     touchMoved(item) {
       if (this.tx && !this.tx.before.has(item.id)) this.tx.before.set(item.id, clone(item));
       item._b = null;
+      this.edits++;
       return item;
     }
 
@@ -214,6 +222,7 @@
       this._restore(op.removes);
       this._replaceAll(op.updates.map(u => clone(u.before)));
       this.redoStack.push(op);
+      this.edits++;
       this.version++; if (this.onchange) this.onchange();
       return op;
     }
@@ -224,6 +233,7 @@
       this._removeIds(op.removes.map(r => r.item.id));
       for (const it of op.adds) this._insert(clone(it), this.items.length);
       this.undoStack.push(op);
+      this.edits++;
       this.version++; if (this.onchange) this.onchange();
       return op;
     }
@@ -248,6 +258,7 @@
           this._remove(e.id);
         }
       }
+      this.edits++;
       this.version++; if (this.onchange) this.onchange();
     }
 
@@ -280,11 +291,13 @@
         this.byId.delete(it.id);
       }
       this.items = keep;
+      this.edits++;
       this.version++; if (this.onchange) this.onchange();
     }
 
     _insert(item, index) {
       item._b = null; item._path = null; item._lod = null; item._lines = null;
+      if (index < this.items.length) this.edits++;      // under something: not an add on top
       this.items.splice(Math.min(index, this.items.length), 0, item);
       this.byId.set(item.id, item);
     }
@@ -359,6 +372,7 @@
         for (let i = 1; i < this.items.length; i++)
           if (set.has(this.items[i]) && !set.has(this.items[i - 1])) swap(this.items, i, i - 1);
       }
+      this.edits++;
       this.version++; if (this.onchange) this.onchange();
     }
 
@@ -634,6 +648,7 @@
       this.items = []; this.byId.clear();
       for (const it of (doc.items || [])) this._insert(it, this.items.length);
       this.undoStack.length = this.redoStack.length = 0;
+      this.edits++;
       this.version++;
     }
   }

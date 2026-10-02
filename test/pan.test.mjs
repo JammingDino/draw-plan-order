@@ -67,3 +67,53 @@ test('a pan of most of a screen is painted whole', () => {
   r.drawScene(true);
   assert.equal(blits(), 0);
 });
+
+/* ── adding on top ────────────────────────────────────────────────── */
+/* A new stroke on top is painted over the picture already there; any
+   other change, or a change the scene cannot see, repaints. */
+
+const cleared = r => r.bctx.calls.filter(c => c === 'clearRect').length;
+
+test('an item added on top is painted alone, over what is there', () => {
+  const { r, scene } = rig();
+  scene.add(D.make.stroke({ pts: inked([5, 5, 30, 30]) }));
+  r.drawScene();
+  assert.equal(cleared(r), 0, 'the canvas was not wiped');
+  assert.equal(r.lastDrawn, 1);
+});
+
+test('anything other than adding on top repaints the board', () => {
+  for (const change of [
+    s => s.add(D.make.stroke({ pts: inked([5, 5, 30, 30]) }), 0),           // underneath
+    s => { s.add(D.make.stroke({ pts: inked([5, 5, 9, 9]) })); s.touch(s.items[3]); },
+    s => { s.add(D.make.stroke({ pts: inked([5, 5, 9, 9]) })); s.remove(s.items[3]); },
+    s => { s.add(D.make.stroke({ pts: inked([5, 5, 9, 9]) })); s.reorder([s.items[0]], 'front'); },
+    s => { s.begin('x'); s.add(D.make.stroke({ pts: inked([5, 5, 9, 9]) })); s.commit(); s.undo(); s.redo(); }
+  ]) {
+    const { r, scene, visible } = rig();
+    change(scene);
+    r.drawScene();
+    assert.equal(cleared(r), 1, String(change));
+    assert.ok(r.lastDrawn >= visible, String(change));
+  }
+});
+
+test('an add together with a pan, or after an invalidate, repaints', () => {
+  const a = rig();
+  a.scene.add(D.make.stroke({ pts: inked([5, 5, 30, 30]) }));
+  a.app.camera.panBy(-10, 0);
+  a.r.drawScene(true);
+  assert.equal(cleared(a.r), 1);
+
+  const b = rig();
+  b.scene.add(D.make.stroke({ pts: inked([5, 5, 30, 30]) }));
+  b.r.invalidate();                        // say, a PDF page finished rendering
+  b.r.drawScene();
+  assert.equal(cleared(b.r), 1);
+});
+
+test('nothing changed and a draw was asked for anyway: it repaints', () => {
+  const { r } = rig();
+  r.drawScene();                           // an image decoded, a page rendered…
+  assert.equal(cleared(r), 1);
+});
