@@ -204,7 +204,8 @@
           flush();
           run = { color: lod.color, width: lod.width, path: new Path2D() };
         }
-        run.path.addPath(lod.path);
+        if (lod.dx || lod.dy) run.path.addPath(lod.path, new DOMMatrix([1, 0, 0, 1, lod.dx, lod.dy]));
+        else run.path.addPath(lod.path);
         simplified++;
       }
       flush();
@@ -239,9 +240,11 @@
           // a tap: a subpath of zero length still paints a dot under a round cap
           path.moveTo(xy[0], xy[1]); path.lineTo(xy[0], xy[1]);
         }
-        it._lod = { b, path, width: Math.max(it.size, LOD_MIN_PX / z) };
+        it._lod = { b, path, width: Math.max(it.size, LOD_MIN_PX / z), x: it.pts[0], y: it.pts[1] };
       }
-      return { path: it._lod.path, width: it._lod.width, color: U.color(it.color) };
+      // moved since it was built: see drawStroke
+      const L = it._lod;
+      return { path: L.path, width: L.width, color: U.color(it.color), dx: it.pts[0] - L.x || 0, dy: it.pts[1] - L.y || 0 };
     }
 
     /* ── item painting ────────────────────────────────────────────── */
@@ -272,6 +275,16 @@
       if (!it._path) {
         const poly = FH.shapes(it.pts, { size: it.size, thinning: it.thinning, taper: it.taper || 0, cap: it.cap !== false });
         it._path = FH.path(poly);
+        it._at = [it.pts[0], it.pts[1]];
+      }
+      /* A drag moves strokes without re-outlining them (Scene.touchMoved):
+         the outline is the same shape wherever it is, so it is drawn from
+         where it was built, shifted by however far the stroke has gone.
+         drawItem's save/restore puts the transform back. */
+      const at = it._at;
+      if (at) {
+        const dx = it.pts[0] - at[0], dy = it.pts[1] - at[1];
+        if (dx || dy) ctx.translate(dx, dy);
       }
       ctx.globalCompositeOperation = this.blendFor(it);
       ctx.fillStyle = U.color(it.color);

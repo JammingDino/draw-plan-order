@@ -31,6 +31,13 @@
   const CELL = 512;                  // world units
   const BIG_SPAN = 16;               // cells across before an item counts as big
 
+  /* Cells are keyed by a number, not a string: the index is rebuilt on
+     every frame of a drag, and building a "cx,cy" string for every cell
+     of every item made the rebuild mostly string allocation. Far-flung
+     cells can share a key; that only adds candidates, which the box test
+     in query() throws out. */
+  const cellKey = (cx, cy) => (cx + 1048576) * 2097152 + (cy + 1048576);
+
   class Grid {
     constructor() { this.version = -1; this.cells = new Map(); this.big = []; }
 
@@ -50,7 +57,7 @@
         if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > BIG_SPAN * BIG_SPAN) { this.big.push(it); continue; }
         for (let cy = cy0; cy <= cy1; cy++)
           for (let cx = cx0; cx <= cx1; cx++) {
-            const k = cx + ',' + cy;
+            const k = cellKey(cx, cy);
             const bucket = this.cells.get(k);
             if (bucket) bucket.push(it); else this.cells.set(k, [it]);
           }
@@ -72,7 +79,7 @@
       }
       for (let cy = cy0; cy <= cy1; cy++)
         for (let cx = cx0; cx <= cx1; cx++) {
-          const bucket = this.cells.get(cx + ',' + cy);
+          const bucket = this.cells.get(cellKey(cx, cy));
           if (bucket) for (const it of bucket) seen.add(it);
         }
       const out = [];
@@ -80,6 +87,22 @@
       out.sort((a, b) => a._z - b._z);
       return out;
     }
+  }
+
+  const BATCH = 32;                  // items before undo/redo switch to one-pass edits
+  const UNDO_STEPS = 200;
+  /* Roughly how many numbers history may hold: coordinates, plus a
+     nominal amount per item. Eight million is about 64MB of them. */
+  const UNDO_BUDGET = 8e6;
+
+  /** how much one history step holds, in the units of UNDO_BUDGET */
+  function weigh(op) {
+    let n = 0;
+    const w = it => { n += 24 + (it.pts ? it.pts.length : 0) + (typeof it.src === 'string' ? it.src.length / 8 : 0); };
+    for (const it of op.adds) w(it);
+    for (const r of op.removes) w(r.item);
+    for (const u of op.updates) { w(u.before); w(u.after); }
+    return n;
   }
 
   class Scene {
@@ -119,6 +142,23 @@
       return item;
     }
 
+    /**
+     * touch(), for an item about to be moved and nothing else.
+     *
+     * A drag re-positions every selected item on every frame, and touch()
+     * threw away each stroke's outline as it went, so a thousand selected
+     * strokes were re-outlined from scratch sixty times a second — about
+     * 34ms a frame, well past what a frame has. An outline does not change
+     * shape when it moves, so here only the box goes; the painters notice
+     * that a stroke's first point is not where its outline was built and
+     * draw the outline offset (see Renderer.drawStroke).
+     */
+    touchMoved(item) {
+      if (this.tx && !this.tx.before.has(item.id)) this.tx.before.set(item.id, clone(item));
+      item._b = null;
+      return item;
+    }
+
     commit() {
       const t = this.tx; this.tx = null;
       if (!t) return;
@@ -131,20 +171,35 @@
         if (now && !sameItem(before, now)) updates.push({ id, before, after: clone(now) });
       }
       if (!t.adds.length && !t.removes.length && !updates.length) return;
-      this.undoStack.push({ label: t.label, adds: t.adds.map(clone), removes: t.removes.map(r => ({ item: clone(r.item), index: r.index })), updates });
-      if (this.undoStack.length > 200) this.undoStack.shift();
+      const op = { label: t.label, adds: t.adds.map(clone), removes: t.removes.map(r => ({ item: clone(r.item), index: r.index })), updates };
+      op.weight = weigh(op);
+      this.undoStack.push(op);
       this.redoStack.length = 0;
+      this.trimHistory();
       this.version++;
       if (this.onchange) this.onchange();
+    }
+
+    /* History is capped by what it holds as well as by how many steps it
+       has. Two hundred steps is nothing for a pen stroke and a great deal
+       for "select all, nudge": each of those holds a before and an after
+       copy of every stroke on the board, and a few dozen of them on a
+       big board ran to gigabytes - the tab died, taking the unsaved work
+       with it. The oldest steps go first; the newest is always kept. */
+    trimHistory() {
+      let held = 0;
+      for (const op of this.undoStack) held += op.weight || 0;
+      while (this.undoStack.length > 1 && (this.undoStack.length > UNDO_STEPS || held > UNDO_BUDGET))
+        held -= this.undoStack.shift().weight || 0;
     }
 
     cancel() { this.tx = null; }
 
     undo() {
       const op = this.undoStack.pop(); if (!op) return null;
-      for (const it of op.adds) this._remove(it.id);
-      for (const r of [...op.removes].reverse()) this._insert(clone(r.item), r.index);
-      for (const u of op.updates) this._replace(u.id, clone(u.before));
+      this._removeIds(op.adds.map(it => it.id));
+      this._restore(op.removes);
+      this._replaceAll(op.updates.map(u => clone(u.before)));
       this.redoStack.push(op);
       this.version++; if (this.onchange) this.onchange();
       return op;
@@ -152,8 +207,8 @@
 
     redo() {
       const op = this.redoStack.pop(); if (!op) return null;
-      for (const u of op.updates) this._replace(u.id, clone(u.after));
-      for (const r of op.removes) this._remove(r.item.id);
+      this._replaceAll(op.updates.map(u => clone(u.after)));
+      this._removeIds(op.removes.map(r => r.item.id));
       for (const it of op.adds) this._insert(clone(it), this.items.length);
       this.undoStack.push(op);
       this.version++; if (this.onchange) this.onchange();
@@ -173,11 +228,45 @@
       if (index < 0) return;
       if (this.tx) this.tx.removes.push({ item, index });
       this._remove(item.id);
-      // detach edges that pointed at it
-      for (const e of this.items.filter(i => i.type === 'edge' && (i.from.id === item.id || i.to.id === item.id))) {
-        if (this.tx) this.tx.removes.push({ item: e, index: this.items.indexOf(e) });
-        this._remove(e.id);
+      // detach edges that pointed at it (nothing can be attached to ink)
+      if (item.type !== 'stroke' && item.type !== 'edge') {
+        for (const e of this.items.filter(i => i.type === 'edge' && (i.from.id === item.id || i.to.id === item.id))) {
+          if (this.tx) this.tx.removes.push({ item: e, index: this.items.indexOf(e) });
+          this._remove(e.id);
+        }
       }
+      this.version++; if (this.onchange) this.onchange();
+    }
+
+    /**
+     * Remove a set of items, and any connector left pointing at one, in
+     * one pass over the board.
+     *
+     * remove() is a search, a splice and an edge scan per item, which is
+     * fine for an eraser taking a stroke at a time and quadratic for
+     * select-all-and-delete: twenty thousand strokes took over a second
+     * and a half, with the window frozen. Recorded exactly as the same
+     * removes made one by one in board order would be, so undo needs no
+     * special case.
+     */
+    removeMany(items) {
+      const gone = new Set();
+      for (const it of items) if (it && this.byId.get(it.id) === it) gone.add(it);
+      if (!gone.size) return;
+      const ids = new Set();
+      for (const it of gone) if (it.type !== 'stroke' && it.type !== 'edge') ids.add(it.id);
+      if (ids.size) for (const e of this.items)
+        if (e.type === 'edge' && ((e.from.id && ids.has(e.from.id)) || (e.to.id && ids.has(e.to.id)))) gone.add(e);
+      const keep = [];
+      let removed = 0;
+      for (let i = 0; i < this.items.length; i++) {
+        const it = this.items[i];
+        if (!gone.has(it)) { keep.push(it); continue; }
+        if (this.tx) this.tx.removes.push({ item: it, index: i - removed });
+        removed++;
+        this.byId.delete(it.id);
+      }
+      this.items = keep;
       this.version++; if (this.onchange) this.onchange();
     }
 
@@ -195,6 +284,53 @@
       const old = this.byId.get(id);
       if (old) { this.items[this.items.indexOf(old)] = item; this.byId.set(id, item); }
       else this._insert(item, this.items.length);
+    }
+
+    /* The batch forms of the three above, for undo and redo. Each of those
+       is a search through the board per item; a step that touched
+       thousands of items (a big delete, select-all-and-move) paid that
+       thousands of times over. Below a few dozen the simple form wins. */
+
+    _removeIds(ids) {
+      if (ids.length < BATCH) { for (const id of ids) this._remove(id); return; }
+      const set = new Set(ids);
+      this.items = this.items.filter(it => !set.has(it.id));
+      for (const id of set) this.byId.delete(id);
+    }
+
+    /* Removals are recorded with the index each item had at the moment it
+       went, and put back in reverse. Where those indices never decrease -
+       always, for removeMany, and for removes made in board order - item
+       j ends up at index + j, so the lot can be merged back in one pass.
+       Anything else takes the splices. */
+    _restore(removes) {
+      const n = removes.length;
+      let ordered = n >= BATCH;
+      for (let j = 1; ordered && j < n; j++) if (removes[j].index < removes[j - 1].index) ordered = false;
+      if (!ordered) { for (let j = n - 1; j >= 0; j--) this._insert(clone(removes[j].item), removes[j].index); return; }
+      const cur = this.items, out = [];
+      let j = 0, k = 0;
+      while (j < n || k < cur.length) {
+        if (j < n && (removes[j].index + j <= out.length || k >= cur.length)) {
+          const it = clone(removes[j++].item);
+          this.byId.set(it.id, it);
+          out.push(it);
+        } else out.push(cur[k++]);
+      }
+      this.items = out;
+    }
+
+    _replaceAll(items) {
+      if (items.length < BATCH) { for (const it of items) this._replace(it.id, it); return; }
+      const want = new Map(items.map(it => [it.id, it]));
+      for (let i = 0; i < this.items.length; i++) {
+        const next = want.get(this.items[i].id);
+        if (!next) continue;
+        this.items[i] = next;
+        this.byId.set(next.id, next);
+        want.delete(next.id);
+      }
+      for (const it of want.values()) this._insert(it, this.items.length);
     }
 
     reorder(items, mode) {

@@ -629,7 +629,7 @@
     deleteSelection() {
       if (!this.selection.length) return;
       this.scene.begin('delete');
-      for (const it of this.selection) this.scene.remove(it);
+      this.scene.removeMany(this.selection);
       this.scene.commit();
       this.select([]);
       this.afterEdit();
@@ -829,9 +829,21 @@
     afterEdit() { this.markDirty(); this.requestDraw(); if (this.ui) this.ui.refresh(); }
 
     markDirty() {
+      if (!this._dirty) this._dirtySince = Date.now();
       this._dirty = true;
       $('#save-state').textContent = 'saving…';
       this.saveDebounced();
+    }
+
+    /* Where the debounced autosave lands. Saving copies the whole board
+       (about 50ms at twenty thousand strokes) on the main thread, and the
+       debounce fires 450ms after the last edit — which is often just as the
+       pen comes down for the next stroke, so the start of that stroke
+       stuttered. While something is being drawn or dragged the save waits
+       for it, unless the board has gone unsaved for ten seconds. */
+    saveSoon() {
+      if (this.active && Date.now() - (this._dirtySince || 0) < 10000) { this.saveDebounced(); return; }
+      return this.saveNow();
     }
 
     async saveNow(force) {
@@ -1224,7 +1236,7 @@
   /* ── go ─────────────────────────────────────────────────────────── */
   const app = new App();
   D.app = app;
-  app.saveDebounced = U.debounce(() => app.saveNow(), 450);
+  app.saveDebounced = U.debounce(() => app.saveSoon(), 450);
   app.saveViewDebounced = U.debounce(() => app.saveView(), 500);
   app.savePrefs = U.debounce(app.savePrefs.bind(app), 400);
   app.start();

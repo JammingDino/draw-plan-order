@@ -118,7 +118,7 @@
           const hit = scene.itemsCrossing(sc.poly, item.size, it => it !== item && D.erasable(it));
           if (hit.length) {
             scene.begin('scribble erase');
-            for (const h of hit) scene.remove(h);
+            scene.removeMany(hit);
             scene.commit();
             app.toast(`Rubbed out ${hit.length} item${hit.length > 1 ? 's' : ''}`, 'Undo', () => app.undo());
             app.afterEdit();
@@ -215,9 +215,7 @@
           scene.remove(it);
           for (const p of parts) scene.add(p, idx);
         }
-      } else {
-        for (const it of hits) scene.remove(it);
-      }
+      } else scene.removeMany(hits);
       app.requestDraw();
     }
     up() {
@@ -640,7 +638,7 @@
         // re-apply from the original positions so the drag never drifts
         app.selection.forEach((it, i) => {
           const o = this.origin[i];
-          scene.touch(it);
+          scene.touchMoved(it);
           if (it.type === 'stroke') { for (let k = 0; k < it.pts.length; k += 3) { it.pts[k] = o.pts[k] + dx; it.pts[k + 1] = o.pts[k + 1] + dy; } }
           else if (it.type === 'edge') {
             if (!it.from.id) { it.from.x = o.from.x + dx; it.from.y = o.from.y + dy; }
