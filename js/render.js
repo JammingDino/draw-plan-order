@@ -82,8 +82,16 @@
        once per frame: getComputedStyle forces a style recalc, and at the
        top of drawScene that lands on every pan, zoom and wheel tick. */
     tokens() {
-      const th = document.documentElement.dataset.theme || '';
+      const th = U.theme();
       if (this._tok && this._tok.theme === th) return this._tok;
+      /* An export painting in the theme that is not on screen: CSS only
+         knows the one that is, so take the mirrored colours (U.THEMES).
+         Not cached — it lasts one export, and the screen wants its own
+         tokens back the moment it is over. */
+      if (th !== (document.documentElement.dataset.theme || 'light')) {
+        const t = U.THEMES[th === 'dark' ? 'dark' : 'light'];
+        return { theme: th, dark: th === 'dark', paper: t.paper, grid: '#0000', accent: '#4f6bff', panel: t.paper, muted: '#8a8f98' };
+      }
       const cs = getComputedStyle(document.documentElement);
       const v = (n, d) => cs.getPropertyValue(n).trim() || d;
       return this._tok = {
@@ -178,6 +186,7 @@
      */
     drawItems(ctx, items, zoom = this.app.camera.zoom) {
       let run = null, batched = 0, simplified = 0;
+      this.paintZoom = zoom;     // for the few painters that draw hairlines
 
       const flush = () => {
         if (!run) return;
@@ -434,9 +443,7 @@
       ctx.fillRect(it.x, it.y, it.w, it.h);
       ctx.restore();
 
-      // ask for roughly one bitmap pixel per screen pixel, and no more
-      const want = this.app.camera.zoom * this.dpr;
-      const bmp = D.pdf.bitmap(this.app, it, want);
+      const bmp = this.pageBitmap(ctx, it);
       if (bmp) ctx.drawImage(bmp, it.x, it.y, it.w, it.h);
       else {
         ctx.fillStyle = dark ? '#ffffff1f' : '#00000012';
@@ -445,8 +452,30 @@
         ctx.fillText(`${it.label || 'PDF'} · page ${it.page}`, it.x + it.w / 2, it.y + it.h / 2);
       }
       ctx.strokeStyle = dark ? '#ffffff1f' : '#0000001f';
-      ctx.lineWidth = 1 / this.app.camera.zoom;
+      ctx.lineWidth = 1 / (this.paintZoom || this.app.camera.zoom);
       ctx.strokeRect(it.x, it.y, it.w, it.h);
+    }
+
+    /**
+     * What to paint for a PDF page, which depends on what is painting.
+     *
+     * The screen asks D.pdf.bitmap, which also schedules a sharper render
+     * and records the page as on screen. Nothing else may: the dashboard
+     * thumbnail paints the whole board, and going through bitmap() made
+     * every refresh of it — every few seconds of drawing — queue a render
+     * of every page of every PDF on the board and mark them all as being
+     * looked at, so the sweep could not cancel them and the sharp cache
+     * churned out the pages actually on screen. Off screen, the painter
+     * takes whatever is already cached. An export brings its own renders
+     * (`this.pages`), made at the export's resolution and theme.
+     */
+    pageBitmap(ctx, it) {
+      if (this.pages) return this.pages.get(it) || null;
+      if (ctx === this.bctx || ctx === this.lctx) {
+        // roughly one bitmap pixel per screen pixel, and no more
+        return D.pdf.bitmap(this.app, it, this.app.camera.zoom * this.dpr);
+      }
+      return D.pdf.peek ? D.pdf.peek(it, this.tokens().dark) : null;
     }
 
     /* ── live layer ───────────────────────────────────────────────── */
@@ -505,18 +534,75 @@
       return pts.map(([k, px, py]) => ({ k, x: px - hs / 2, y: py - hs / 2, w: hs, h: hs }));
     }
 
-    /* ── SVG export ───────────────────────────────────────────────── */
-    toSVG(scene, box) {
+    /* ── export ───────────────────────────────────────────────────── */
+    /* An export is painted in the theme Settings → Export asks for, which
+       need not be the one on screen: "ink" and "paper" resolve for it, and
+       PDF pages are rendered light or dark to match. `look` is
+       { theme, dark, transparent }, from App.exportLook. */
+
+    /**
+     * Paint `items` onto an export canvas whose transform is already set,
+     * at `zoom` device px per world unit.
+     *
+     * PDF pages are rendered for the export one at a time, at its
+     * resolution, rather than taken from the screen's cache: the cache
+     * holds sharp renders only of the pages on screen, so an export used
+     * to come out with every other page as a blurry thumbnail or a grey
+     * placeholder. One page at a time keeps a long document's memory flat.
+     *
+     * Painting is synchronous between the awaits, which is what makes
+     * borrowing the theme safe: the screen never draws while it is lent.
+     */
+    async paintExport(ctx, items, zoom, look) {
+      const paint = fn => U.paintAs(look.theme, fn);
+      let run = [];
+      const flush = () => {
+        if (!run.length) return;
+        const r = run; run = [];
+        paint(() => this.drawItems(ctx, r, zoom));
+      };
+      for (const it of items) {
+        if (it.type !== 'pdfpage') { run.push(it); continue; }
+        flush();
+        const bmp = await D.pdf.render(this.app, it, zoom, look.dark);
+        this.pages = new Map([[it, bmp]]);
+        try { paint(() => { this.paintZoom = zoom; this.drawItem(ctx, it); }); }
+        finally {
+          this.pages = null;
+          if (bmp && bmp.width) { bmp.width = 0; bmp.height = 0; }
+        }
+      }
+      flush();
+    }
+
+    async toSVG(scene, box, look) {
       const pad = 40;
       const b = U.growBox(box, pad);
-      const out = [];
-      const bg = getComputedStyle(document.documentElement).getPropertyValue('--paper').trim() || '#fff';
-      out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(b.w)}" height="${Math.round(b.h)}" viewBox="${U.round(b.x)} ${U.round(b.y)} ${U.round(b.w)} ${U.round(b.h)}">`);
-      out.push(`<rect x="${U.round(b.x)}" y="${U.round(b.y)}" width="${U.round(b.w)}" height="${U.round(b.h)}" fill="${bg}"/>`);
-      for (const it of scene.items) out.push(svgItem(scene, it));
-      out.push('</svg>');
-      return out.join('\n');
+
+      /* The parts that take waiting for, gathered before the theme is
+         borrowed: PDF pages rendered in the export's theme, and pictures
+         as data URLs so the file stands on its own. */
+      const hrefs = new Map();
+      for (const it of scene.items) {
+        if (it.type === 'pdfpage') {
+          const bmp = await D.pdf.render(this.app, it, 2, look.dark);
+          if (bmp) { hrefs.set(it, bitmapToDataUrl(bmp)); bmp.width = 0; bmp.height = 0; }
+        } else if (it.type === 'image') hrefs.set(it, await this.imageHref(it));
+      }
+
+      return U.paintAs(look.theme, () => {
+        const out = [];
+        out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(b.w)}" height="${Math.round(b.h)}" viewBox="${U.round(b.x)} ${U.round(b.y)} ${U.round(b.w)} ${U.round(b.h)}">`);
+        if (!look.transparent)
+          out.push(`<rect x="${U.round(b.x)}" y="${U.round(b.y)}" width="${U.round(b.w)}" height="${U.round(b.h)}" fill="${U.color('paper')}"/>`);
+        for (const it of scene.items) out.push(svgItem(this, scene, it, hrefs));
+        out.push('</svg>');
+        return out.join('\n');
+      });
     }
+
+    /** a picture's source as something an SVG can carry */
+    async imageHref(it) { return it.src || ''; }
   }
 
   function midOf(pts) {
@@ -532,13 +618,15 @@
     return { x: pts[0], y: pts[1] };
   }
 
-  function svgItem(scene, it) {
+  function svgItem(r, scene, it, hrefs) {
     const a = it.alpha ?? 1;
     const op = a < 1 ? ` opacity="${a}"` : '';
     switch (it.type) {
       case 'stroke': {
-        const poly = FH.shapes(it.pts, { size: it.size, thinning: it.thinning });
-        return `<path d="${FH.svgPath(poly)}" fill="${U.color(it.color)}"${op}/>`;
+        // the same outline the canvas fills, taper and caps included
+        const poly = FH.shapes(it.pts, { size: it.size, thinning: it.thinning, taper: it.taper || 0, cap: it.cap !== false });
+        const blend = r.blendFor(it) === 'multiply' ? ' style="mix-blend-mode:multiply"' : '';
+        return `<path d="${FH.svgPath(poly)}" fill="${U.color(it.color)}"${op}${blend}/>`;
       }
       case 'shape': {
         const pts = scene.outlinePoints(it).map(v => U.round(v, 1));
@@ -564,14 +652,12 @@
         return `<g${op}><path d="${d}" fill="${U.color(it.fill)}" stroke="${U.color(it.color)}" stroke-width="${it.size}"/>${tx}</g>`;
       }
       case 'text': return svgText(scene, it, op);
-      case 'image': return `<image x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" href="${it.src}"${op}/>`;
+      case 'image': return `<image x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" href="${U.escapeXml(hrefs.get(it) || '')}" preserveAspectRatio="none"${op}/>`;
       case 'pdfpage': {
-        // whatever resolution the page is currently cached at, baked in
-        const bmp = D.pdf.bitmap(D.app, it, 2);
-        const href = bmp ? bitmapToDataUrl(bmp) : null;
+        const href = hrefs.get(it);
         return href
-          ? `<image x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" href="${href}"${op}/>`
-          : `<rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" fill="#fff" stroke="#0003"/>`;
+          ? `<image x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" href="${href}" preserveAspectRatio="none"${op}/>`
+          : `<rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" fill="${r.tokens().dark ? '#191b1f' : '#fff'}" stroke="#0003"/>`;
       }
     }
     return '';
@@ -590,8 +676,12 @@
 
   function svgText(scene, it, op = '') {
     const L = scene.layout(it);
+    const family = it.font === 'hand' ? 'Segoe Print, Bradley Hand, cursive' : 'Segoe UI, sans-serif';
+    const w = it.autoWidth ? L.width : it.w;
+    const anchor = it.align === 'center' ? 'middle' : it.align === 'right' ? 'end' : 'start';
+    const ax = it.align === 'center' ? it.x + w / 2 : it.align === 'right' ? it.x + w : it.x;
     return `<g${op}>` + L.lines.map((ln, i) =>
-      `<text x="${it.x}" y="${U.round(it.y + i * L.lh + L.base, 1)}" font-family="Segoe UI, sans-serif" font-size="${it.size}" fill="${U.color(it.color)}">${U.escapeXml(ln)}</text>`).join('') + '</g>';
+      `<text x="${U.round(ax, 1)}" y="${U.round(it.y + i * L.lh + L.base, 1)}" text-anchor="${anchor}" font-family="${family}" font-size="${it.size}" fill="${U.color(it.color)}" xml:space="preserve">${U.escapeXml(ln)}</text>`).join('') + '</g>';
   }
 
   D.Renderer = Renderer;

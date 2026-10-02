@@ -177,13 +177,39 @@ window.DPO = window.DPO || {};
   let _theme = null, _sem = {};
   U.color = c => {
     if (c !== 'ink' && c !== 'paper') return c;
-    const th = document.documentElement.dataset.theme;
+    const th = U.theme();
     if (th !== _theme) {
       _theme = th;
-      const cs = getComputedStyle(document.documentElement);
-      _sem = { ink: cs.getPropertyValue('--text').trim() || '#14161c', paper: cs.getPropertyValue('--paper').trim() || '#fff' };
+      if (th !== document.documentElement.dataset.theme) _sem = U.THEMES[th === 'dark' ? 'dark' : 'light'];
+      else {
+        const cs = getComputedStyle(document.documentElement);
+        _sem = { ink: cs.getPropertyValue('--text').trim() || '#14161c', paper: cs.getPropertyValue('--paper').trim() || '#fff' };
+      }
     }
     return _sem[c];
+  };
+
+  /* An export can be asked for in the other theme from the one on screen.
+     The painter then has to resolve "ink" and "paper" for a theme the page
+     is not showing, and it cannot ask CSS: flipping the root attribute to
+     read the other set of tokens would set every themed transition in the
+     chrome running. So the two semantic colours are mirrored here — they
+     must match --text and --paper in css/app.css, which a test checks. */
+  U.THEMES = {
+    light: { ink: '#14161c', paper: '#fbfbfd' },
+    dark: { ink: '#e9ecf2', paper: '#14171d' }
+  };
+
+  /* The theme the painter works in: the page's, unless an export has
+     taken it over for the length of one synchronous paint (see paintAs). */
+  let _forced = null;
+  U.theme = () => _forced || document.documentElement.dataset.theme || 'light';
+
+  /** run `fn` with "ink", "paper" and the renderer's tokens resolved for `theme` */
+  U.paintAs = (theme, fn) => {
+    const was = _forced;
+    _forced = theme || null;
+    try { return fn(); } finally { _forced = was; }
   };
 
   /* ── input classification ───────────────────────────────────────── */

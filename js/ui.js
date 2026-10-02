@@ -557,6 +557,7 @@
       body.append(...[
         this.setStorage(cfg),
         this.setCanvas(),
+        this.setExport(),
         this.setInput(),
         X.on ? this.setUpdates(cfg) : null,
         this.setFeedback(cfg)
@@ -631,6 +632,20 @@
           v => { if ((v === 'dark') !== dark()) app.toggleTheme(); })),
         this.row('Paper', this.setSeg([['dots', 'Dots'], ['lines', 'Grid'], ['lined', 'Ruled'], ['none', 'Plain']], app.renderer.grid,
           v => { app.renderer.grid = v; app.requestDraw(); app.savePrefs(); })));
+    }
+
+    /* PNG and SVG exports. The theme decides what "ink" comes out as and
+       whether PDF pages are light or dark; it can follow the screen or be
+       pinned, so a board worked on at night still exports for a white
+       slide. Transparent is the default: the work alone, nothing behind. */
+    setExport() {
+      const o = this.app.opts.export, save = () => this.app.savePrefs();
+      return this.section('Export',
+        this.row('Theme', this.setSeg([['auto', 'Match the app'], ['light', 'Light'], ['dark', 'Dark']], o.theme,
+          v => { o.theme = v; save(); })),
+        this.row('Background', this.setSeg([['transparent', 'Transparent'], ['paper', 'Paper colour']], o.background,
+          v => { o.background = v; save(); })),
+        this.note('For ↧ PNG and ↧ SVG. Transparent keeps only what is on the board, ready to drop onto a slide or page of any colour. Light or dark sets the colour of default ink and of PDF pages, whatever the app is showing.'));
     }
 
     setInput() {

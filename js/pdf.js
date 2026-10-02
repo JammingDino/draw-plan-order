@@ -321,39 +321,76 @@
     tmp.width = 0; tmp.height = 0;   // free the copy now, not at the next GC
   }
 
+  /**
+   * Paint one page into a fresh surface: `scale` device px per world px,
+   * light or dark paper. `slot` (optional) is told the render task so the
+   * caller can cancel it; null comes back if it was cancelled meanwhile.
+   */
+  async function renderPage(app, item, scale, dark, slot) {
+    const bytes = await app.getAsset(item.asset);
+    if (!bytes) return null;
+    const doc = await open(item.asset, bytes);
+    const page = await doc.getPage(item.page);
+    const base = page.getViewport({ scale: 1 });
+    // item.w is the page width in world units; scale is device px per world px
+    const vp = page.getViewport({ scale: (item.w / base.width) * scale });
+
+    /* OffscreenCanvas where we can: no DOM node per cached page, and
+       drawImage takes it directly. */
+    const w = Math.max(1, Math.round(vp.width));
+    const h = Math.max(1, Math.round(vp.height));
+    const c = surface(w, h);
+    const ctx = c.getContext('2d', { alpha: false });
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, w, h);
+
+    /* pdf.js paces its painting with requestAnimationFrame, which stops
+       while the window is hidden or minimised, so a render started then
+       never finishes. Cancel it rather than leaving the slot occupied
+       forever — the first frame after the window comes back asks again
+       (App.bindInput retries on visibilitychange). */
+    const task = page.render({ canvasContext: ctx, viewport: vp });
+    if (slot) slot.task = task;
+    const stall = setTimeout(() => { try { task.cancel(); } catch (_) { } }, 20000);
+    try { await task.promise; } finally { clearTimeout(stall); }
+    if (slot && slot.cancelled) return null;
+    if (dark) darken(c, w, h);
+    return c;
+  }
+
+  /**
+   * A page rendered for an export: at the export's resolution and in
+   * its theme, whatever the screen is showing, and kept out of the
+   * caches — an export is a one-off, and parking twenty full-resolution
+   * pages in the sharp cache would evict everything on screen. The
+   * caller owns the surface and should free it (width = 0) when done.
+   * Null if the page cannot be rendered.
+   */
+  P.render = async (app, item, scale, dark) => {
+    try { return await renderPage(app, item, Math.min(scale, maxScaleFor(item)), !!dark); }
+    catch (e) { console.warn('[dpo] export render', e); return null; }
+  };
+
+  /**
+   * The best bitmap already in memory for a page, without asking for
+   * anything. For painters that are not the screen (the dashboard
+   * thumbnail): they must not queue renders or mark pages as on screen.
+   */
+  P.peek = (item, dark) => {
+    const key = item.asset + ':' + item.page;
+    const sharp = inTheme(hi.get(key), !!dark);
+    if (sharp && sharp.bitmap) return sharp.bitmap;
+    const thumb = inTheme(thumbs.get(key), !!dark);
+    return thumb ? thumb.bitmap : null;
+  };
+
   async function run(job) {
     const { app, item, key, scale, token, isThumb, dark } = job;
     const slot = { key, task: null, cancelled: false };
     inflight.set(token, slot);
     try {
-      const bytes = await app.getAsset(item.asset);
-      if (!bytes) return;
-      const doc = await open(item.asset, bytes);
-      const page = await doc.getPage(item.page);
-      const base = page.getViewport({ scale: 1 });
-      // item.w is the page width in world units; scale is device px per world px
-      const vp = page.getViewport({ scale: (item.w / base.width) * scale });
-
-      /* OffscreenCanvas where we can: no DOM node per cached page, and
-         drawImage takes it directly. */
-      const w = Math.max(1, Math.round(vp.width));
-      const h = Math.max(1, Math.round(vp.height));
-      const c = surface(w, h);
-      const ctx = c.getContext('2d', { alpha: false });
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, w, h);
-
-      /* pdf.js paces its painting with requestAnimationFrame, which stops
-         while the window is hidden or minimised, so a render started then
-         never finishes. Cancel it rather than leaving the slot occupied
-         forever — the first frame after the window comes back asks again
-         (App.bindInput retries on visibilitychange). */
-      const task = page.render({ canvasContext: ctx, viewport: vp });
-      slot.task = task;
-      const stall = setTimeout(() => { try { task.cancel(); } catch (_) { } }, 20000);
-      try { await task.promise; } finally { clearTimeout(stall); }
-      if (slot.cancelled) return;
-      if (dark) darken(c, w, h);
+      const c = await renderPage(app, item, scale, dark, slot);
+      if (!c) return;
 
       const entry = { bitmap: c, scale, dark, at: performance.now(), bytes: bytesOf(c) };
       if (isThumb) { thumbs.set(key, entry); trim(thumbs, THUMB_BUDGET); }

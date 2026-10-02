@@ -29,7 +29,11 @@
         text: { color: 'ink', size: 20, font: 'sans', align: 'left' },
         note: { color: '#ffe58a', size: 16 },
         node: { kind: 'process', color: 'ink', fill: 'paper', size: 2, textSize: 15 },
-        edge: { color: '#5b6472', size: 2, style: 'elbow', dash: 0, arrowEnd: true, arrowStart: false }
+        edge: { color: '#5b6472', size: 2, style: 'elbow', dash: 0, arrowEnd: true, arrowStart: false },
+        /* How PNG and SVG exports look (Settings → Export). 'auto' follows
+           the theme on screen; a transparent background leaves just the
+           work, to sit on a slide or a page of any colour. */
+        export: { theme: 'auto', background: 'transparent' }
       };
 
       const T = D.tools;
@@ -992,26 +996,67 @@
       download(new Blob([data], { type: 'application/json' }), safeName(this.board.name) + '.board');
     }
 
-    exportSVG() {
-      const b = this.scene.contentBounds();
-      if (!b) return this.toast('Nothing to export');
-      download(new Blob([this.renderer.toSVG(this.scene, b)], { type: 'image/svg+xml' }), safeName(this.board.name) + '.svg');
+    /** the theme and background an export is painted with — see opts.export */
+    exportLook() {
+      const o = this.opts.export;
+      const theme = o.theme === 'light' || o.theme === 'dark' ? o.theme
+        : document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+      return { theme, dark: theme === 'dark', transparent: o.background !== 'paper' };
     }
 
-    exportPNG() {
+    async exportSVG() {
       const b = this.scene.contentBounds();
       if (!b) return this.toast('Nothing to export');
-      const pad = 48, scale = 2;
+      if (this._exporting) return;
+      this._exporting = true;
+      try {
+        if (this.scene.items.some(i => i.type === 'pdfpage')) this.ui.toast('Exporting…', null, null, 60000);
+        const svg = await this.renderer.toSVG(this.scene, b, this.exportLook());
+        download(new Blob([svg], { type: 'image/svg+xml' }), safeName(this.board.name) + '.svg');
+        this.ui.hideToast();
+      } catch (err) {
+        console.error(err);
+        this.toast('The export did not finish: ' + (err.message || err));
+      } finally { this._exporting = false; }
+    }
+
+    async exportPNG() {
+      const b = this.scene.contentBounds();
+      if (!b) return this.toast('Nothing to export');
+      if (this._exporting) return;
+      this._exporting = true;
       const c = document.createElement('canvas');
-      c.width = Math.min(8000, (b.w + pad * 2) * scale);
-      c.height = Math.min(8000, (b.h + pad * 2) * scale);
-      const ctx = c.getContext('2d');
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--paper').trim();
-      ctx.fillRect(0, 0, c.width, c.height);
-      ctx.setTransform(scale, 0, 0, scale, (-b.x + pad) * scale, (-b.y + pad) * scale);
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      for (const it of this.scene.items) this.renderer.drawItem(ctx, it);
-      c.toBlob(blob => download(blob, safeName(this.board.name) + '.png'));
+      try {
+        const look = this.exportLook();
+        const pad = 48, W = b.w + pad * 2, H = b.h + pad * 2;
+        /* Twice the board's size for a crisp picture, but no bigger than a
+           canvas can actually hold. The size used to be clamped while the
+           scale stayed at 2, so anything past 4000 units across was simply
+           cut off at the right and bottom; past the browser's real limits
+           the canvas comes back blank instead. Scaling down keeps all of it. */
+        const scale = Math.min(2, PNG_MAX_SIDE / W, PNG_MAX_SIDE / H, Math.sqrt(PNG_MAX_AREA / (W * H)));
+        c.width = Math.max(1, Math.round(W * scale));
+        c.height = Math.max(1, Math.round(H * scale));
+        const ctx = c.getContext('2d');
+        if (!look.transparent) {
+          ctx.fillStyle = U.paintAs(look.theme, () => U.color('paper'));
+          ctx.fillRect(0, 0, c.width, c.height);
+        }
+        ctx.setTransform(scale, 0, 0, scale, (-b.x + pad) * scale, (-b.y + pad) * scale);
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        if (this.scene.items.some(i => i.type === 'pdfpage')) this.ui.toast('Exporting…', null, null, 60000);
+        await this.renderer.paintExport(ctx, this.scene.items, scale, look);
+        const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+        if (!blob) return this.toast('That board is too big to export as a PNG — try SVG');
+        download(blob, safeName(this.board.name) + '.png');
+        this.ui.hideToast();
+      } catch (err) {
+        console.error(err);
+        this.toast('The export did not finish: ' + (err.message || err));
+      } finally {
+        c.width = 0; c.height = 0;          // a full-size export is a lot of memory to wait on GC for
+        this._exporting = false;
+      }
     }
 
     onFile(e) {
@@ -1143,6 +1188,11 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }
+  /* What a PNG export may grow to. Chrome refuses canvases past 32767px a
+     side or 268M pixels in all, and a quarter of that is already a gigabyte
+     of RGBA to hold and encode — so stay well inside both. */
+  const PNG_MAX_SIDE = 16384, PNG_MAX_AREA = 64e6;
+
   function safeName(s) { return (s || 'board').replace(/[^\w\-. ]+/g, '_').trim() || 'board'; }
 
   function readRescue() {
