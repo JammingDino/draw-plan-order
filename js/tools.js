@@ -8,6 +8,13 @@
   const HOLD_MS = 550;          // hold-still-to-snap delay
   const HOLD_SLOP = 7;          // px of wobble allowed while holding
 
+  /* Picking up a PDF page or picture with the select tool: press and
+     hold this long, within this much wobble. A quicker drag selects
+     what is written on it instead. */
+  const PICKUP_MS = 300;
+  const PICKUP_SLOP = 6;        // screen px
+  const GRAB_TOL = 14;          // screen px: how near ink on a page must be to win
+
   /* ══ pen / highlighter ══════════════════════════════════════════ */
   class PenTool {
     constructor(app, kind) { this.app = app; this.kind = kind; this.incremental = false; }
@@ -546,7 +553,29 @@
       }
 
       // 3 · item under the pointer
-      const hit = scene.hitTest(ev.x, ev.y, 8 / app.camera.zoom);
+      let hit = scene.hitTest(ev.x, ev.y, 8 / app.camera.zoom);
+
+      /* A PDF page or a picture is the thing you write on, and it is hit
+         by its whole area, so a press in the gaps between your notes used
+         to grab the page and drag it out from under them. Now, unless it
+         is already selected, it has to be asked for. Anything drawn on it
+         within easy reach of the nib wins outright; otherwise a quick
+         drag draws a marquee over it — the way to gather up the notes —
+         a tap selects it, and press-and-hold picks it up to move. */
+      if (D.backdrop(hit) && !app.selection.includes(hit)) {
+        const over = scene.hitTest(ev.x, ev.y, GRAB_TOL / app.camera.zoom, it => !D.backdrop(it) && it._z > hit._z);
+        if (over) hit = over;
+        else {
+          this.mode = 'pending';
+          this.pending = hit;
+          this.shift = ev.shift;
+          this.alt = ev.alt;
+          clearTimeout(this.holdTimer);
+          this.holdTimer = setTimeout(() => this.pickUp(), PICKUP_MS);
+          return;
+        }
+      }
+
       if (hit) {
         const group = hit.group ? scene.items.filter(i => i.group === hit.group) : [hit];
         if (ev.shift) {
@@ -567,9 +596,34 @@
       this.baseSel = ev.shift ? app.selection.slice() : [];
     }
 
+    /** the press on a page or picture was held: it is what you meant to move */
+    pickUp() {
+      if (this.mode !== 'pending') return;
+      const app = this.app, scene = app.scene, hit = this.pending;
+      this.pending = null;
+      const group = this.groupOf(hit);
+      app.select(this.shift ? [...app.selection, ...group.filter(i => !app.selection.includes(i))] : group);
+      this.mode = 'move';
+      this.moved = false;
+      scene.begin('move');
+    }
+
+    groupOf(hit) { return hit.group ? this.app.scene.items.filter(i => i.group === hit.group) : [hit]; }
+
     move(ev) {
       const app = this.app, scene = app.scene;
       if (!this.mode) return;
+      if (this.mode === 'pending') {
+        if (Math.hypot(ev.sx - this.start.sx, ev.sy - this.start.sy) < PICKUP_SLOP) return;
+        // moved off before the hold: a marquee over the page, not the page
+        clearTimeout(this.holdTimer);
+        this.pending = null;
+        this.mode = this.lasso ? 'lasso' : 'marquee';
+        this.poly = [this.start.x, this.start.y];
+        if (!this.shift) app.select([], true);
+        this.baseSel = this.shift ? app.selection.slice() : [];
+        tipOnce('backdrop', () => app.toast('Dragging over a page selects what is on it — press and hold to move the page itself'));
+      }
       if (this.mode === 'move') {
         let dx = ev.x - this.start.x, dy = ev.y - this.start.y;
         if (ev.shift) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
@@ -638,6 +692,18 @@
 
     up() {
       const app = this.app;
+      if (this.mode === 'pending') {
+        // a tap on a page or picture selects it; the next drag then moves it
+        clearTimeout(this.holdTimer);
+        const group = this.groupOf(this.pending);
+        this.pending = null;
+        this.mode = null;
+        if (!this.shift) app.select(group);
+        else {
+          const has = app.selection.includes(group[0]);
+          app.select(has ? app.selection.filter(i => !group.includes(i)) : [...app.selection, ...group]);
+        }
+      }
       if (this.mode === 'move' && !this.moved) app.scene.cancel();
       else if (this.mode) app.scene.commit();
       if (this.mode === 'marquee' || this.mode === 'lasso') { this.poly = null; app.renderer.clearLive(); }
@@ -645,7 +711,7 @@
       app.requestDrawLive();
       app.afterEdit();
     }
-    cancel() { this.mode = null; this.poly = null; this.app.scene.cancel(); }
+    cancel() { clearTimeout(this.holdTimer); this.mode = null; this.pending = null; this.poly = null; this.app.scene.cancel(); }
 
     paint(r) {
       if (this.mode === 'marquee') {
@@ -671,6 +737,15 @@
         ctx.restore();
       }
     }
+  }
+
+  /** run `fn` the first time only, on this machine — for one-off tips */
+  function tipOnce(key, fn) {
+    try {
+      if (localStorage.getItem('dpo:tip:' + key)) return;
+      localStorage.setItem('dpo:tip:' + key, '1');
+    } catch (_) { return; }
+    fn();
   }
 
   D.tools = { PenTool, EraserTool, ShapeTool, NodeTool, NoteTool, TextTool, ConnectorTool, LaserTool, PanTool, SelectTool };

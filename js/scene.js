@@ -388,9 +388,13 @@
     /** candidate items overlapping `box`, back → front */
     near(box) { return this._grid.query(this, box); }
 
-    hitTest(x, y, tol = 6) {
+    hitTest(x, y, tol = 6, filter) {
       const cand = this.near(U.box(x - tol, y - tol, x + tol, y + tol));
-      for (let i = cand.length - 1; i >= 0; i--) if (this.hitItem(cand[i], x, y, tol)) return cand[i];
+      for (let i = cand.length - 1; i >= 0; i--) {
+        const it = cand[i];
+        if (filter && !filter(it)) continue;
+        if (this.hitItem(it, x, y, tol)) return it;
+      }
       return null;
     }
 
@@ -590,6 +594,15 @@
    * removed deliberately, with the select tool and Delete.
    */
   D.erasable = it => it.type === 'stroke' || it.type === 'shape' || it.type === 'edge';
+
+  /**
+   * The things you work on top of: a PDF page or a picture. They are hit
+   * by their whole area, so a press anywhere in the gaps between the
+   * notes written over one lands on it — which made the page, not the
+   * notes, the thing that moved. The select tool therefore lets them be
+   * picked up only deliberately (see SelectTool.down).
+   */
+  D.backdrop = it => !!it && (it.type === 'pdfpage' || it.type === 'image');
 
   D.Scene = Scene;
   D.FONT_STACK = FONT_STACK;
