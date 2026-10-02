@@ -92,7 +92,10 @@ Pages are not flattened into pictures at import. The file is stored once and
 each page is rendered on demand at a resolution that suits the current zoom —
 so a 40-page PDF costs one copy of the file rather than forty bitmaps, and
 zooming in to annotate gives you a sharper page rather than a blurry one. A
-`.board` export carries its PDFs inside it, so the file still stands alone.
+`.board` export carries its PDFs and pictures inside it, so the file still
+stands alone. Pasted and dropped pictures are kept the same way — stored once,
+at full resolution, outside the board itself — so a board full of screenshots
+saves as quickly as an empty one.
 
 On a dark board the pages are rendered dark rather than left as white
 floodlights: each page is luminance-inverted as it is rendered, so the paper
@@ -130,8 +133,12 @@ first — so it doubles as a recents list. Type to filter by name. Thumbnails
 are re-rendered when you leave a board and every few seconds while you work.
 
 It also holds export to `.board` (loss-free JSON), PNG and SVG, and import of
-anything exported. Autosave runs about half a second
-after you stop working; the top bar says `saved` when it is done.
+anything exported. PNG and SVG come out on a transparent background by
+default; **Settings → Export** switches to the paper colour, and picks the
+theme they are drawn in — matching the app, or always light or always dark —
+which sets the colour of default ink and of PDF pages. Autosave runs about
+half a second after you stop working (or after you lift the pen); the top bar
+says `saved` when it is done.
 
 If the tab is closed or reloaded inside that window, the pending changes are
 mirrored to `localStorage` on the way out (synchronous, so it always
