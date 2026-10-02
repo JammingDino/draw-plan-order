@@ -231,7 +231,19 @@
       if (it.size * zoom >= LOD_NIB_PX) return null;
 
       const b = zoomBucket(zoom);
-      if (!it._lod || it._lod.b !== b) {
+      /* Two zooms are kept, the latest and the one before (as `prev`, so
+         whatever clears _lod clears both). The dashboard thumbnail paints
+         the whole board at its own tiny scale every few seconds while you
+         draw, and with one slot each of those evicted the screen's paths:
+         zoomed out on a big board, the next frame re-simplified every
+         visible stroke — about 260ms instead of 40. */
+      let held = it._lod;
+      if (held && held.b !== b && held.prev && held.prev.b === b) {
+        const p = held.prev;
+        held.prev = null; p.prev = held;
+        it._lod = held = p;
+      }
+      if (!held || held.b !== b) {
         const z = bucketZoom(b);
         const xy = U.simplify(it.pts, LOD_TOL_PX / z, 3);
         const path = new Path2D();
@@ -242,7 +254,8 @@
           // a tap: a subpath of zero length still paints a dot under a round cap
           path.moveTo(xy[0], xy[1]); path.lineTo(xy[0], xy[1]);
         }
-        it._lod = { b, path, width: Math.max(it.size, LOD_MIN_PX / z), x: it.pts[0], y: it.pts[1] };
+        if (held) held.prev = null;
+        it._lod = { b, path, width: Math.max(it.size, LOD_MIN_PX / z), x: it.pts[0], y: it.pts[1], prev: held || null };
       }
       // moved since it was built: see drawStroke
       const L = it._lod;

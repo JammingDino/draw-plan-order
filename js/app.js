@@ -399,7 +399,7 @@
       // hiding the tab is the last moment an async write can still finish,
       // pagehide/beforeunload only leave time for the synchronous mirror.
       addEventListener('visibilitychange', () => {
-        if (document.hidden) { if (this._dirty) this.saveNow(); }
+        if (document.hidden) { if (this._dirty) this.saveNow(false, true); }
         else this.requestDraw();          // PDF pages that stalled while hidden get another go
       });
       addEventListener('pagehide', () => this.writeRescue());
@@ -565,7 +565,7 @@
           case 'v': return;                       // handled by the paste event
           case 'd': e.preventDefault(); this.duplicate(); return;
           case 'g': e.preventDefault(); this.toggleGroup(); return;
-          case 's': e.preventDefault(); this.saveNow(); this.toast('Saved'); return;
+          case 's': e.preventDefault(); this.saveNow(false, true); this.toast('Saved'); return;
           case 'm': e.preventDefault(); this.ui.openSheet(); return;
           case ',': e.preventDefault(); this.ui.openSettings(); return;
           case '\\': e.preventDefault(); this.ui.toggleFolds(); return;
@@ -919,7 +919,8 @@
       return this.saveNow();
     }
 
-    async saveNow(force) {
+    /** `force` refreshes the board's card picture; either flag updates the board list */
+    async saveNow(force, listToo) {
       if (!this.board) return;
       this.snapshot();
       // the dashboard picture is cheap but not free: refresh it now and then,
@@ -935,7 +936,7 @@
         this._thumbAt = Date.now();
         this.queueThumb();
       }
-      await D.store.save(this.board);
+      await D.store.save(this.board, force || listToo);
       this._dirty = false;
       $('#save-state').textContent = 'saved';
       clearRescue();
@@ -986,7 +987,7 @@
       this.snapshot();                                // keep picture and content in step
       this.board.thumb = this.makeThumb();
       this.board.thumbTheme = document.documentElement.dataset.theme;
-      await D.store.save(this.board);
+      await D.store.save(this.board, true);
     }
 
     /** copy the live scene into the board record */

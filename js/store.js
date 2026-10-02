@@ -225,7 +225,23 @@
 
   S.list = async () => (await backend.get(INDEX)) || [];
 
-  S.touchIndex = async (board) => {
+  /* The index carries every board's card picture, so it is the biggest
+     thing written after the board itself, and it was read and rewritten
+     on every autosave — a cost that grew with the number of boards, not
+     with anything you were doing. Now it is rewritten when what a card
+     shows changes (the name or the picture), when another board is
+     saved, when asked to (leaving a board, opening the list, Ctrl+S,
+     hiding the window), and otherwise at most twice a minute — so the
+     item count and recency on a card can trail by up to that long. */
+  const INDEX_LAG = 30000;
+  let indexed = null;           // what this window last wrote for a board
+
+  S.touchIndex = async (board, force) => {
+    const now = Date.now();
+    const same = indexed && indexed.id === board.id && indexed.name === board.name &&
+      indexed.thumb === board.thumb && indexed.thumbTheme === board.thumbTheme;
+    if (!force && same && now - indexed.at < INDEX_LAG) return null;
+    indexed = { id: board.id, name: board.name, thumb: board.thumb, thumbTheme: board.thumbTheme, at: now };
     const list = await S.list();
     const i = list.findIndex(b => b.id === board.id);
     const entry = {
@@ -240,10 +256,11 @@
 
   S.load = async id => backend.get('b:' + id);
 
-  S.save = async board => {
+  /** `force` also brings the board's card in the index up to date */
+  S.save = async (board, force) => {
     board.updated = Date.now();
     await backend.set('b:' + board.id, board);
-    await S.touchIndex(board);
+    await S.touchIndex(board, force);
   };
 
   S.remove = async id => {

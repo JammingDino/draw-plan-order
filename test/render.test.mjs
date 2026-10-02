@@ -170,6 +170,23 @@ test('small zoom changes reuse the cache; large ones rebuild', () => {
   assert.notEqual(st._lod.path, first, 'a big zoom change re-simplifies');
 });
 
+test('painting the dashboard thumbnail does not evict the screen’s paths', () => {
+  const s = new D.Scene();
+  const st = s.add(D.make.stroke({ pts: [0, 0, 0.5, 20, 20, 0.5, 40, 0, 0.5], size: 1 }));
+  const { r } = rig(s, 0.5);
+  r.drawScene();
+  const screen = st._lod.path;
+  const thumb = new D.Renderer({ scene: s, camera: new D.Camera(), requestDraw() {}, opts: {} }).bctx;
+  r.drawItems(thumb, s.items, 0.02);       // the card's scale, far from the screen's
+  assert.notEqual(st._lod.path, screen, 'the thumbnail gets its own simplification');
+  r.drawScene();
+  assert.equal(st._lod.path, screen, 'and the screen finds its own still there');
+  // a real edit still throws both away
+  s.begin('move'); s.translate(st, 5, 0); s.commit();
+  r.drawScene();
+  assert.notEqual(st._lod.path, screen);
+});
+
 /* ── the paper ───────────────────────────────────────────────────── */
 
 test('ruled paper draws horizontals only; squared paper draws both', () => {
