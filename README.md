@@ -68,11 +68,19 @@ saved work — handy for trying something out.
 | **Flip the Surface Pen** and rub | Erases, whatever tool you had selected. Let go and you are back on your previous tool. A ring shows the eraser's size, and appears as soon as the blunt end is in range — before you touch the glass — so you can see what you are about to take off. |
 | Draw a near-straight line | It is quietly straightened, and snapped to 0/45/90° if it is close. |
 | Erase over a PDF, image, sticky or node | Only your ink comes off. Those are hit-tested by their whole area, so an eraser stroke *across* one would otherwise delete the lot — remove them deliberately, with the select tool and <kbd>Delete</kbd>. |
-| With the select tool, **drag** across a PDF page or picture | Selects the notes and ink written on it, rather than dragging the page out from under them. **Press and hold** (about a third of a second) to pick up the page itself, or tap it to select it — once selected, it drags straight away. |
+| With the select tool, **drag** across a PDF page or picture | Selects the notes and ink written on it, rather than dragging the page out from under them. **Press and hold** (about a third of a second) to pick up the page itself, or tap it to select it — once selected, it drags straight away. Keep holding, still, and the long-press menu follows. |
 | **Finger** on the canvas | Always pans and pinch-zooms, whatever tool is selected — so you can sketch, shove the page along, and sketch some more without putting the pen down. Your palm can rest anywhere, and a mouse or pen still draws normally. Turn it off under ☰ → Settings if you would rather draw with a finger. |
+| **Hold the pen or a finger still** where it landed, for half a second | A menu opens there: paste, paste here, a picture or PDF, select all, undo and redo. On something, that thing is selected — whatever tool you have out — and the menu is what you can do with it. A ring fills while you hold; move off before it closes and you carry on as normal, with nothing drawn. Holding still at the *end* of a stroke is the shape snap above, never the menu, and a finger soon after the pen was near the glass is taken for your palm. A right click, or the pen's barrel button, opens the same menu. |
+| Anything **selected** | A bar of big buttons sits just above it — copy, cut, duplicate, delete, front, back, group, edit — and follows it as you pan and zoom. It appears once a pen or finger has touched the screen; the mouse keeps to the style panel. |
+| **Double-tap** with the pen or a finger | Edits text, notes, nodes and connector labels, as a double-click does. A connector's label is typed in a field on the line itself. The two dots the pen's taps drew are taken back. |
+| With the select tool, **tap with a finger** | Selects what it lands on, and a finger on the selection drags or resizes it. Anywhere else a finger still pans, and a tap on bare board lets go. |
 
 Both of the "clever" behaviours can be switched off in the style panel under
-the pen tool.
+the pen tool. The long-press menu — for fingers, for the pen, and how long
+the hold is — and when the action bar shows are under ☰ → Settings →
+**Touch and hold**. Features add their own entries to the menu and the bar
+through `D.ext.pressActions`; the comment at the top of `js/press.js` says
+what they are handed.
 
 ## Tools
 

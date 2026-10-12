@@ -62,6 +62,22 @@
       this.scene.onchange = () => { this.needBase = true; this.schedule(); };
       this.tree = new Tree(this);
       this.taps = new D.Taps(this);       // two fingers tap to undo, three to redo
+
+      /* Pen and touch on their own, with no keyboard and no right button
+         (press.js has the menu and the bar). `coarse` says the last thing
+         to press was a finger or a pen, so the painter and the select
+         tool can make their targets bigger; hitPx and handlePad are the
+         sizes to use, so everything agrees on what "on it" means. */
+      this.pointerType = self.matchMedia && matchMedia('(pointer: coarse)').matches ? 'touch' : 'mouse';
+      this.coarse = this.pointerType !== 'mouse';
+      this.hold = new D.Hold({
+        ring: h => { if (this.press) this.press.ring(h); },
+        abort: () => { if (this.press) this.press.unring(); },
+        fire: h => this.onHold(h)
+      });
+      this.tap = null;          // the contact that may yet turn out to be a tap
+      this.lastTap = null;      // the tap before it, for a double-tap
+      this.press = null;        // the menu and the action bar, once the UI is up
     }
 
     /* ── boot ─────────────────────────────────────────────────────── */
@@ -128,6 +144,7 @@
       this.setBoard(board);
 
       this.ui = new D.UI(this);
+      if (D.Press) this.press = new D.Press(this);
       this.bindInput();
       this.bindHostMessages();
       this.setTool('pen');
@@ -182,6 +199,7 @@
       this.camera.load(readView(board.id) || board.camera);
       $('#board-title').value = board.name;
       this.selection = [];
+      if (this.press) this.press.reset();
       D.store.setLast(board.id);
       this.requestDraw();
       if (this.ui) this.ui.refresh();
@@ -297,6 +315,10 @@
              that a press would turn into a pan. */
           if (!this.active && this.hoverEraser && !this.spaceDown && t !== this.tools.eraser)
             this.tools.eraser.paint(r);
+          /* The action bar follows the selection here, on the frames that
+             already repaint it — never on the ones the pen is appending
+             ink on, which return above without getting this far. */
+          if (this.press) this.press.frame();
           /* Features' overlays (ext.js), last and in screen space. A tool's
              paint can leave alpha or blending set, so they start clean. */
           if (D.ext.has('frame')) {
@@ -393,6 +415,7 @@
     /* ── tools ────────────────────────────────────────────────────── */
     setTool(name) {
       if (this.tool && this.tool.cancel) this.tool.cancel();
+      if (this.press) this.press.closeMenu();
       this.toolName = name;
       this.tool = this.tools[name];
       if (name !== 'select' && name !== 'lasso') this.select([]);
@@ -482,12 +505,28 @@
       if (e.target.closest('#overlay .text-edit')) return;
       this.taps.down(e);
       if (this.editor.active) this.editor.close();
+      if (this.press) this.press.closeLabel(true);
+      const now = performance.now();
+      this.setPointerType(e.pointerType);
+      if (e.pointerType === 'pen') this.penAt = now;
       // a primary press means nothing else is really down: drop anything stale
       // (pointers can go missing when the pen leaves the digitiser range)
       if (e.isPrimary) this.pointers.clear();
-      else for (const [id, p] of this.pointers) if (performance.now() - p._t > 3000) this.pointers.delete(id);
-      e._t = performance.now();
+      else for (const [id, p] of this.pointers) if (now - p._t > 3000) this.pointers.delete(id);
+      e._t = now;
       this.pointers.set(e.pointerId, e);
+
+      /* Every new contact ends a hold: a second finger makes it a pinch,
+         and a pen landing beside a resting finger says the finger was a
+         palm. Whether this contact starts a hold of its own is settled
+         below, once it is known what it is driving. Likewise a tap: one
+         contact, down and up again without going anywhere. */
+      this.hold.cancel();
+      if (this.tap) this.tap.multi = true;
+      this.tap = this.pointers.size === 1 ? {
+        id: e.pointerId, type: e.pointerType, button: e.button, x: e.clientX, y: e.clientY, t0: now,
+        slop: TAP_SLOP[e.pointerType] || TAP_SLOP.mouse, moved: false, multi: false, held: false, panned: false, dot: null
+      } : null;
 
       /* two-finger pinch / pan */
       if (this.pointers.size === 2) {
@@ -506,25 +545,171 @@
       const touchPans = e.pointerType === 'touch' && this.opts.general.touchPan;
       const eraserButton = U.isEraserEnd(e);
       const middle = e.button === 1, right = e.button === 2;
+      const selecting = SELECTING.has(this.toolName);
 
       let tool;
       if (middle || right || this.spaceDown || touchPans) tool = this.tools.pan;
       else if (eraserButton) tool = this.tools.eraser;
       else tool = this.tool;
 
+      /* The one exception: with the select tool out, a finger on what is
+         already selected takes hold of it, so a selection can be moved and
+         resized with nothing but a finger. Anywhere else it still pans. */
+      const grab = touchPans && tool === this.tools.pan && !middle && !right && !this.spaceDown && selecting && this.onSelection(e);
+      if (grab) tool = this.tool;
+
+      /* A long-press can select something with a drawing tool still out.
+         That selection is for the menu and the action bar: putting the
+         tool to the board again lets go of it, as clicking away would. */
+      if (tool === this.tool && !selecting && this.selection.length) this.select([]);
+      if (tool !== this.tools.pan && this.press) this.press.hideBar();
+
       this.active = tool;
       this.activeName = tool === this.tool ? this.toolName : (tool === this.tools.pan ? 'pan' : 'eraser');
+      if (this.tap) this.tap.panned = touchPans && tool === this.tools.pan;
       const ev = this.mkEv(e);
       this.pointer = ev;
       this.downId = e.pointerId;
       try { $('#stage').setPointerCapture(e.pointerId); } catch (_) { }
-      tool.down(ev);
+      if (grab) {
+        /* If the select tool does not find a handle or an item under the
+           finger after all — its idea of "under" may be tighter than
+           onSelection's — the finger pans, as it would have, rather than
+           starting a marquee that throws the selection away. */
+        const kept = this.selection;
+        tool.down(ev);
+        if (!tool.mode || tool.mode === 'marquee' || tool.mode === 'lasso') {
+          tool.cancel();
+          this.select(kept, true);
+          tool = this.active = this.tools.pan;
+          this.activeName = 'pan';
+          if (this.tap) this.tap.panned = true;
+          tool.down(ev);
+        }
+      } else tool.down(ev);
+      this.armHold(e);
       this.requestDrawLive();
       e.preventDefault?.();
     }
 
+    /** remember what last pressed, and repaint if that changes how big the handles are */
+    setPointerType(type) {
+      if (!type || type === this.pointerType) return;
+      this.pointerType = type;
+      const coarse = type === 'touch' || type === 'pen';
+      if (coarse !== this.coarse) { this.coarse = coarse; this.requestDrawLive(); }
+    }
+
+    /** screen px a press may land from an item and still be on it, for `type` of pointer */
+    hitPx(type = this.pointerType) { return HIT_PX[type] || HIT_PX.mouse; }
+    /** screen px around a selection handle that still takes it */
+    handlePad(type = this.pointerType) { return HANDLE_PAD[type] || HANDLE_PAD.mouse; }
+
+    /** is this press on the selection: one of its items, or a handle? */
+    onSelection(e) {
+      if (!this.selection.length) return false;
+      if (this.selBox) {
+        const pad = this.handlePad(e.pointerType);
+        for (const h of this.renderer.handleRects(this.selBox))
+          if (e.clientX >= h.x - pad && e.clientX <= h.x + h.w + pad && e.clientY >= h.y - pad && e.clientY <= h.y + h.h + pad) return true;
+      }
+      const w = this.camera.toWorld(e.clientX, e.clientY);
+      const hit = this.scene.hitTest(w.x, w.y, this.hitPx(e.pointerType) / this.camera.zoom);
+      return !!hit && this.selection.includes(hit);
+    }
+
+    /**
+     * What a press at (x, y), in world units, is on. A page or picture
+     * covers its whole area, so anything drawn on it within reach wins,
+     * as it does for the select tool.
+     */
+    pickAt(x, y, type) {
+      const tol = this.hitPx(type) / this.camera.zoom;
+      let hit = this.scene.hitTest(x, y, tol);
+      if (D.backdrop(hit)) {
+        const over = this.scene.hitTest(x, y, tol, it => !D.backdrop(it) && it._z > hit._z);
+        if (over) hit = over;
+      }
+      return hit;
+    }
+
+    groupOf(it) { return it.group ? this.scene.items.filter(i => i.group === it.group) : [it]; }
+
+    /**
+     * Start watching this press for a long-press, if it may be one.
+     *
+     * Fingers and pens only: a mouse has its right button, which opens the
+     * same menu (onTap). Never the eraser, which has already rubbed out
+     * what it landed on — a cancel cannot put that back — nor a press that
+     * is panning on purpose (middle button, Space). A finger soon after
+     * the pen was about is a palm, and so is a contact the size of one.
+     * On something the select tool can pick up and drag, the menu waits
+     * GRAB_GRACE longer: the tool lifts a page at 300ms, and someone who
+     * holds, sees it lift and then starts to drag should get the drag.
+     */
+    armHold(e) {
+      const o = this.opts.press, type = e.pointerType;
+      if (!o || !o.hold || (type !== 'touch' && type !== 'pen') || (type === 'pen' && !o.pen)) return;
+      if (this.pointers.size !== 1 || e.button === 1 || e.button === 2 || this.spaceDown) return;
+      if (this.activeName === 'eraser' || !this.active) return;
+      if (type === 'touch') {
+        if (performance.now() - (this.penAt ?? -Infinity) < PEN_NEAR_MS) return;
+        if (Math.max(e.width || 0, e.height || 0) > PALM_PX) return;
+      }
+      let delay = o.delay || 500;
+      const mode = this.active.mode;
+      if (SELECTING.has(this.activeName) && mode && mode !== 'marquee' && mode !== 'lasso') delay += GRAB_GRACE;
+      this.holdCam = this.camera.toJSON();
+      this.hold.start(e, delay);
+    }
+
+    /** a long-press has fired: drop what the press had started, and open the menu */
+    onHold(h) {
+      if (h.id !== this.downId || !this.pointers.has(h.id)) return;
+      /* Every tool's cancel leaves no trace — no dot of ink, no empty text
+         box, no half-made move — which is what lets a hold start out as
+         whatever the tool does and turn into a menu afterwards. */
+      if (this.active) {
+        const panned = this.active === this.tools.pan;
+        this.active.cancel();
+        this.active = null;
+        /* the finger may have nudged the board within the slop: put it back, as a tap does */
+        if (panned && this.holdCam) { this.camera.load(this.holdCam); this.requestPan(); }
+      }
+      if (this.tap && this.tap.id === h.id) this.tap.held = true;
+      this.openPress(h.x, h.y, h.type);
+    }
+
+    /**
+     * The long-press menu for screen point (sx, sy) — also what a right
+     * click or the pen's barrel button opens. Pressing on something
+     * selects it whatever the tool, unless it is part of the selection
+     * already (then the menu is for all of it). A page or picture under a
+     * drawing tool is what you are writing on, not what you are asking
+     * about: the menu is the board's, with a way to select the page.
+     */
+    openPress(sx, sy, type) {
+      const w = this.camera.toWorld(sx, sy);
+      const hit = this.pickAt(w.x, w.y, type);
+      const target = hit && !(D.backdrop(hit) && !SELECTING.has(this.toolName)) ? hit : null;
+      if (target) { if (!this.selection.includes(target)) this.select(this.groupOf(target)); }
+      else if (this.selection.length) this.select([]);
+      const ctx = { app: this, x: w.x, y: w.y, sx, sy, hit, selection: this.selection.slice(), pointerType: type };
+      if (this.press) this.press.openMenu(ctx);
+      this.requestDrawLive();
+      return ctx;
+    }
+
     onMove(e) {
       this.taps.move(e);
+      this.hold.move(e);
+      const tap = this.tap;
+      if (tap && tap.id === e.pointerId && !tap.moved && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > tap.slop) tap.moved = true;
+      if (e.pointerType === 'pen') {
+        this.penAt = performance.now();
+        /* the pen coming into range while a finger is held: that finger is the hand holding it */
+        if (this.hold.armed && this.hold.armed.type === 'touch') this.hold.cancel();
+      }
       if (this.pointers.has(e.pointerId)) { e._t = performance.now(); this.pointers.set(e.pointerId, e); }
 
       if (this.gesture && this.pointers.size >= 2) {
@@ -541,8 +726,16 @@
       const ev = this.mkEv(e, samples);
       this.pointer = ev;
 
-      if (this.active && e.pointerId === this.downId) this.active.move(ev);
-      else {
+      if (this.active && e.pointerId === this.downId) {
+        this.active.move(ev);
+        /* The select tool starts moving things after a few pixels — inside
+           the hold's slop — and its cancel drops the move without putting
+           them back. Once it has changed anything, this is a drag. */
+        if (this.hold.armed && SELECTING.has(this.activeName)) {
+          const t = this.active;
+          if ((t.mode === 'move' && t.moved) || t.mode === 'resize' || t.mode === 'endpoint') this.hold.cancel();
+        }
+      } else {
         /* A hovering eraser end has to repaint even on the frame it stops
            being one, or the ring is left behind when the pen is turned
            back over. */
@@ -565,20 +758,91 @@
 
     onUp(e, cancelled) {
       this.taps.up(e, cancelled);
+      this.hold.end(e);
       this.pointers.delete(e.pointerId);
       if (this.gesture && this.pointers.size < 2) { this.gesture = null; this.saveView(); }
-      if (!this.active || e.pointerId !== this.downId) return;
+      const tap = this.endTap(e, cancelled);
+      if (!this.active || e.pointerId !== this.downId) { if (tap) this.onTap(tap); return; }
       const ev = this.mkEv(e);
+      /* note the stroke a pen tap leaves, so a double-tap can take it back */
+      const undo = this.scene.undoStack, top = undo[undo.length - 1];
       if (cancelled && this.active.cancel) this.active.cancel();
       else this.active.up(ev);
+      if (tap) { const op = undo[undo.length - 1]; if (op && op !== top && op.label === 'draw') tap.dot = op; }
       this.active = null;
       try { $('#stage').releasePointerCapture(e.pointerId); } catch (_) { }
       if (this.ui) this.ui.refresh();
       this.requestDrawLive();
+      if (tap) this.onTap(tap);
+    }
+
+    /** the tap this lift completes, or null if the contact was anything else */
+    endTap(e, cancelled) {
+      const t = this.tap;
+      if (!t || t.id !== e.pointerId) return null;
+      this.tap = null;
+      if (cancelled || t.moved || t.multi || t.held) { this.lastTap = null; return null; }
+      t.t1 = performance.now();
+      t.long = t.t1 - t.t0 > TAP_MS;
+      return t;
+    }
+
+    /**
+     * A contact that came and went without travelling. Three things hang
+     * off one: a right click (or the pen's barrel button) opens the
+     * long-press menu; two quick taps in one place are a double-click,
+     * which Windows does not reliably make for a pen and does not make at
+     * all for a finger; and a finger's tap selects, with the select tool.
+     */
+    onTap(tap) {
+      if (tap.button === 2) { this.openPress(tap.x, tap.y, tap.type); this.lastTap = null; return; }
+      if (tap.long || (tap.type !== 'touch' && tap.type !== 'pen')) { this.lastTap = null; return; }
+      const last = this.lastTap;
+      if (last && last.type === tap.type && tap.t0 - last.t1 < DOUBLE_MS &&
+        Math.hypot(tap.x - last.x, tap.y - last.y) < (DOUBLE_SLOP[tap.type] || 12)) {
+        this.lastTap = null;
+        this.doubleTap(last, tap);
+        return;
+      }
+      this.lastTap = tap;
+      if (tap.panned) this.fingerTap(tap);
+    }
+
+    /* With the select tool, a finger's tap selects what it lands on, or
+       lets go on bare board. With any other tool it only lets go — of a
+       selection a long-press made — so a palm brushing the glass while
+       writing never picks anything up. */
+    fingerTap(tap) {
+      const w = this.camera.toWorld(tap.x, tap.y);
+      const hit = this.pickAt(w.x, w.y, 'touch');
+      if (SELECTING.has(this.toolName)) this.select(hit ? this.groupOf(hit) : []);
+      else if (!hit && this.selection.length) this.select([]);
+    }
+
+    /**
+     * Two taps in one place: a double-click. The pen drew a dot with each
+     * tap, under a drawing tool, and those dots would sit on top of the
+     * very thing being double-tapped — so they are looked through to find
+     * it, and taken back out of the board and its history if the
+     * double-tap did something. If it did not, they stay: that was a colon.
+     */
+    doubleTap(a, b) {
+      const now = performance.now();
+      if (now - (this._dblAt ?? -Infinity) < DOUBLE_GUARD) return;
+      const ignore = new Set();
+      for (const t of [a, b]) if (t.dot) for (const it of t.dot.adds) ignore.add(it.id);
+      const w = this.camera.toWorld(b.x, b.y);
+      const act = this.doubleAction(w.x, w.y, b.type, ignore);
+      if (!act) return;
+      this._dblAt = now;
+      const s = this.scene;
+      for (const t of [b, a]) if (t.dot && s.undoStack[s.undoStack.length - 1] === t.dot) { s.undo(); s.redoStack.pop(); }
+      act();
     }
 
     onWheel(e) {
       e.preventDefault();
+      if (this.press) this.press.closeMenu();
       if (e.ctrlKey || e.metaKey) {
         const f = Math.exp(-e.deltaY * 0.0035);
         this.camera.zoomBy(f, e.clientX, e.clientY);
@@ -592,28 +856,68 @@
       this.saveViewDebounced();
     }
 
+    /* A double-tap is recognised in onTap as well as by the browser, and
+       a Windows pen sometimes produces both: one action per pair. */
     onDoubleClick(e) {
+      const now = performance.now();
+      if (now - (this._dblAt ?? -Infinity) < DOUBLE_GUARD) return false;
       const w = this.camera.toWorld(e.clientX, e.clientY);
-      const hit = this.scene.hitTest(w.x, w.y, 8 / this.camera.zoom);
-      const xt = hit && D.ext.items[hit.type];
-      if (xt) {
-        if (xt.edit) { this.select([hit]); xt.edit(this, hit); }
-      } else if (hit && (hit.type === 'text' || hit.type === 'note' || hit.type === 'node')) {
-        this.select([hit]); this.editor.open(hit, { selectAll: false });
-      } else if (hit && hit.type === 'edge') {
-        const label = prompt('Connector label', hit.label || '');
-        if (label !== null) { this.scene.begin('label'); this.scene.touch(hit); hit.label = label; this.scene.commit(); this.afterEdit(); }
-      } else if (!hit && this.toolName === 'select') {
+      const act = this.doubleAction(w.x, w.y, e.pointerType || this.pointerType);
+      if (!act) return false;
+      this._dblAt = now;
+      act();
+      return true;
+    }
+
+    /** what a double-click at (x, y) would do, as a function to call; null for nothing */
+    doubleAction(x, y, type, ignore) {
+      const hit = this.scene.hitTest(x, y, this.hitPx(type) / this.camera.zoom, ignore && ignore.size ? it => !ignore.has(it.id) : undefined);
+      if (hit) return this.canEdit(hit) ? () => this.editItem(hit) : null;
+      if (this.toolName !== 'select') return null;
+      return () => {
         const o = this.opts.text;
-        const it = mk.text({ x: w.x, y: w.y - o.size * 0.68, color: o.color, size: o.size, font: o.font, autoWidth: true, w: 40 });
+        const it = mk.text({ x, y: y - o.size * 0.68, color: o.color, size: o.size, font: o.font, autoWidth: true, w: 40 });
         this.scene.begin('text'); this.scene.add(it); this.scene.commit();
         this.select([it]); this.editor.open(it, { isNew: true });
-      }
+      };
+    }
+
+    /** can this item be edited in place: its text, its label, or whatever its type says (ext.js) */
+    canEdit(it) {
+      const xt = D.ext.items[it.type];
+      if (xt) return !!xt.edit;
+      return it.type === 'text' || it.type === 'note' || it.type === 'node' || it.type === 'edge';
+    }
+
+    /** edit it in place, as a double-click or F2 would; selects it first */
+    editItem(it) {
+      const xt = D.ext.items[it.type];
+      if (xt) { if (xt.edit) { this.select([it]); xt.edit(this, it); } return; }
+      if (it.type === 'edge') { this.editLabel(it); return; }
+      if (it.type === 'text' || it.type === 'note' || it.type === 'node') { this.select([it]); this.editor.open(it, { selectAll: false }); }
+    }
+
+    /* A connector's label, in a field on the board itself. It used to be
+       window.prompt(), which a pen user meets as a modal box far from
+       the line it is about, and which Tauri's WebView does not show. */
+    editLabel(edge) {
+      if (this.press) { this.press.editLabel(edge); return; }
+      const label = prompt('Connector label', edge.label || '');
+      if (label !== null) this.setLabel(edge, label);
+    }
+
+    setLabel(edge, label) {
+      label = String(label).trim();
+      if (label === (edge.label || '') || !this.scene.get(edge.id)) return;
+      this.scene.begin('label'); this.scene.touch(edge);
+      if (label) edge.label = label; else delete edge.label;
+      this.scene.commit(); this.afterEdit();
     }
 
     /* ── keyboard ─────────────────────────────────────────────────── */
     onKey(e) {
       if (e.target.matches('input, textarea')) return;
+      if (this.press && this.press.key(e)) return;  // Escape closes the long-press menu
       if (D.ext.emit('key', this, e)) return;      // a feature took it
       // the boards sheet has the keyboard while it is open, not the board behind it
       if (this.ui && !$('#sheet').hidden) { this.ui.sheetKey(e); return; }
@@ -673,7 +977,8 @@
       if (k === 'F2' && this.selection.length === 1) {
         e.preventDefault();
         const it = this.selection[0], xt = D.ext.items[it.type];
-        if (!xt) this.editor.open(it);
+        if (it.type === 'edge') this.editLabel(it);
+        else if (!xt) this.editor.open(it);
         else if (xt.edit) xt.edit(this, it);
         return;
       }
@@ -757,12 +1062,16 @@
       }
     }
 
+    /** centred on `at`, or where they were copied from if `at` is null */
     pasteItems(items, at) {
       if (!items.length) return;
       let box = null;
       const tmp = new D.Scene({ items });
       for (const it of items) box = U.unionBox(box, tmp.bbox(it));
-      const dx = at.x - (box.x + box.w / 2), dy = at.y - (box.y + box.h / 2);
+      let dx = at ? at.x - (box.x + box.w / 2) : 0, dy = at ? at.y - (box.y + box.h / 2) : 0;
+      /* in place, on top of the very things copied, looks like nothing
+         happened: step aside the way Duplicate does */
+      if (!at && items.some(it => this.scene.get(it.id))) dx = dy = 24;
       const { copies, ids } = D.cloneSet(items);
       // an edge whose other end was left behind becomes a loose connector
       for (const c of copies) {
@@ -788,23 +1097,78 @@
         if (f.type === 'application/pdf') { e.preventDefault(); this.insertPdf(f, at); return; }
       }
       const text = dt.getData('text/plain');
-      if (text) {
-        try {
-          const j = JSON.parse(text);
-          if (j && j.dpo && Array.isArray(j.items)) {
-            e.preventDefault();
-            this.adoptAssets(j.assets).catch(err => console.warn('[dpo] paste', err)).then(() => this.pasteItems(j.items, at));
-            return;
-          }
-        } catch (_) { }
-        e.preventDefault();
-        const o = this.opts.text;
-        const it = mk.text({ x: at.x, y: at.y, text, color: o.color, size: o.size, w: 380 });
-        this.scene.begin('paste text'); this.scene.add(it); this.scene.commit();
-        this.setTool('select'); this.select([it]); this.afterEdit();
-        return;
-      }
+      if (text) { e.preventDefault(); this.pasteText(text, at); return; }
       if (this.clipboard.length) { e.preventDefault(); this.pasteItems(this.clipboard, at); }
+    }
+
+    /** text off the clipboard: this app's own items if it is a copy of some, otherwise a text box */
+    pasteText(text, at) {
+      try {
+        const j = JSON.parse(text);
+        if (j && j.dpo && Array.isArray(j.items)) {
+          this.adoptAssets(j.assets).catch(err => console.warn('[dpo] paste', err)).then(() => this.pasteItems(j.items, at));
+          return;
+        }
+      } catch (_) { }
+      const o = this.opts.text;
+      at = at || this.viewCentre();
+      const it = mk.text({ x: at.x, y: at.y, text, color: o.color, size: o.size, w: 380 });
+      this.scene.begin('paste text'); this.scene.add(it); this.scene.commit();
+      this.setTool('select'); this.select([it]); this.afterEdit();
+    }
+
+    viewCentre() { return U.boxCenter(this.camera.viewport(innerWidth, innerHeight)); }
+
+    /**
+     * Paste without a keyboard: what the long-press menu's Paste does.
+     *
+     * Ctrl+V hands the page a paste event with the clipboard in it; a
+     * button has to ask for it instead, through the async Clipboard API,
+     * which may be missing, or refused (the browser asks once, and a
+     * "no" sticks). Then the paste falls back to what was last copied in
+     * this window, and says so. `at` is the world point to paste on, or
+     * null for "where it came from" — the app's own items go back where
+     * they were copied from, anything else lands mid-view.
+     */
+    async pasteFromClipboard(at) {
+      let text = null, blocked = false;
+      const cb = navigator.clipboard;
+      if (cb && cb.read) {
+        try {
+          const found = await cb.read();
+          for (const item of found) {
+            const pic = item.types.find(t => t.startsWith('image/'));
+            const pdf = item.types.includes('application/pdf');
+            if (pic || pdf) {
+              const type = pic || 'application/pdf';
+              const blob = await item.getType(type);
+              const file = new File([blob], pdf && !pic ? 'pasted.pdf' : 'pasted', { type });
+              if (pic) this.insertImageFile(file, at || this.viewCentre());
+              else this.insertPdf(file, at || this.viewCentre());
+              return true;
+            }
+          }
+          const plain = found.find(i => i.types.includes('text/plain'));
+          if (plain) text = await (await plain.getType('text/plain')).text();
+        } catch (err) { blocked = true; }
+      }
+      if (text == null && cb && cb.readText) {
+        try { text = await cb.readText(); blocked = false; } catch (err) { blocked = true; }
+      }
+      if (text) { this.pasteText(text, at); return true; }
+      if (this.clipboard.length) {
+        this.pasteItems(this.clipboard, at);
+        if (blocked || !cb) this.toast('Could not read the clipboard here, so this is what you last copied on this board');
+        return true;
+      }
+      this.toast(blocked || !cb ? 'The clipboard cannot be read here — use Ctrl+V, or copy something on the board first' : 'Nothing to paste');
+      return false;
+    }
+
+    /** the file picker, for a picture or PDF to land at `at` (or mid-view) */
+    pickFile(at) {
+      this._fileAt = at || null;
+      $('#file-input').click();
     }
 
     onDrop(e) {
@@ -1306,7 +1670,8 @@
     onFile(e) {
       const files = [...e.target.files];
       e.target.value = '';
-      const at = U.boxCenter(this.camera.viewport(innerWidth, innerHeight));
+      const at = this._fileAt || this.viewCentre();
+      this._fileAt = null;
       files.forEach((f, i) => {
         // several pictures at once land in a short diagonal rather than in one pile
         const p = { x: at.x + i * 40, y: at.y + i * 40 };
@@ -1460,6 +1825,19 @@
     } catch (_) { return null; }
   }
   function clearRescue() { try { localStorage.removeItem('dpo:rescue'); } catch (_) { } }
+
+  /* ── pen and touch ── (see armHold, onTap and press.js) */
+  const SELECTING = new Set(['select', 'lasso']);
+  const HIT_PX = { touch: 16, pen: 10, mouse: 8 };        // App.hitPx
+  const HANDLE_PAD = { touch: 12, pen: 6, mouse: 3 };     // App.handlePad
+  const TAP_MS = 280;            // down to up, at most, for a tap
+  const TAP_SLOP = { touch: 12, pen: 6, mouse: 4 };       // CSS px a tap may wander
+  const DOUBLE_MS = 380;         // first tap up to second tap down
+  const DOUBLE_SLOP = { touch: 28, pen: 12 };             // how far apart the two may land
+  const DOUBLE_GUARD = 450;      // the browser's dblclick for a pair already handled
+  const GRAB_GRACE = 300;        // longer to hold, for the menu, on what the select tool can drag
+  const PEN_NEAR_MS = 1000;      // a finger held this soon after the pen was about is a palm
+  const PALM_PX = 70;            // and so is a contact this wide (fingertips are 20–45)
 
   /* autosave: this long after the last edit, or at the next gap once work
      has gone this long unsaved (App.markDirty) */
