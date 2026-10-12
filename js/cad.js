@@ -336,8 +336,9 @@
        from behind the style panel and the top bar. */
     let right = r.w - 8, top = 8;
     const panel = document.getElementById('style'), bar = document.getElementById('topbar');
-    if (panel && panel.getBoundingClientRect && panel.offsetParent !== null) { const b = panel.getBoundingClientRect(); if (b.width) right = Math.min(right, b.left - 8); }
-    if (bar && bar.getBoundingClientRect && bar.offsetParent !== null) { const b = bar.getBoundingClientRect(); if (b.height && at.sx < b.right + w) top = Math.max(top, b.bottom + 8); }
+    // (both are position:fixed, so offsetParent cannot say whether they are shown; a size can)
+    if (panel && panel.getBoundingClientRect) { const b = panel.getBoundingClientRect(); if (b.width) right = Math.min(right, b.left - 8); }
+    if (bar && bar.getBoundingClientRect) { const b = bar.getBoundingClientRect(); if (b.height && at.sx < b.right + w) top = Math.max(top, b.bottom + 8); }
     let x = at.sx + 26, y = at.sy - 30 - h;
     if (x + w > right) x = at.sx - 26 - w;
     if (y < top) y = at.sy + 30;
