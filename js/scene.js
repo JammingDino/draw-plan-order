@@ -2,6 +2,9 @@
 (function (D) {
   'use strict';
   const U = D.util, FH = D.freehand;
+  /* Item types registered by feature files (see ext.js). Looked up only
+     where a built-in type would have fallen through. */
+  const XT = D.ext.items;
 
   const FONT_STACK = '"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif';
   const HAND_STACK = '"Segoe Print","Bradley Hand","Comic Sans MS",cursive';
@@ -447,8 +450,16 @@
           item._ends = this._edgeEnds(item);
           break;
         }
-        default:
-          b = U.box(item.x, item.y, item.x + item.w, item.y + item.h);
+        default: {
+          const x = XT[item.type];
+          if (x) { const r = x.bbox(item); b = U.box(r.x, r.y, r.x + r.w, r.y + r.h); }
+          else b = U.box(item.x, item.y, item.x + item.w, item.y + item.h);
+          /* A type with no position of its own — one from a feature this
+             copy does not have — boxes to nothing rather than to NaN,
+             which would poison every union it joined (zoom to fit, the
+             export's bounds). It is kept, never drawn, never hit. */
+          if (!(b.w >= 0 && b.h >= 0)) b = U.emptyBox();
+        }
       }
       item._b = b;
       return b;
@@ -581,6 +592,8 @@
           return [x, y, x + w, y, x + w, y + h, x, y + h, x, y];
         }
         default: {
+          const x = XT[item.type];
+          if (x && x.outline) return x.outline(item);
           const b = this.bbox(item);
           return [b.x, b.y, b.x2, b.y, b.x2, b.y2, b.x, b.y2, b.x, b.y];
         }
@@ -593,6 +606,12 @@
       if (item.type === 'text' || item.type === 'note' || item.type === 'node' || item.type === 'image' || item.type === 'pdfpage') return true;
       if (item.type === 'shape' && item.fill && item.fill !== 'none' && item.kind !== 'line' && item.kind !== 'arrow')
         return U.pointInPolygon(x, y, this.outlinePoints(item));
+      const xt = XT[item.type];
+      if (xt) {
+        if (xt.hit) return !!xt.hit(item, x, y, tol);
+        if (xt.solid === false && xt.outline) return U.pointNearPolyline(x, y, xt.outline(item), (item.size || 2) / 2 + tol);
+        return true;                                   // inside the box, which is all it asked
+      }
       const w = (item.size || 2) / 2 + tol;
       return U.pointNearPolyline(x, y, this.outlinePoints(item), w);
     }
@@ -648,6 +667,17 @@
           for (let i = 0; i < path.length; i += 2) if (U.pointInBox(path[i], path[i + 1], b)) { out.push(it); break; }
           continue;
         }
+        const xt = XT[it.type];
+        if (xt && xt.solid !== false) {
+          for (let i = 0; i < path.length; i += 2) if (U.pointInBox(path[i], path[i + 1], b)) { out.push(it); break; }
+          continue;
+        }
+        /* a registered thin thing with no outline of its own: ask it, at
+           each point of the path */
+        if (xt && !xt.outline && xt.hit) {
+          for (let i = 0; i < path.length; i += 2) if (xt.hit(it, path[i], path[i + 1], radius)) { out.push(it); break; }
+          continue;
+        }
         const w = radius + (it.size || 2) / 2;
         if (U.polylineNear(path, this.outlinePoints(it), w)) out.push(it);
       }
@@ -662,7 +692,11 @@
       } else if (item.type === 'edge') {
         if (!item.from.id) { item.from.x += dx; item.from.y += dy; }
         if (!item.to.id) { item.to.x += dx; item.to.y += dy; }
-      } else { item.x += dx; item.y += dy; }
+      } else {
+        const x = XT[item.type];
+        if (x && x.translate) x.translate(item, dx, dy);
+        else { item.x += dx; item.y += dy; }
+      }
     }
 
     scaleItem(item, origin, sx, sy) {
@@ -675,6 +709,8 @@
       } else if (item.type === 'edge') {
         if (!item.from.id) { item.from.x = fx(item.from.x); item.from.y = fy(item.from.y); }
         if (!item.to.id) { item.to.x = fx(item.to.x); item.to.y = fy(item.to.y); }
+      } else if (XT[item.type] && XT[item.type].scale) {
+        XT[item.type].scale(item, origin, sx, sy);
       } else {
         const x2 = fx(item.x + (item.w || 0)), y2 = fy(item.y + (item.h || 0));
         item.x = fx(item.x); item.y = fy(item.y);
@@ -864,7 +900,8 @@
    * out the entire thing — annotating a PDF would delete the PDF. Those are
    * removed deliberately, with the select tool and Delete.
    */
-  D.erasable = it => it.type === 'stroke' || it.type === 'shape' || it.type === 'edge';
+  D.erasable = it => it.type === 'stroke' || it.type === 'shape' || it.type === 'edge' ||
+    !!(XT[it.type] && XT[it.type].erasable);
 
   /**
    * The things you work on top of: a PDF page or a picture. They are hit
@@ -873,7 +910,8 @@
    * notes, the thing that moved. The select tool therefore lets them be
    * picked up only deliberately (see SelectTool.down).
    */
-  D.backdrop = it => !!it && (it.type === 'pdfpage' || it.type === 'image');
+  D.backdrop = it => !!it && (it.type === 'pdfpage' || it.type === 'image' ||
+    !!(XT[it.type] && XT[it.type].backdrop));
 
   D.Scene = Scene;
   D.FONT_STACK = FONT_STACK;

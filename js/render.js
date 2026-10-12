@@ -5,6 +5,7 @@
 (function (D) {
   'use strict';
   const U = D.util, FH = D.freehand;
+  const XT = D.ext.items;      // item types registered by feature files (ext.js)
 
   /* Decoded pictures, by asset id (or, for a picture still carried inline,
      its data URL): { img, ready }. Emptied when the board changes. */
@@ -573,6 +574,7 @@
         case 'edge': this.drawEdge(ctx, it); break;
         case 'image': this.drawImage(ctx, it); break;
         case 'pdfpage': this.drawPdfPage(ctx, it); break;
+        default: { const x = XT[it.type]; if (x) x.draw(ctx, it, this); }
       }
       ctx.restore();
     }
@@ -1028,6 +1030,12 @@
         return href
           ? `<image x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" href="${href}" preserveAspectRatio="none"${op}/>`
           : `<rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" fill="${r.tokens().dark ? '#191b1f' : '#fff'}" stroke="#0003"/>`;
+      }
+      default: {
+        const x = XT[it.type];
+        // its opacity is applied here, as drawItem applies it on canvas
+        const out = x && x.svg ? x.svg(it, r) : '';
+        return out && op ? `<g${op}>${out}</g>` : out || '';
       }
     }
     return '';

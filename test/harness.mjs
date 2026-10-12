@@ -50,6 +50,7 @@ function stubElement(tag) {
     tagName: String(tag).toUpperCase(),
     style: {}, dataset: {}, children: [], width: 0, height: 0,
     innerHTML: '', textContent: '', className: '',
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
     getContext: () => (el._ctx || (el._ctx = stubContext())),
     setAttribute(k, v) { el[k] = v; },
     getAttribute(k) { return el[k]; },
@@ -68,8 +69,21 @@ function stubElement(tag) {
   return el;
 }
 
-/** Load the given js/ files, in order, into one fresh global. */
+/**
+ * Load the given js/ files, in order, into one fresh global.
+ *
+ * The core consults the extension registry (js/ext.js) as it goes, and
+ * in the app ext.js always loads straight after util.js — so it does here
+ * too, unless the caller lists it themselves. Tests written before the
+ * registry existed then need no change.
+ *
+ * A function in the list is called with the global at that point, for a
+ * test to put something in place between two files — a feature's
+ * registrations before app.js, say, as the feature files are in the app.
+ */
 export function load(...files) {
+  const u = files.indexOf('util.js');
+  if (u >= 0 && !files.includes('ext.js')) files = [...files.slice(0, u + 1), 'ext.js', ...files.slice(u + 1)];
   const ctx = {
     Math, JSON, Date, performance, console,
     Array, Object, String, Number, Boolean, Error, Map, Set, RegExp,
@@ -105,6 +119,7 @@ export function load(...files) {
   ctx.globalThis = ctx;
   vm.createContext(ctx);
   for (const f of files) {
+    if (typeof f === 'function') { f(ctx); continue; }
     vm.runInContext(readFileSync(join(ROOT, 'js', f), 'utf8'), ctx, { filename: f });
   }
   return ctx.DPO;

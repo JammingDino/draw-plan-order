@@ -4,6 +4,9 @@
   const U = D.util, el = U.el, $ = U.$;
 
   const svg = d => `<svg viewBox="0 0 24 24">${d.split('|').map(p => `<path d="${p}"/>`).join('')}</svg>`;
+  /* A feature's icon (ext.js) may be finished markup or, like ICON below,
+     just the path data. */
+  const iconOf = s => !s ? '' : /^\s*</.test(s) ? s : svg(s);
 
   const ICON = {
     select: svg('M5.5 3.2l13 7.6-5.9 1.7-2.6 5.6z'),
@@ -96,6 +99,15 @@
         { id: 'laser', icon: ICON.laser, key: 'Q', title: 'Laser pointer · Q' },
         { id: 'pan', icon: ICON.hand, key: ' ', title: 'Pan · hold Space' }
       ];
+      /* Registered tools (ext.js) go after the entry they name, or else at
+         the end of the making tools, before the laser/pan group. */
+      for (const t of D.ext.tools) {
+        if (!t.rail) continue;
+        const d = { ...t.rail, id: t.name, icon: iconOf(t.rail.icon), title: t.rail.title || t.name };
+        let at = t.rail.after ? defs.findIndex(x => x.id === t.rail.after) + 1 : 0;
+        if (at <= 0) at = defs.findIndex(x => x.id === 'laser') - 1;    // the divider before it
+        defs.splice(at, 0, d);
+      }
       this.railButtons = {};
       for (const d of defs) {
         if (d.div) { this.rail.append(el('div', { class: 'divider' })); continue; }
@@ -171,6 +183,17 @@
       const t = $('#board-title');
       t.addEventListener('input', () => { app.board.name = t.value; app.markDirty(); });
       t.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') t.blur(); });
+      this.extButtons('top', 'icon', b => $('#btn-theme').before(b));
+    }
+
+    /** the buttons features registered for one bar (ext.js) */
+    extButtons(where, cls, put) {
+      for (const x of D.ext.buttons) {
+        if (x.where !== where) continue;
+        const b = el('button', { class: cls, id: x.id, title: x.title || '', html: iconOf(x.icon) });
+        b.onclick = () => x.onClick(this.app);
+        put(b);
+      }
     }
 
     buildViewBar() {
@@ -180,6 +203,7 @@
       $('#btn-zoom-reset').onclick = () => { c.zoomTo(1, innerWidth / 2, innerHeight / 2); app.requestDraw(); this.refresh(); };
       $('#btn-fit').onclick = () => app.zoomToFit();
       $('#btn-grid').onclick = () => app.cycleGrid();
+      this.extButtons('view', 'icon sm', b => $('#viewbar').append(b));
     }
 
     /* ── folding the chrome away ─────────────────────────────────── */
@@ -285,7 +309,10 @@
         case 'note': return this.panelNote();
         case 'node': return this.panelNode();
         case 'connector': return this.panelEdge();
-        default: return this.panelGeneral();
+        default: {
+          const x = D.ext.tools.find(t => t.name === tool);
+          return x && x.panel ? x.panel(this) : this.panelGeneral();
+        }
       }
     }
 
@@ -460,18 +487,30 @@
       );
     }
 
+    /** restyle `items` as one undo step, then show the result */
+    apply(items, fn) {
+      const app = this.app;
+      app.scene.begin('style');
+      for (const it of items) { app.scene.touch(it); fn(it); }
+      app.scene.commit();
+      app.requestDraw(); app.markDirty(); this.buildPanel();
+    }
+
     panelForSelection(sel) {
       const app = this.app;
       const first = sel[0];
       const has = t => sel.some(i => i.type === t);
-      const apply = fn => {
-        app.scene.begin('style');
-        for (const it of sel) { app.scene.touch(it); fn(it); }
-        app.scene.commit();
-        app.requestDraw(); app.markDirty(); this.buildPanel();
-      };
+      const apply = fn => this.apply(sel, fn);
 
-      const grouped = sel.some(i => i.group);
+      /* a registered type with a panel of its own, when it is all that is
+         selected: its controls, then the usual Arrange row */
+      const xt = D.ext.items[first.type];
+      if (xt && xt.panel && sel.every(i => i.type === first.type)) {
+        xt.panel(this, sel);
+        this.add(this.arrangeGroup(sel));
+        return;
+      }
+
       const colorNow = first.type === 'note' ? first.color : (first.color || '#000');
       this.add(
         this.group(sel.length > 1 ? sel.length + ' items' : labelOf(first),
@@ -483,14 +522,20 @@
           this.seg([[13, 'S'], [17, 'M'], [24, 'L'], [34, 'XL']], first.textSize || first.size,
             v => apply(it => { if (it.type === 'node') it.textSize = v; else it.size = v; it._lines = null; it._b = null; }))) : null,
         has('edge') ? this.group('Route', this.seg([['elbow', 'Elbow'], ['line', 'Direct'], ['curve', 'Curve']], first.style, v => apply(it => { if (it.type === 'edge') { it.style = v; it._b = null; } }))) : null,
-        this.group('Arrange', el('div', { class: 'actions' },
-          iconBtn(ICON.front, 'Bring to front · ]', () => app.arrange('front')),
-          iconBtn(ICON.back, 'Send to back · [', () => app.arrange('back')),
-          iconBtn(ICON.dup, 'Duplicate · Ctrl+D', () => app.duplicate()),
-          grouped ? iconBtn(ICON.ungroup, 'Ungroup · Ctrl+Shift+G', () => app.toggleGroup())
-                  : iconBtn(ICON.group, 'Group · Ctrl+G', () => app.toggleGroup()),
-          iconBtn(ICON.trash, 'Delete · Del', () => app.deleteSelection(), 'danger')))
+        this.arrangeGroup(sel)
       );
+    }
+
+    /** front, back, duplicate, group and delete, for whatever is selected */
+    arrangeGroup(sel) {
+      const app = this.app, grouped = sel.some(i => i.group);
+      return this.group('Arrange', el('div', { class: 'actions' },
+        iconBtn(ICON.front, 'Bring to front · ]', () => app.arrange('front')),
+        iconBtn(ICON.back, 'Send to back · [', () => app.arrange('back')),
+        iconBtn(ICON.dup, 'Duplicate · Ctrl+D', () => app.duplicate()),
+        grouped ? iconBtn(ICON.ungroup, 'Ungroup · Ctrl+Shift+G', () => app.toggleGroup())
+                : iconBtn(ICON.group, 'Group · Ctrl+G', () => app.toggleGroup()),
+        iconBtn(ICON.trash, 'Delete · Del', () => app.deleteSelection(), 'danger')));
     }
 
     /* ── boards sheet ────────────────────────────────────────────── */
@@ -778,7 +823,7 @@
       $('#settings-sub').textContent = s.sub;
       const body = $('#settings-body');
       body.textContent = '';
-      body.append(...s.build().filter(Boolean));
+      body.append(...[].concat(s.build() || []).filter(Boolean));
       body.scrollTop = 0;
       try { localStorage.setItem('dpo:settings-tab', id); } catch (_) { }
     }
@@ -792,6 +837,12 @@
         { id: 'pen', title: 'Pen and touch', sub: 'What the pen, your fingers and the tools do', icon: ICON.pen, build: () => this.setInput() },
         { id: 'export', title: 'Export', sub: 'How PNG and SVG exports come out', icon: icon('M12 4v11|M7.5 10.5L12 15l4.5-4.5|M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3'), build: () => this.setExport() },
         X.on ? { id: 'updates', title: 'Updates', sub: 'New versions, from GitHub', icon: icon('M20 11a8 8 0 1 0-2.3 5.7|M20 5v6h-6'), build: () => this.setUpdates(this._cfg) } : null,
+        // what features add (ext.js), ahead of Help, which stays last
+        ...D.ext.settings.map(x => ({
+          id: x.id, title: x.title, sub: x.sub || '',
+          icon: iconOf(x.icon || 'M4 7h9|M17 7h3|M4 17h3|M11 17h9|M15 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4z|M9 15a2 2 0 1 0 0 4 2 2 0 0 0 0-4z'),
+          build: () => x.render(this)
+        })),
         { id: 'help', title: 'Help', sub: 'Shortcuts, and where to ask for things', icon: icon('M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17z|M9.6 9.4a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.1-2.4 3.6|M12 17.2v.1'), build: () => this.setHelp() }
       ].filter(Boolean);
     }
@@ -959,7 +1010,9 @@
   }
 
   function labelOf(it) {
-    return { stroke: 'Ink', shape: 'Shape', text: 'Text', note: 'Sticky note', node: 'Node', edge: 'Connector', image: 'Image' }[it.type] || 'Item';
+    const x = D.ext.items[it.type];
+    return { stroke: 'Ink', shape: 'Shape', text: 'Text', note: 'Sticky note', node: 'Node', edge: 'Connector', image: 'Image' }[it.type] ||
+      (x && x.label) || 'Item';
   }
 
   function when(ts) {

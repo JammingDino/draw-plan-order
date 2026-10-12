@@ -35,6 +35,10 @@
            work, to sit on a slide or a page of any colour. */
         export: { theme: 'auto', background: 'transparent' }
       };
+      /* What features add (ext.js). Before start() lays the saved prefs
+         over the top, so a feature's options are remembered like the rest
+         — deepAssign only fills keys that already exist. */
+      fillIn(this.opts, D.ext.opts);
 
       const T = D.tools;
       this.tools = {
@@ -51,6 +55,7 @@
         laser: new T.LaserTool(this),
         pan: new T.PanTool(this)
       };
+      for (const t of D.ext.tools) this.tools[t.name] = t.create(this);
       this.toolName = 'pen';
       this.tool = this.tools.pen;
 
@@ -146,6 +151,7 @@
          cannot simply post the page and hope: it waits for this and then
          sends whatever it is holding. */
       if (parent !== self) parent.postMessage({ channel: 'dpo-view', op: 'ready' }, '*');
+      D.ext.emit('ready', this);
     }
 
     /** lets the board be installed as a standalone app, and opened offline */
@@ -180,6 +186,7 @@
       this.requestDraw();
       if (this.ui) this.ui.refresh();
       this.warmSave();
+      D.ext.emit('board', this, board);
     }
 
     /* Get the board's saved text ready while the pen is idle, so the first
@@ -290,6 +297,15 @@
              that a press would turn into a pan. */
           if (!this.active && this.hoverEraser && !this.spaceDown && t !== this.tools.eraser)
             this.tools.eraser.paint(r);
+          /* Features' overlays (ext.js), last and in screen space. A tool's
+             paint can leave alpha or blending set, so they start clean. */
+          if (D.ext.has('frame')) {
+            const ctx = r.liveScreen();
+            ctx.save();
+            ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+            D.ext.emit('frame', this, ctx);
+            ctx.restore();
+          }
         }
         if (this.perf) this.perf.mark('live');
       }
@@ -383,6 +399,7 @@
       document.body.classList.toggle('grab', name === 'pan');
       if (this.ui) this.ui.refresh();
       this.requestDrawLive();
+      D.ext.emit('tool', this, name);
     }
 
     /* Called by a drawing tool once it has committed a new item.
@@ -403,6 +420,7 @@
       this.selection = items.filter(Boolean);
       this.requestDrawLive();
       if (!quiet && this.ui) this.ui.refresh();
+      D.ext.emit('select', this, this.selection);
     }
 
     selectionBounds() {
@@ -577,7 +595,10 @@
     onDoubleClick(e) {
       const w = this.camera.toWorld(e.clientX, e.clientY);
       const hit = this.scene.hitTest(w.x, w.y, 8 / this.camera.zoom);
-      if (hit && (hit.type === 'text' || hit.type === 'note' || hit.type === 'node')) {
+      const xt = hit && D.ext.items[hit.type];
+      if (xt) {
+        if (xt.edit) { this.select([hit]); xt.edit(this, hit); }
+      } else if (hit && (hit.type === 'text' || hit.type === 'note' || hit.type === 'node')) {
         this.select([hit]); this.editor.open(hit, { selectAll: false });
       } else if (hit && hit.type === 'edge') {
         const label = prompt('Connector label', hit.label || '');
@@ -593,6 +614,7 @@
     /* ── keyboard ─────────────────────────────────────────────────── */
     onKey(e) {
       if (e.target.matches('input, textarea')) return;
+      if (D.ext.emit('key', this, e)) return;      // a feature took it
       // the boards sheet has the keyboard while it is open, not the board behind it
       if (this.ui && !$('#sheet').hidden) { this.ui.sheetKey(e); return; }
       const k = e.key, ctrl = e.ctrlKey || e.metaKey;
@@ -648,7 +670,13 @@
         else if (it.type === 'text' || it.type === 'note') this.editor.open(it);
         return;
       }
-      if (k === 'F2' && this.selection.length === 1) { e.preventDefault(); this.editor.open(this.selection[0]); return; }
+      if (k === 'F2' && this.selection.length === 1) {
+        e.preventDefault();
+        const it = this.selection[0], xt = D.ext.items[it.type];
+        if (!xt) this.editor.open(it);
+        else if (xt.edit) xt.edit(this, it);
+        return;
+      }
       if (k === ']') { this.arrange('front'); return; }
       if (k === '[') { this.arrange('back'); return; }
       if (k === '!' || (e.shiftKey && k === '1')) { this.zoomToFit(); return; }
@@ -667,6 +695,11 @@
       };
       const shapeMap = { r: 'rect', o: 'ellipse', l: 'line', a: 'arrow', d: 'diamond' };
       const low = k.toLowerCase();
+      /* A registered tool's key (ext.js) is asked first, so a feature can
+         have B, which is only an alias for the pen here. Taking one of
+         the letters the help lists is the feature's own lookout. */
+      const x = D.ext.tools.find(t => t.rail && t.rail.key && t.rail.key.toLowerCase() === low);
+      if (x) { this.setTool(x.name); return; }
       if (map[low]) { this.setTool(map[low]); return; }
       if (shapeMap[low]) { this.opts.shape.kind = shapeMap[low]; this.setTool('shape'); return; }
     }
@@ -952,7 +985,7 @@
     focusCanvas() { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
 
     /* ── persistence ──────────────────────────────────────────────── */
-    afterEdit() { this.markDirty(); this.requestDraw(); if (this.ui) this.ui.refresh(); }
+    afterEdit() { this.markDirty(); this.requestDraw(); if (this.ui) this.ui.refresh(); D.ext.emit('change', this); }
 
     /* Autosave waits for a pause: SAVE_IDLE after the last edit, and every
        edit starts the wait again, so a run of writing is saved once, when
@@ -1440,6 +1473,15 @@
       const c = JSON.parse(localStorage.getItem(VIEW + id));
       return c && isFinite(c.x) && isFinite(c.y) && c.zoom > 0 ? c : null;
     } catch (_) { return null; }
+  }
+
+  /** copy in whatever `src` has that `target` lacks, at any depth; nothing is overwritten */
+  function fillIn(target, src) {
+    for (const k in src) {
+      const v = src[k];
+      if (!(k in target)) target[k] = v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v;
+      else if (v && typeof v === 'object' && !Array.isArray(v) && target[k] && typeof target[k] === 'object') fillIn(target[k], v);
+    }
   }
 
   function deepAssign(target, src) {
