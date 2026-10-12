@@ -1519,12 +1519,19 @@
     document.body.appendChild(box);
     const vw = innerWidth, vh = innerHeight, w = 320;
     const x = U.clamp((opts.sx ?? vw / 2) - w / 2, 8, Math.max(8, vw - w - 8));
-    let y = (opts.sy ?? vh / 3) + 14;
-    // clear of the selection's action bar (press.js), when it is showing below the ink
-    const bar = document.querySelector('.press-bar.on');
-    const r = bar && bar.getBoundingClientRect ? bar.getBoundingClientRect() : null;
-    if (r && r.bottom > y - 10 && r.top < y + 260 && r.right > x && r.left < x + w) y = r.bottom + 10;
-    box.style.left = x + 'px'; box.style.top = U.clamp(y, 64, Math.max(64, vh - 250)) + 'px';
+    const y0 = (opts.sy ?? vh / 3) + 14;
+    /* Clear of the selection's action bar (press.js) when it shows below
+       the ink — looked for again a moment later, as the bar can follow
+       the selection on in. */
+    const place = () => {
+      let y = y0;
+      const bar = document.querySelector('.press-bar.on');
+      const r = bar && bar.getBoundingClientRect ? bar.getBoundingClientRect() : null;
+      if (r && r.bottom > y - 10 && r.top < y + 260 && r.right > x && r.left < x + w) y = r.bottom + 10;
+      box.style.left = x + 'px'; box.style.top = U.clamp(y, 64, Math.max(64, vh - 250)) + 'px';
+    };
+    place();
+    setTimeout(() => { if (pop && pop.el === box) place(); }, 260);
     pop = {
       el: box, field,
       away: e => { if (!box.contains(e.target)) closePop(); },
@@ -1642,7 +1649,7 @@
           ui.setRow('Answer colour', '', ui.setSeg(['accent', 'green', 'orange', 'red', 'purple'].map(c => [c, sw(c, c)]), o.color, v => { set('color', v); recolour(app, v); }))),
         ui.setGroup(
           ui.setRow('Your handwriting', n ? `${n} symbol${n > 1 ? 's' : ''} taught with Teach` : 'Nothing taught yet: Teach in Solve this ink remembers a symbol it misread',
-            ui.setButton('Forget', () => { forget(); if (app.toast) app.toast('Forgot the symbols you taught'); ui.refresh && ui.refresh(); }))),
+            ui.setButton('Forget', () => { forget(); if (app.toast) app.toast('Forgot the symbols you taught'); if (ui.showSettings) ui.showSettings('inkmath'); }))),
         ui.setNote('Select handwriting and long-press it — or use the bar over the selection — for Solve this ink. Reading happens on this device; nothing is sent anywhere.')
       ];
     }

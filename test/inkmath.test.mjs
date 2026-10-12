@@ -541,5 +541,15 @@ test('Solve this ink: the reading in a field, Insert as one undo step, Teach rem
   IM.forget();
   assert.equal(IM.learned(), 0);
   assert.equal(IM.read(ink).expr, '8+1', 'and forgotten');
+
+  // ink with no "=": the answer is inserted as "= …" after it
+  const bare = inkOf(['6', '+', '3'], 17, { base: 500 });
+  draw(app, bare);
+  const b = IM.solve(app, bare, {});
+  b.work();
+  b.insert();
+  const a = answers(app).find(x => x.expr === '6+3');
+  assert.ok(a && a.lead && a.text === '9', 'drawn as "= 9"');
+  assert.equal(D.ext.items.inkresult.bbox(a).w > D.ext.items.inkresult.bbox({ ...a, lead: false, _lines: null }).w, true);
 });
 
