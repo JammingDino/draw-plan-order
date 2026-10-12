@@ -169,6 +169,50 @@ with an elbow connector, and put straight into text-edit mode — so a whole
 tree is Tab, type, Tab, type. Connectors re-route themselves whenever a node
 moves; double-click a connector to label it (*yes* / *no*).
 
+### Calculator and calc blocks
+
+The calculator button in the top bar (<kbd>Ctrl</kbd>+<kbd>K</kbd>) opens a
+floating keypad, built for a pen with no keyboard: 44px keys in tabs
+(Basic, Functions, Calculus, Matrix, Units, Constants), the answer shown
+while you type, a history you can tap to reuse, and the variables you have
+set as chips. Variables and `ans` last as long as the board is open. Drag
+it by its title, or fold the keypad away and type.
+
+It speaks the maths of a second-year tutorial:
+
+| Type | Get |
+| --- | --- |
+| `F = 2 kN`, `L = 3 m`, `M = F*L` | `6 kN·m` — a moment, not `6 kJ` |
+| `10 kN / (20 mm * 50 mm)` · `3 in to mm` | `10 MPa` · `76.2 mm` |
+| `10 V / 4.7 kΩ` | `2.1277 mA` (prefixes chosen for you) |
+| `10∠30° + 5∠-45°` | `12.283∠6.8473°`, with `12.196 + 1.4645i` |
+| `inv([1,2;3,4])` · `[2,1;1,3] \ [3;5]` · `eigs(A)` | matrices, `A \ b`, eigenvalues |
+| `d/dx(x^2 sin(x))` · `diff(x^3, x = 2)` | `2x·sin(x) + x²·cos(x)` · `12` |
+| `int(exp(-x^2), x, -inf, inf)` · `lim(sin(x)/x, x = 0)` | `1.7725` · `1` |
+| `2x + 3 = 11` · `40 kN/m * x = 2 kN` | `x = 4` · `x = 50 mm` |
+| `roots(x^3 - 6x^2 + 11x - 6)` · `taylor(sin(x), x, 0, 7)` | `x = 1, 2, 3` · the series |
+| `linreg(xs, ys)` · `mean`, `std` · `g`, `c`, `ε0`, `R`, `kB` … | fits, statistics, constants with units |
+
+**Settings → Calculator** sets degrees or radians, the number format (auto,
+engineering `4.7k`, scientific, fixed), significant figures, and exact
+answers (`1/3`, `3π/4`, `√3/2`). Calculus always works in radians. `g` is
+gravity, so grams are written `gram` or `kg`; Planck's constant is `hP`.
+
+A **calc block** (<kbd>B</kbd>, or *Insert block* from the calculator) is a
+worksheet on the board: each line is worked out and its answer set
+right-aligned, and variables carry down the lines. Double-click it, or
+double-tap it with the pen, to edit; the keypad types into it while it is
+open. *Insert block* brings along the lines that define the variables it
+uses, so the block works out on its own.
+
+The engine is [math.js](https://mathjs.org) (Apache-2.0), vendored under
+`vendor/mathjs` and loaded the first time it is needed, never at start-up.
+A block keeps its answers with it, so a board full of them opens and draws
+without loading the engine at all; they are worked out again when you edit
+the block or change the settings they were made under. `D.math` (in
+`js/math.js`) and `D.calc` (in `js/calc.js`) are documented at the top of
+each file, for anything else that wants an answer worked out.
+
 ## Keyboard
 
 `V` select · `G` lasso · `P` pen · `H` highlighter · `E` eraser · `R` rectangle ·
