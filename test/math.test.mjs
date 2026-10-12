@@ -70,6 +70,16 @@ test('SI prefixes put the number between 1 and 1000', () => {
   assert.equal(pretty('1500 kg'), '1500 kg', 'kilograms do not become megagrams');
 });
 
+test('schematic shorthand: 4.7k, 10M, 100n, without touching units', () => {
+  close(ev('4.7k').value, 4700);
+  close(ev('sqrt(2)*4.7k').value, Math.SQRT2 * 4700);
+  close(ev('1/(2*pi*10k*100n)').value, 1 / (2 * Math.PI * 1e4 * 1e-7));
+  close(ev('22p + 10M').value, 22e-12 + 1e7);
+  assert.equal(pretty('5m'), '5 m');                 // metres, not milli
+  assert.equal(pretty('2 kN * 3 m'), '6 kN·m');
+  assert.equal(pretty('k2 = 3'), '3');               // an identifier is not a number
+});
+
 test('number formats: auto, engineering, scientific, fixed and exact', () => {
   assert.equal(pretty('4700'), '4700');
   assert.equal(pretty('123456789'), '123\u2009456\u2009789', 'whole numbers in full, grouped with thin spaces');
