@@ -114,7 +114,7 @@ function pen(strokes, { x = 0, y = 0, size = 40, r, amt = 1, order = true } = {}
 }
 
 /* ── the recogniser on its own ───────────────────────────────────── */
-const SAMPLES = 30;
+const SAMPLES = +process.env.INK_SAMPLES || 30;
 function accuracy(seed = 1) {
   const r = rng(seed);
   const per = {};
@@ -262,8 +262,51 @@ function lineRate(seeds) {
   return { rate: right / total, total, wrong };
 }
 
+test('look-alikes: 1, a slanted 1 and /; 5 in one stroke or two; + either way round', () => {
+  const H = 40;
+  /** a straight stroke rising at `deg` from the horizontal, `h` tall, drawn up or down */
+  const line = (deg, h = H, down = false) => {
+    const dx = h / Math.tan(deg * Math.PI / 180) * (deg > 90 ? -1 : 1), x0 = 100, y0 = 140;
+    const a = [x0, y0], b = [x0 + Math.abs(dx) * Math.sign(deg > 90 ? -1 : 1), y0 - h];
+    return [stroke(dense(down ? [...b, ...a] : [...a, ...b]))];
+  };
+  const read1 = st => IM.classify(st, H)[0].ch;
+  assert.equal(read1(line(90)), '1', 'upright');
+  assert.equal(read1(line(90, H, true)), '1', 'drawn downwards');
+  assert.equal(read1(line(78)), '1', 'a 1 slanted as handwriting slants');
+  assert.equal(read1(line(100)), '1', 'a 1 leaning back');
+  assert.equal(read1(line(55)), '/', 'a slash');
+  assert.equal(read1(line(55, H, true)), '/', 'a slash drawn downwards');
+  assert.equal(read1(line(67, H * 1.25)), '/', 'a steep slash, taller than the digits');
+  assert.equal(read1(line(4).map(s => s)), '−');
+
+  const r = rng(5);
+  let fives = 0, pluses = 0, n = 40;
+  for (let k = 0; k < n; k++) {
+    const shape = HAND['5'][k % 2];
+    if (IM.classify(pen(shape, { r, size: 30 + r() * 30 }), 40)[0].ch === '5') fives++;
+    if (IM.classify(pen(HAND['+'][0], { r, size: 30 + r() * 30 }), 40)[0].ch === '+') pluses++;
+  }
+  console.log(`# 5 (one stroke or two, any order and direction): ${fives}/${n}; + (either order): ${pluses}/${n}`);
+  assert.ok(fives >= n * 0.9);
+  assert.equal(pluses, n);
+});
+
+test('x and ×, a minus and a fraction bar, are told apart by where they are', () => {
+  const r = rng(41);
+  const text = line => { const g = IM.read(write(line, { r, size: 40 })); return g.eq === 'mid' ? g.lhs + '=' + g.rhs : g.expr; };
+  assert.equal(text(['2', 'x', '3', '=']), '2×3', 'between numbers, times');
+  assert.equal(text(['2', 'x', '=']), '2x', 'after a number, a variable');
+  assert.equal(text(['x', { sup: ['2'] }, '+', '1', '=']), 'x^2+1', 'raised, an x');
+  assert.equal(text(['x', '+', '3', '=']), 'x+3');
+  assert.equal(text(['1', '−', '2', '=']), '1−2', 'a dash between: minus');
+  assert.equal(text([{ frac: [['1'], ['2']] }, '=']), '1/2', 'with ink over and under: a fraction');
+  assert.equal(text(['2', '−', { frac: [['1'], ['3']] }, '=']), '2−1/3', 'both on one line');
+  assert.equal(text(['x', { sup: ['2'] }, '−', '1', '=']), 'x^2−1', 'a minus after an exponent stays on the line');
+});
+
 test('lines of working, in that hand: read whole', () => {
-  const { rate, total, wrong } = lineRate(12);
+  const { rate, total, wrong } = lineRate(+process.env.INK_LINES || 12);
   console.log(`# lines: ${(rate * 100).toFixed(1)}% of ${total} read exactly and confidently`);
   console.log('# misread: ' + summarise(wrong));
   assert.ok(rate > 0.8, `line accuracy ${rate}`);

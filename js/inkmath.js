@@ -414,7 +414,7 @@
       if (s.straight) {
         if (s.ang < 24) return [{ ch: '−', d: SURE }];
         // a 1 stands nearly upright; a / leans further, and reaches past the digits
-        const slash = s.lean > 0 && (s.ang < 62 || (s.ang < 72 && s.h > 1.06 * H));
+        const slash = s.lean > 0 && (s.ang < 64 || (s.ang < 72 && s.h > 1.03 * H));
         if (!slash && (s.ang > 62 || (s.lean < 0 && s.ang > 50))) return [{ ch: '1', d: SURE }, { ch: '/', d: SURE * 3 }];
         if (s.lean > 0) return [{ ch: '/', d: SURE }, { ch: '1', d: SURE * 3 }];
       }
@@ -443,6 +443,19 @@
       }
     }
     if (n === 2) {
+      // y as two strokes: a short one meeting the long one part-way down, from above
+      const [p, q] = strokes[0].len < strokes[1].len ? strokes : [strokes[1], strokes[0]];
+      if (p.dev < 0.15 && q.dev < 0.2 && p.len < 0.75 * q.len && q.ang > 45 && p.ang > 30) {
+        const pb = p.xy[1] > p.xy[p.xy.length - 1] ? [p.xy[0], p.xy[1]] : [p.xy[p.xy.length - 2], p.xy[p.xy.length - 1]];
+        const qt = q.xy[1] < q.xy[q.xy.length - 1] ? [q.xy[0], q.xy[1]] : [q.xy[q.xy.length - 2], q.xy[q.xy.length - 1]];
+        const qb = qt[0] === q.xy[0] && qt[1] === q.xy[1] ? [q.xy[q.xy.length - 2], q.xy[q.xy.length - 1]] : [q.xy[0], q.xy[1]];
+        // how far down the long stroke the short one meets it, and how near
+        const vx = qb[0] - qt[0], vy = qb[1] - qt[1], ll = vx * vx + vy * vy || 1;
+        const t = ((pb[0] - qt[0]) * vx + (pb[1] - qt[1]) * vy) / ll;
+        const gap = Math.abs((pb[0] - qt[0]) * vy - (pb[1] - qt[1]) * vx) / Math.sqrt(ll);
+        if (t > 0.2 && t < 0.7 && gap < 0.15 * q.len && p.y < pb[1] - 0.2 * p.h && Math.abs(p.y - q.y) < 0.25 * q.h)
+          return [{ ch: 'y', d: SURE }];
+      }
       // a loop with a bar across its middle: θ (to the matcher it is a 0 with a few points more)
       const bar = strokes.find(s => s.straight && s.ang < 30), loop = strokes.find(s => s !== bar);
       if (bar && loop && !loop.straight && loop.chord < 0.3 * Math.max(loop.w, loop.h) && loop.h > loop.w * 1.2 &&
@@ -510,7 +523,7 @@
   function sizePenalty(ch, box, H) {
     const r = box.h / H;
     if (SMALL.has(ch) && r > 1.05) return (r - 1.05) * 1.2;
-    if ((ch === '(' || ch === ')') && r < 0.8) return (0.8 - r) * 1.5;
+    if ((ch === '(' || ch === ')') && r < 0.8) return (0.8 - r) * 3;
     return 0;
   }
 
@@ -536,8 +549,9 @@
         const pad = 0.12 * bar.w;
         const inRange = s => s !== bar && s.cx > bar.x - pad && s.cx < bar.x2 + pad;
         const like = s => s.straight && s.ang < 20 && s.w > 0.5 * bar.w && s.w < 2 * bar.w;      // the other half of an "="
-        const above = rest.filter(s => inRange(s) && s.cy < bar.cy && s.y2 < bar.cy + 0.25 * H && bar.cy - s.y2 < 1.3 * H);
-        const below = rest.filter(s => inRange(s) && s.cy > bar.cy && s.y > bar.cy - 0.25 * H && s.y - bar.cy < 1.3 * H);
+        // clearly over or under it: the bar of a + beside it sits level with it
+        const above = rest.filter(s => inRange(s) && s.cy < bar.cy - 0.15 * H && s.y2 < bar.cy + 0.25 * H && bar.cy - s.y2 < 1.3 * H);
+        const below = rest.filter(s => inRange(s) && s.cy > bar.cy + 0.15 * H && s.y > bar.cy - 0.25 * H && s.y - bar.cy < 1.3 * H);
         const real = list => list.some(s => !like(s) && (s.h > 0.3 * H || s.w > 0.3 * H));
         if (!real(above) || !real(below)) continue;
         // take in what touches the numerator and denominator, upward and downward
@@ -597,7 +611,7 @@
       const box = boxOf([...got]);
       for (const s of pool) {
         if (got.has(s) || s === bar) continue;
-        if ((dir < 0 ? s.cy < bar.cy : s.cy > bar.cy) && s.x < box.x2 + 0.25 * H && s.x2 > box.x - 0.25 * H &&
+        if ((dir < 0 ? s.cy < bar.cy - 0.15 * H : s.cy > bar.cy + 0.15 * H) && s.x < box.x2 + 0.25 * H && s.x2 > box.x - 0.25 * H &&
           s.y < box.y2 + 0.2 * H && s.y2 > box.y - 0.6 * H && (dir < 0 ? s.y2 < bar.cy + 0.25 * H : s.y > bar.cy - 0.25 * H)) {
           got.add(s); more = true;
         }
@@ -1116,8 +1130,9 @@
     for (let i = 0; i < flats.length && found < 40; i++) for (let j = i + 1; j < flats.length; j++) {
       const a = flats[i], b = flats[j];
       if (!pairs(a, b)) continue;
+      // an "=" already known has been read, and is read again when its line changes
       const key = keyOf([a.id, b.id]);
-      if (S.defs.has(key) || S.byEq.has(key)) continue;
+      if (S.eqs.has(key) || S.defs.has(key) || S.byEq.has(key)) continue;
       const e = rememberEq([a, b]);
       const { left, right } = gather(app, e);
       if (!left.length || !right.length) continue;
