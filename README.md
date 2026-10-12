@@ -150,6 +150,7 @@ toast. Hiding the tab also forces a full save.
 | File | Role |
 | --- | --- |
 | `js/util.js` | Geometry, hit-testing maths, semantic `ink`/`paper` colours |
+| `js/ext.js` | The extension registry, `D.ext`: how features plug into the core |
 | `js/freehand.js` | Pressure → stroke outline (one filled polygon per stroke) |
 | `js/recognize.js` | Shape recognition and scribble detection |
 | `js/scene.js` | Document model, undo/redo, bounding boxes, edge routing |
@@ -163,6 +164,16 @@ toast. Hiding the tab also forces a full save.
 | `js/app.js` | Input plumbing, selection, files, decision-tree helpers |
 | `js/perf.js` | Frame counter, off unless asked for |
 | `js/desktop.js` | What the desktop shell adds: folders, links, updates |
+| `js/math.js`, `js/calc.js` | The maths engine and the calculator (one `css/` file each, as below) |
+| `js/cad.js` | Engineering drawing: dimensions, measuring, scale, snapping |
+| `js/press.js` | The long-press menu and the selection action bar |
+| `js/inkmath.js` | Handwritten maths, recognised and answered |
+
+The last four rows are features: each registers with `D.ext` and touches
+no core file, so they can be worked on side by side. They load after
+`ui.js` and before `app.js`, which builds the app as it loads, and each
+has a stylesheet of its own (`css/calc.css`, `css/cad.css`,
+`css/press.css`, `css/inkmath.css`).
 
 Two stacked canvases keep it quick: `#base` holds the committed scene and is
 only redrawn when something changes, `#live` holds the stroke currently under
@@ -211,9 +222,39 @@ the stroke under the pen goes to its own canvas.
 
 ### Adding a tool
 
-Write a class with `down(ev) move(ev) up(ev) cancel() paint(r)` in
-`js/tools.js`, register it in `App.tools`, add a rail entry in `UI.buildRail`
-and a `panelX()` for its options. Nothing else needs to know about it.
+A tool is an object with `down(ev) move(ev) up(ev) cancel() paint(r)`.
+The built-in ones are classes in `js/tools.js`; anything new is better
+written in a feature file of its own and registered with `D.ext`
+(`js/ext.js`), which plugs it into the core without editing any of it:
+
+```js
+D.ext.opts.stamp = { color: 'ink', size: 24 };           // saved with the prefs
+D.ext.tools.push({
+  name: 'stamp',
+  create: app => new StampTool(app),                      // lands in app.tools.stamp
+  rail: { icon: 'M5 19h14|M12 5v10', key: 'j', title: 'Stamp · J', after: 'note' },
+  panel: ui => ui.add(ui.group('Colour', ui.swatches(ui.palette(), ui.app.opts.stamp.color,
+    c => ui.app.opts.stamp.color = c)))
+});
+```
+
+The rail button, the shortcut and the style panel follow from that. A
+tool that makes a new kind of thing registers the type too —
+`D.ext.items.stamp = { bbox, draw, … }` — and the scene, the spatial
+index, hit-testing, moving, resizing, painting, SVG export, the eraser's
+rules, double-click/F2 and the style panel all consult it wherever they
+would otherwise not know the type. Only `bbox` and `draw` are required;
+the rest have defaults that treat it like a sticky note.
+
+The same registry takes top-bar and zoom-bar buttons (`D.ext.buttons`),
+long-press actions (`D.ext.pressActions`), Settings sections
+(`D.ext.settings`), and listeners for what the app is doing —
+`D.ext.on('stroke' | 'change' | 'select' | 'tool' | 'board' | 'key' |
+'frame' | 'ready', fn)`. The comment at the top of `js/ext.js` is the
+contract: every handler, its arguments and its default, and where each
+event is emitted. With nothing registered the core does exactly what it
+did before, and the lookups sit only in the branches a built-in type
+falls through to.
 
 Icons live in one `ICON` map at the top of `js/ui.js` — 24×24 stroked SVG
 paths, `|` separating subpaths. `python tools/make-icons.py` regenerates the
