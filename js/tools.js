@@ -690,6 +690,12 @@
     /* screen px a press may miss by: more under a finger or a pen (app.coarse) */
     slop(px, coarsePx) { return (this.app.coarse ? coarsePx : px) / this.app.camera.zoom; }
 
+    /* How near a press must land, by what pressed (App.hitPx/handlePad,
+       touch 16 / pen 10 / mouse 8, and 12 / 6 / 3 more for a handle). App
+       routes a finger here on the same numbers, so they must agree. */
+    hitPx(ev) { const a = this.app; return a.hitPx ? a.hitPx(ev.pointerType) : (a.coarse ? 14 : 8); }
+    handlePad(ev) { const a = this.app; return a.handlePad ? a.handlePad(ev.pointerType) : 3; }
+
     down(ev) {
       const app = this.app, scene = app.scene;
       this.mode = null;
@@ -698,7 +704,7 @@
 
       // 0 · a handle of a single selected line: an end, a corner, or the bend
       if (app.selection.length === 1 && app.selBox && app.selBox.line) {
-        const reach = app.coarse ? 22 : 12;
+        const reach = this.hitPx(ev) + this.handlePad(ev) + 2;
         let best = null, bd = reach;
         for (const h of app.selBox.line) {
           const d = Math.hypot(ev.sx - h.x, ev.sy - h.y);
@@ -717,7 +723,8 @@
       // 1 · resize handle?
       if (app.selection.length && app.selBox) {
         for (const h of app.renderer.handleRects(app.selBox)) {
-          if (ev.sx >= h.x - 3 && ev.sx <= h.x + h.w + 3 && ev.sy >= h.y - 3 && ev.sy <= h.y + h.h + 3) {
+          const pad = this.handlePad(ev);
+          if (ev.sx >= h.x - pad && ev.sx <= h.x + h.w + pad && ev.sy >= h.y - pad && ev.sy <= h.y + h.h + pad) {
             this.mode = 'resize'; this.handle = h.k;
             this.origBox = app.selectionBounds();
             scene.begin('resize');
@@ -730,13 +737,13 @@
 
       // 2 · edge endpoint drag
       if (app.selection.length === 1 && app.selection[0].type === 'edge') {
-        const e = app.selection[0], p = scene.edgePath(e), tol = this.slop(10, 18);
+        const e = app.selection[0], p = scene.edgePath(e), tol = (this.hitPx(ev) + 2) / app.camera.zoom;
         if (U.dist(ev.x, ev.y, p[0], p[1]) < tol) { this.mode = 'endpoint'; this.end = 'from'; scene.begin('edge'); scene.touch(e); return; }
         if (U.dist(ev.x, ev.y, p[p.length - 2], p[p.length - 1]) < tol) { this.mode = 'endpoint'; this.end = 'to'; scene.begin('edge'); scene.touch(e); return; }
       }
 
       // 3 · item under the pointer
-      let hit = scene.hitTest(ev.x, ev.y, this.slop(8, 14));
+      let hit = scene.hitTest(ev.x, ev.y, this.hitPx(ev) / app.camera.zoom);
 
       /* A PDF page or a picture is the thing you write on, and it is hit
          by its whole area, so a press in the gaps between your notes used

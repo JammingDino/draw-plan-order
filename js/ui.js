@@ -677,7 +677,7 @@
       this.add(
         this.group(sel.length > 1 ? sel.length + ' items' : labelOf(first),
           this.swatches(has('note') ? NOTE : this.palette(), colorNow, c => apply(it => { it.color = c; it._path = null; }))),
-        (has('shape') || has('node')) ? this.group('Fill', this.swatches(FILL, first.fill, c => apply(it => { if ('fill' in it) it.fill = c; }), true)) : null,
+        (sel.some(i => i.type === 'shape' && !D.isOpenShape(i)) || has('node')) ? this.group('Fill', this.swatches(FILL, first.fill, c => apply(it => { if ('fill' in it) it.fill = c; }), true)) : null,
         this.group('Weight', this.sizes([1.5, 3, 5, 8, 14], first.size, s => apply(it => { it.size = s; it._path = null; it._b = null; }), first.color)),
         this.slider('Opacity', first.alpha ?? 1, 0.1, 1, 0.05, v => apply(it => it.alpha = v), v => Math.round(v * 100) + '%'),
         (has('text') || has('note') || has('node')) ? this.group('Text size',

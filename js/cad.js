@@ -86,7 +86,7 @@
   /** the direction from a to b in degrees, anticlockwise from east (y up, as on paper): 0–360 */
   CAD.angleOf = (dx, dy) => {
     const a = Math.atan2(-dy, dx) * 180 / Math.PI;
-    return a < 0 ? a + 360 : a;
+    return a < 0 ? a + 360 : a + 0;            // + 0: never -0
   };
 
   /**
@@ -332,9 +332,15 @@
     for (const l of lines.slice(1)) w = Math.max(w, ctx.measureText(l).width);
     w += 20;
     const h = 12 + big + (lines.length - 1) * (small + 5);
+    /* The readout is painted on the canvas, under the chrome: keep it out
+       from behind the style panel and the top bar. */
+    let right = r.w - 8, top = 8;
+    const panel = document.getElementById('style'), bar = document.getElementById('topbar');
+    if (panel && panel.getBoundingClientRect && panel.offsetParent !== null) { const b = panel.getBoundingClientRect(); if (b.width) right = Math.min(right, b.left - 8); }
+    if (bar && bar.getBoundingClientRect && bar.offsetParent !== null) { const b = bar.getBoundingClientRect(); if (b.height && at.sx < b.right + w) top = Math.max(top, b.bottom + 8); }
     let x = at.sx + 26, y = at.sy - 30 - h;
-    if (x + w > r.w - 8) x = at.sx - 26 - w;
-    if (y < 8) y = at.sy + 30;
+    if (x + w > right) x = at.sx - 26 - w;
+    if (y < top) y = at.sy + 30;
     ctx.shadowColor = '#0000002a'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 2;
     ctx.fillStyle = tok.panel;
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 9); ctx.fill();
@@ -487,10 +493,11 @@
         heads.push(head(A.x, A.y, Math.atan2(B.y - A.y, B.x - A.x)), head(B.x, B.y, Math.atan2(A.y - B.y, A.x - B.x)));
       }
       // the text sits above the line and reads from the bottom or the right, never upside down
+      // (an upright one reads from the right, rising, as drawings do)
       let ang = Math.atan2(B.y - A.y, B.x - A.x);
-      if (ang > Math.PI / 2 + 1e-6) ang -= Math.PI; else if (ang <= -Math.PI / 2 + 1e-6) ang += Math.PI;
+      if (ang > Math.PI / 2 - 1e-6) ang -= Math.PI; else if (ang <= -Math.PI / 2 - 1e-6) ang += Math.PI;
       const up = { x: Math.sin(ang), y: -Math.cos(ang) };
-      const lift = ts * 0.3;
+      const lift = ts * 0.4;
       text = { x: (A.x + B.x) / 2 + up.x * lift, y: (A.y + B.y) / 2 + up.y * lift, ang, s, w: tw, h: ts };
       void n;
     } else if (it.kind === 'angle') {
@@ -578,7 +585,7 @@
   function translateDim(it, dx, dy, moving) {
     const free = it.p.filter(q => !q.ref);
     for (const q of free) { q.x += dx; q.y += dy; }
-    if (free.length || !moving || it.p.some(q => moving.has(q.ref.id))) return;
+    if (free.length || !moving || it.p.length < 2 || it.p.some(q => moving.has(q.ref.id))) return;
     const P = it.p;
     if (it.kind === 'linear') { const F = linearFrame(it, P); it.off += dx * F.n.x + dy * F.n.y; }
     else if (it.kind === 'angle') {
@@ -1125,7 +1132,7 @@
   D.ext.pressActions.push(
     {
       id: 'cad-measure', label: 'Measure from here', icon: ICON.measure, order: 60,
-      when: () => true,
+      when: ctx => ctx.source !== 'bar',                 // it is about a point, not a selection
       run: ctx => { ctx.app.setTool('measure'); ctx.app.tools.measure.startAt(ctx.x, ctx.y); }
     },
     {
@@ -1138,7 +1145,7 @@
     },
     {
       id: 'cad-scale', label: 'Set drawing scale…', icon: ICON.scale, order: 62,
-      when: () => true,
+      when: ctx => ctx.source !== 'bar' || (!!ctx.hit && D.isLine(ctx.hit) && !ctx.hit.via && !ctx.hit.curve),
       run: ctx => {
         const app = ctx.app, hit = ctx.hit;
         if (hit && D.isLine(hit) && !hit.via && !hit.curve) {
