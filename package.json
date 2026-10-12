@@ -19,6 +19,7 @@
     "playwright-core": "^1.47.2"
   },
   "dependencies": {
+    "mathjs": "15.2.0",
     "pdfjs-dist": "^4.10.38"
   }
 }
