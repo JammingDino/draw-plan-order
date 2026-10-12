@@ -551,5 +551,12 @@ test('Solve this ink: the reading in a field, Insert as one undo step, Teach rem
   const a = answers(app).find(x => x.expr === '6+3');
   assert.ok(a && a.lead && a.text === '9', 'drawn as "= 9"');
   assert.equal(D.ext.items.inkresult.bbox(a).w > D.ext.items.inkresult.bbox({ ...a, lead: false, _lines: null }).w, true);
+  const ax = a.x;
+  app.scene.begin('move');
+  for (const it of bare) { app.scene.touchMoved(it); app.scene.translate(it, 30, 0); }
+  app.scene.commit(); app.afterEdit();
+  assert.equal(Math.round(answers(app).find(x => x.expr === '6+3').x), Math.round(ax + 30), 'it follows its ink');
+  erase(app, bare);
+  assert.equal(answers(app).filter(x => x.expr === '6+3').length, 0, 'and goes with it');
 });
 

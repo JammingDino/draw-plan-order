@@ -877,7 +877,7 @@
 
   const S = {
     app: null,
-    timer: 0, down: 0,
+    timer: 0, down: 0, downAt: 0,
     jobs: new Map(),           // key → { kind: 'eq', ids } | { kind: 'deps' } | { kind: 'discover', box }
     eqs: new Map(),            // "=" signs: key → { key, ids, x, x2, cy, L }
     defs: new Map(),           // "x = 5" lines: eq key → { key, name, rhs, src, cy, x }
@@ -953,7 +953,9 @@
     S.timer = 0;
     if (!S.jobs.size || S.app !== app) return;
     // still writing, or in the middle of something: later
-    if (S.down || (app.scene && app.scene.tx)) { arm(app); return; }
+    // (a lift that never arrived — the window lost focus mid-stroke — is given up on)
+    if ((S.down && Date.now() - S.downAt < 8000) || (app.scene && app.scene.tx)) { arm(app); return; }
+    S.down = 0;
     D.math.ready().then(() => work(app)).catch(err => console.warn('[dpo] inkmath', err));
   }
 
@@ -1262,7 +1264,8 @@
         if (!it.at || it.at[0] !== U.round(it.x, 2) || it.at[1] !== U.round(it.y, 2)) it.at = [U.round(it.x, 2), U.round(it.y, 2)];
         continue;
       }
-      const eqGone = !it.eq || it.eq.some(id => !scene.get(id));
+      // an answer inserted after ink with no "=" goes when that ink does
+      const eqGone = it.eq ? it.eq.some(id => !scene.get(id)) : !fp;
       if (eqGone) { quietRemove(app, it, 'line'); continue; }
       const shift = fp && uniformShift(it.fp, fp);
       if (shift) {
@@ -1273,9 +1276,10 @@
         quietDirty(app, it);
         continue;
       }
-      if (it.fixed) {
+      if (it.fixed || !it.eq) {
         // a corrected answer is not read again: its sum was typed, not written
         if (!fp) quietRemove(app, it, 'line');
+        else { it.fp = fp; it.at = [U.round(it.x, 2), U.round(it.y, 2)]; }
         continue;
       }
       queue('eq:' + keyOf(it.eq), { kind: 'eq', ids: it.eq });
@@ -1364,7 +1368,7 @@
   /* The pen touching down puts the reading off; lifting lets the pause run. */
   function watchPen() {
     if (typeof addEventListener !== 'function') return;
-    const down = () => { S.down++; if (S.timer) { clearTimeout(S.timer); S.timer = 0; } };
+    const down = () => { S.down++; S.downAt = Date.now(); if (S.timer) { clearTimeout(S.timer); S.timer = 0; } };
     const up = () => { S.down = Math.max(0, S.down - 1); if (S.jobs.size && S.app) arm(S.app); };
     addEventListener('pointerdown', down, true);
     addEventListener('pointerup', up, true);
