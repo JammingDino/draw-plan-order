@@ -85,10 +85,57 @@ what they are handed.
 ## Tools
 
 Pen (pressure-sensitive, tapered), highlighter, eraser (whole-stroke or
-pixel), rectangle/ellipse/diamond/triangle/line/arrow, text boxes, sticky
-notes, flow-chart nodes (process, decision, start/end, data), connectors that
-stay attached as you move things, laser pointer, lasso and marquee select,
-images by paste or drag-and-drop.
+pixel), rectangle/ellipse/diamond/triangle, lines and arrows (straight,
+bent, polyline, force and moment arrows), text boxes, sticky notes,
+flow-chart nodes (process, decision, start/end, data), connectors that
+stay attached as you move things, dimensions, a measuring tool, laser
+pointer, lasso and marquee select, images by paste or drag-and-drop.
+
+### Engineering drawing
+
+Built for free-body diagrams, circuit sketches, mechanisms and marked-up
+drawings, and for a pen alone — nothing needs a key held down.
+
+- **Arrows and lines.** Each end takes its own head — none, open,
+  filled, half, tick or dot — sized from the stroke, with S/M/L/XL to
+  override. Line styles include **centre** (dash-dot) and **hidden**
+  lines. Select a line and drag the diamond in its middle to **bend**
+  it; drag either end to move it. The shapes flyout also has a
+  **polyline** (lift the pen at each corner, tap the last point again
+  or press Enter to finish), a heavy **force** arrow and a circular
+  **moment** arrow (press at the centre, lift where the head goes;
+  anticlockwise or clockwise in the panel).
+- **Snapping.** Ends, corners, midpoints, centres, quadrant points,
+  intersections and the edges of things, then 15° steps, then the
+  grid — with a marker and a word saying what it caught. An arrow end
+  that snaps onto something **stays attached** and follows it when it
+  moves; drag the arrow alone and it lets go. The panel switches each
+  kind of snap, and has *Square / circle*, *From the centre* and *Only
+  15° steps* for what Shift and Alt do on a keyboard.
+- **Readouts and exact sizes.** Length and angle (and Δx/Δy, or W × H)
+  ride beside the pen while you draw. Select a line for **Length** and
+  **Angle** fields, anything else for **W, H, X, Y** — big fields with −
+  and + either side (hold to keep going), that also take sums and units:
+  `1200/4`, `2.5 m`. Angles run anticlockwise from east and Y counts up
+  the page, as on paper.
+- **Drawing scale.** Each board has its own units (mm, cm, m, in, ft),
+  "1 board unit = …", a 1 : N ratio and the decimals shown — in the
+  measure and dimension panels, saved with the board and undone like an
+  edit. To scale a PDF or picture, draw a line over a length you know
+  (or measure it), and type its real length under **Calibrate**.
+- **Dimensions** (the measure flyout). Drag between two points, lift,
+  then tap where the dimension line goes — horizontal, vertical or
+  aligned by how you dragged. Tap a line to dimension it, or a circle
+  for its diameter (or radius); angles go corner, arm, other arm.
+  Dimensions on snapped points follow the drawing as it changes;
+  dragging one on its own moves its line clear. The text can be
+  overridden, with `<>` standing for the value.
+- **Measure** (`M`). Distance, angle, path length or area, read out on
+  screen and in the panel and gone when you move on — unless you press
+  **Pin to board**.
+
+Long-press anywhere for *Measure from here*; on a line, *Dimension this*
+and *Set drawing scale…*.
 
 ### PDFs
 
@@ -126,12 +173,14 @@ moves; double-click a connector to label it (*yes* / *no*).
 
 `V` select · `G` lasso · `P` pen · `H` highlighter · `E` eraser · `R` rectangle ·
 `O` ellipse · `L` line · `A` arrow · `D` diamond · `T` text · `K` sticky ·
-`N` node · `C` connector · `Q` laser · `Space` pan
+`N` node · `C` connector · `M` measure (hold its button for dimensions) ·
+`Q` laser · `Space` pan · `Enter` finishes a polyline or a measured path
 
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
 `Ctrl+G` group · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+0` reset zoom · `Shift+1` zoom to fit · `Ctrl+'` cycle grid ·
-`Ctrl+M` boards · `Alt`+drag duplicates · `Shift` constrains
+`Ctrl+M` boards · `Alt`+drag duplicates · `Shift` constrains (15° steps
+for lines; square or circle for shapes) · `Alt` draws from the centre
 
 ## Boards and files
 
