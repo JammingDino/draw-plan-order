@@ -294,45 +294,93 @@
   }
 
   /* ══ shapes ═════════════════════════════════════════════════════ */
+  /* The kinds the shape tool draws as a stroke between points rather than
+     as a box: line, arrow, the force preset (a heavy arrow) and polyline.
+     All of them become kind 'line' or 'arrow' shapes. */
+  const LINE_KINDS = { line: 1, arrow: 1, force: 1, polyline: 1 };
+
+  /* Snapping (js/cad.js), when it is loaded: object points, the grid and
+     15° steps. Shift still forces the 15° steps, for a keyboard; the style
+     panel has the same switch for a pen. Without cad.js, the grid. */
+  function snapTo(app, ev, o = {}) {
+    if (D.cad) return D.cad.snap(app, ev.x, ev.y, { ...o, force15: ev.shift || o.force15 });
+    let x = ev.x, y = ev.y;
+    if (o.from && ev.shift) [x, y] = RG.snapAngle(o.from.x, o.from.y, x, y, 23);
+    if (app.opts.general.snapGrid) { x = Math.round(x / 25) * 25; y = Math.round(y / 25) * 25; }
+    return { x, y, t: null };
+  }
+
+  /** the heads, weight and kind a new line gets from the tool's options */
+  function lineStyle(o, kind) {
+    const heads = (o.heads && o.heads[kind]) || (kind === 'line' ? ['none', 'none'] : ['none', 'filled']);
+    const force = kind === 'force';
+    return {
+      kind: kind === 'arrow' || force || (kind === 'polyline' && heads[1] !== 'none') ? 'arrow' : 'line',
+      head1: heads[0], head2: heads[1],
+      size: force ? Math.max(4, Math.round(o.size * 1.6)) : o.size,
+      headScale: force ? 1.15 * (o.headScale || 1) : o.headScale || 1
+    };
+  }
+
   class ShapeTool {
-    constructor(app) { this.app = app; }
+    constructor(app) { this.app = app; this.poly = null; }
     get opt() { return this.app.opts.shape; }
+    get cad() { return this.app.opts.cad || {}; }
 
     down(ev) {
       const o = this.opt;
-      this.start = { x: ev.x, y: ev.y };
-      this.item = mk.shape({
-        kind: o.kind, x: ev.x, y: ev.y, w: 0, h: 0,
-        color: o.color, size: o.size, alpha: o.alpha, fill: o.fill, dash: o.dash, radius: o.radius
-      });
+      if (o.kind === 'polyline') return this.polyDown(ev);
+      const lineish = LINE_KINDS[o.kind];
+      const s = snapTo(this.app, ev);
+      this.start = s;
+      this.snapNow = s;
+      this.moved = false;
+      const base = { x: s.x, y: s.y, w: 0, h: 0, color: o.color, size: o.size, alpha: o.alpha, dash: o.dash };
+      if (lineish) this.item = mk.shape({ ...base, ...lineStyle(o, o.kind), fill: 'none' });
+      else if (o.kind === 'moment') this.item = mk.shape({ ...base, kind: 'moment', fill: 'none', head1: 'none', head2: 'filled', headScale: o.headScale || 1, a0: 0, sweep: o.ccw === false ? -270 : 270 });
+      else this.item = mk.shape({ ...base, kind: o.kind, fill: o.fill, radius: o.radius });
+      if (lineish && s.ref) this.item.bind1 = s.ref;
       this.app.requestDrawLive();
     }
+
     move(ev) {
+      if (this.poly) return this.polyMove(ev);
       if (!this.item) return;
-      let x2 = ev.x, y2 = ev.y;
-      const it = this.item, s = this.start;
-      if (ev.shift) {
-        if (it.kind === 'line' || it.kind === 'arrow') [x2, y2] = RG.snapAngle(s.x, s.y, x2, y2, 23);
-        else { const d = Math.max(Math.abs(x2 - s.x), Math.abs(y2 - s.y)); x2 = s.x + Math.sign(x2 - s.x) * d; y2 = s.y + Math.sign(y2 - s.y) * d; }
-      }
-      if (ev.alt && it.kind !== 'line' && it.kind !== 'arrow') {
-        it.x = s.x - (x2 - s.x); it.y = s.y - (y2 - s.y);
-        it.w = (x2 - s.x) * 2; it.h = (y2 - s.y) * 2;
-      } else { it.x = s.x; it.y = s.y; it.w = x2 - s.x; it.h = y2 - s.y; }
-      if (this.app.opts.general.snapGrid) {
-        const g = 25;
-        it.x = Math.round(it.x / g) * g; it.y = Math.round(it.y / g) * g;
-        it.w = Math.round(it.w / g) * g; it.h = Math.round(it.h / g) * g;
+      const it = this.item, s = this.start, cad = this.cad;
+      if (Math.hypot(ev.x - s.x, ev.y - s.y) * this.app.camera.zoom > 3) this.moved = true;
+      if (LINE_KINDS[this.opt.kind]) {
+        const e = this.snapNow = snapTo(this.app, ev, { from: s, force15: cad.ortho });
+        it.w = e.x - s.x; it.h = e.y - s.y;
+      } else if (it.kind === 'moment') {
+        const e = this.snapNow = snapTo(this.app, ev, { from: s });
+        const r = Math.hypot(e.x - s.x, e.y - s.y);
+        it.x = s.x - r; it.y = s.y - r; it.w = it.h = r * 2;
+        // the head lands where you let go, the arc running back round from there
+        const at = Math.atan2(s.y - e.y, e.x - s.x) * 180 / Math.PI;
+        it.a0 = at - (it.sweep ?? 270);
+      } else {
+        const e = this.snapNow = snapTo(this.app, ev);
+        let x2 = e.x, y2 = e.y;
+        if (ev.shift || cad.square) { const d = Math.max(Math.abs(x2 - s.x), Math.abs(y2 - s.y)); x2 = s.x + Math.sign(x2 - s.x || 1) * d; y2 = s.y + Math.sign(y2 - s.y || 1) * d; }
+        if (ev.alt || cad.centre) {
+          it.x = s.x - (x2 - s.x); it.y = s.y - (y2 - s.y);
+          it.w = (x2 - s.x) * 2; it.h = (y2 - s.y) * 2;
+        } else { it.x = s.x; it.y = s.y; it.w = x2 - s.x; it.h = y2 - s.y; }
       }
       it._b = null;
       this.app.requestDrawLive();
     }
+
     up() {
+      if (this.poly) return this.polyUp();
       const it = this.item; this.item = null;
+      const end = this.snapNow;
+      this.snapNow = null;
       this.app.renderer.clearLive();
       if (!it) return;
       if (Math.abs(it.w) < 3 && Math.abs(it.h) < 3) return;
-      if (it.kind !== 'line' && it.kind !== 'arrow') {
+      if (D.isLine(it)) { if (end && end.ref && !sameEnd(it.bind1, end.ref)) it.bind2 = end.ref; }
+      else if (it.kind !== 'moment') {
         if (it.w < 0) { it.x += it.w; it.w = -it.w; }
         if (it.h < 0) { it.y += it.h; it.h = -it.h; }
       }
@@ -341,13 +389,119 @@
       this.app.finishCreate(it);
       this.app.afterEdit();
     }
-    cancel() { this.item = null; this.app.renderer.clearLive(); }
+
+    /* ── polylines ──────────────────────────────────────────────────
+       Built a point at a time, the way a pen wants to: press, drag the
+       rubber band to where the corner goes, lift; again for the next
+       corner. A tap on the last point (or Enter) finishes it, a tap
+       anywhere else adds a corner there. Nothing is on the board until
+       it is finished, so cancel() simply forgets it. */
+    polyDown(ev) {
+      const s = snapTo(this.app, ev, this.poly ? { from: this.lastPoint() } : {});
+      if (!this.poly) {
+        const o = this.opt;
+        this.poly = { pts: [s.x, s.y], refs: [s.ref || null], item: mk.shape({ x: s.x, y: s.y, w: 0, h: 0, color: o.color, size: o.size, alpha: o.alpha, dash: o.dash, fill: 'none', ...lineStyle(o, 'polyline') }) };
+        this.poly.fresh = true;
+        this.app.hint(ev.sx, ev.sy, 'Lift for a corner · tap the last point to finish');
+      } else this.poly.fresh = false;
+      this.poly.down = { sx: ev.sx, sy: ev.sy };
+      this.snapNow = s;
+      this.app.requestDrawLive();
+    }
+    polyMove(ev) {
+      this.snapNow = snapTo(this.app, ev, { from: this.lastPoint(), force15: this.cad.ortho });
+      this.app.requestDrawLive();
+    }
+    polyUp() {
+      const P = this.poly, s = this.snapNow, app = this.app;
+      if (!P || !s) return;
+      const last = this.lastPoint();
+      const tol = (app.coarse ? 22 : 12) / app.camera.zoom;
+      const tap = !P.down || Math.hypot(app.pointer.sx - P.down.sx, app.pointer.sy - P.down.sy) < 6;
+      if (U.dist(s.x, s.y, last.x, last.y) < tol) {
+        // back on the last point: a tap there finishes, unless it was the very first press
+        if (!(P.fresh && tap)) this.finishPoly();
+        return;
+      }
+      P.pts.push(s.x, s.y); P.refs.push(s.ref || null);
+      app.hideHint();
+      app.requestDrawLive();
+    }
+    lastPoint() { const p = this.poly.pts; return { x: p[p.length - 2], y: p[p.length - 1] }; }
+
+    /** put the polyline on the board as it stands; false if it is too short to keep */
+    finishPoly() {
+      const P = this.poly, app = this.app;
+      this.poly = null; this.snapNow = null;
+      app.hideHint();
+      app.renderer.clearLive();
+      if (!P || P.pts.length < 4) { app.requestDrawLive(); return false; }
+      const it = P.item, p = P.pts, n = p.length;
+      it.x = p[0]; it.y = p[1]; it.w = p[n - 2] - p[0]; it.h = p[n - 1] - p[1];
+      if (n > 4) it.via = p.slice(2, n - 2);
+      if (P.refs[0]) it.bind1 = P.refs[0];
+      if (P.refs[P.refs.length - 1] && !sameEnd(it.bind1, P.refs[P.refs.length - 1])) it.bind2 = P.refs[P.refs.length - 1];
+      app.scene.begin('polyline'); app.scene.add(it); app.scene.commit();
+      app.finishCreate(it);
+      app.afterEdit();
+      return true;
+    }
+
+    cancel() {
+      this.item = null; this.poly = null; this.snapNow = null;
+      this.app.hideHint();
+      this.app.renderer.clearLive();
+    }
+
+    /** the polyline being built, with its rubber band out to the pen */
+    polyPreview() {
+      const P = this.poly, p = P.pts.slice(), s = this.snapNow;
+      if (s && (p[p.length - 2] !== s.x || p[p.length - 1] !== s.y)) p.push(s.x, s.y);
+      const it = { ...P.item, x: p[0], y: p[1], w: p[p.length - 2] - p[0], h: p[p.length - 1] - p[1] };
+      if (p.length > 4) it.via = p.slice(2, -2);
+      return it;
+    }
+
     paint(r) {
-      if (!this.item) return;
+      const app = this.app;
+      if (this.poly) {
+        const ctx = r.liveWorld();
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        // with a pen hovering, the band follows it between presses
+        if (!app.active && app.pointer && D.cad) this.snapNow = snapTo(app, app.pointer, { from: this.lastPoint(), force15: this.cad.ortho });
+        const it = this.polyPreview();
+        if (it.via || it.w || it.h) r.drawItem(ctx, it);
+        if (D.cad) {
+          const p = this.poly.pts;
+          D.cad.paintVertices(r, p);
+          D.cad.paintSnap(r, this.snapNow, this.lastPoint());
+          const s = this.snapNow, last = this.lastPoint();
+          if (s) D.cad.paintReadout(r, app.pointer, D.cad.lineReadout(app.scene, last, s, U.pathLength(p) + U.dist(last.x, last.y, s.x, s.y)));
+        }
+        return;
+      }
+      if (!this.item) {
+        // hovering: show where a press would land
+        if (D.cad && app.pointer && !app.active) D.cad.paintSnap(r, D.cad.snap(app, app.pointer.x, app.pointer.y, {}));
+        return;
+      }
       const ctx = r.liveWorld();
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       r.drawItem(ctx, this.item);
+      if (!D.cad) return;
+      const it = this.item;
+      D.cad.paintSnap(r, this.snapNow, D.isLine(it) ? this.start : null);
+      if (!this.moved) return;
+      const scene = app.scene;
+      if (D.isLine(it)) D.cad.paintReadout(r, app.pointer, D.cad.lineReadout(scene, this.start, { x: it.x + it.w, y: it.y + it.h }));
+      else if (it.kind === 'moment') D.cad.paintReadout(r, app.pointer, ['R ' + D.cad.fmtLen(scene, it.w / 2)]);
+      else D.cad.paintReadout(r, app.pointer, D.cad.boxReadout(scene, Math.abs(it.w), Math.abs(it.h), it.kind));
     }
+  }
+
+  /** do two attachments point at the same place? (a line from a point to itself is not worth binding twice) */
+  function sameEnd(a, b) {
+    return !!a && !!b && a.id === b.id && a.k === b.k && a.u === b.u && a.v === b.v && a.t === b.t && a.a === b.a;
   }
 
   /* ══ node (decision-tree box) ═══════════════════════════════════ */
@@ -533,11 +687,32 @@
   class SelectTool {
     constructor(app, lasso) { this.app = app; this.lasso = lasso; }
 
+    /* screen px a press may miss by: more under a finger or a pen (app.coarse) */
+    slop(px, coarsePx) { return (this.app.coarse ? coarsePx : px) / this.app.camera.zoom; }
+
     down(ev) {
       const app = this.app, scene = app.scene;
       this.mode = null;
       this.lifted = false;
       this.start = { x: ev.x, y: ev.y, sx: ev.sx, sy: ev.sy };
+
+      // 0 · a handle of a single selected line: an end, a corner, or the bend
+      if (app.selection.length === 1 && app.selBox && app.selBox.line) {
+        const reach = app.coarse ? 22 : 12;
+        let best = null, bd = reach;
+        for (const h of app.selBox.line) {
+          const d = Math.hypot(ev.sx - h.x, ev.sy - h.y);
+          if (d < bd) { bd = d; best = h; }
+        }
+        if (best) {
+          const it = app.selection[0];
+          this.mode = 'line'; this.handle = best.k;
+          scene.begin('edit line'); scene.touch(it);
+          this.lineMoved = false;
+          this.lineWas = D.clone(it);
+          return;
+        }
+      }
 
       // 1 · resize handle?
       if (app.selection.length && app.selBox) {
@@ -555,13 +730,13 @@
 
       // 2 · edge endpoint drag
       if (app.selection.length === 1 && app.selection[0].type === 'edge') {
-        const e = app.selection[0], p = scene.edgePath(e), tol = 10 / app.camera.zoom;
+        const e = app.selection[0], p = scene.edgePath(e), tol = this.slop(10, 18);
         if (U.dist(ev.x, ev.y, p[0], p[1]) < tol) { this.mode = 'endpoint'; this.end = 'from'; scene.begin('edge'); scene.touch(e); return; }
         if (U.dist(ev.x, ev.y, p[p.length - 2], p[p.length - 1]) < tol) { this.mode = 'endpoint'; this.end = 'to'; scene.begin('edge'); scene.touch(e); return; }
       }
 
       // 3 · item under the pointer
-      let hit = scene.hitTest(ev.x, ev.y, 8 / app.camera.zoom);
+      let hit = scene.hitTest(ev.x, ev.y, this.slop(8, 14));
 
       /* A PDF page or a picture is the thing you write on, and it is hit
          by its whole area, so a press in the gaps between your notes used
@@ -592,7 +767,7 @@
         } else if (!app.selection.includes(hit)) app.select(group);
         this.mode = 'move';
         this.moved = false;
-        this.alt = ev.alt;
+        this.alt = ev.alt || !!(app.opts.cad && app.opts.cad.dupDrag);
         scene.begin('move');
         return;
       }
@@ -632,9 +807,10 @@
         this.baseSel = this.shift ? app.selection.slice() : [];
         tipOnce('backdrop', () => app.toast('Dragging over a page selects what is on it — press and hold to move the page itself'));
       }
+      if (this.mode === 'line') return this.moveLine(ev);
       if (this.mode === 'move') {
         let dx = ev.x - this.start.x, dy = ev.y - this.start.y;
-        if (ev.shift) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+        if (ev.shift || (app.opts.cad && app.opts.cad.axisDrag)) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
         if (!this.moved) {
           if (Math.hypot(ev.sx - this.start.sx, ev.sy - this.start.sy) < 3) return;
           this.moved = true;
@@ -644,6 +820,10 @@
             app.select(copies);
           }
           this.origin = app.selection.map(it => D.clone(it));
+          /* What is moving, by id: an attachment to one of these comes
+             along, and one to anything else is let go (or, for a
+             dimension, moves its line instead — see cad.js). */
+          this.moving = new Set(app.selection.map(it => it.id));
           this.lifted = app.renderer.liftBegin(app.selection);
         }
         if (this.lifted && app.renderer.lift) { app.renderer.lift.dx = dx; app.renderer.lift.dy = dy; }
@@ -658,15 +838,22 @@
           } else if (D.ext.items[it.type] && D.ext.items[it.type].translate) {
             /* a registered type that moves itself: from where it started,
                like everything else here, and with its own caches dropped
-               (touchMoved keeps them, which only strokes know how to use) */
+               (touchMoved keeps them, which only strokes know how to use).
+               It is also told what else is moving, for one that is
+               attached to things. */
             const c = D.clone(o);
             for (const k in c) it[k] = c[k];
             it._path = null; it._lod = null; it._lines = null;
-            D.ext.items[it.type].translate(it, dx, dy);
+            D.ext.items[it.type].translate(it, dx, dy, this.moving);
           } else {
             let nx = o.x + dx, ny = o.y + dy;
             if (app.opts.general.snapGrid) { const g = 25; nx = Math.round(nx / g) * g; ny = Math.round(ny / g) * g; }
             it.x = nx; it.y = ny;
+            if (o.via) it.via = o.via.map((v, k) => v + (k & 1 ? ny - o.y : nx - o.x));
+            /* An arrow dragged away from what it is attached to lets go of
+               it; one moving along with its target stays attached. */
+            if (it.bind1 && !this.moving.has(it.bind1.id)) delete it.bind1;
+            if (it.bind2 && !this.moving.has(it.bind2.id)) delete it.bind2;
           }
         });
         app.requestDraw();
@@ -708,8 +895,63 @@
       }
     }
 
+    /* ── a single line's handles ────────────────────────────────────
+       An end snaps (to points on other things, the grid, 15° from the
+       other end) and attaches to whatever it snapped to; a corner snaps
+       the same way; the bend handle drags the curve's midpoint, and
+       straightens the line again when it is brought back onto the chord. */
+    moveLine(ev) {
+      const app = this.app, scene = app.scene, it = app.selection[0], k = this.handle;
+      if (!it) return;
+      if (!this.lineMoved && Math.hypot(ev.sx - this.start.sx, ev.sy - this.start.sy) < 2) return;
+      this.lineMoved = true;
+      scene.touch(it);
+      const [a, b] = scene.lineEnds(it);
+      const skip = new Set([it.id]);
+      if (k === 'p0' || k === 'p1') {
+        const other = k === 'p0'
+          ? (it.via ? { x: it.via[0], y: it.via[1] } : b)
+          : (it.via ? { x: it.via[it.via.length - 2], y: it.via[it.via.length - 1] } : a);
+        const s = this.lineSnap = snapTo(app, ev, { from: other, skip, force15: app.opts.cad && app.opts.cad.ortho });
+        // an end may not attach to something that is itself attached to this line
+        const ref = s.ref && !D.refsOf(scene.get(s.ref.id) || {}).some(r => r.id === it.id) ? s.ref : null;
+        if (k === 'p0') {
+          it.x = s.x; it.y = s.y; it.w = b.x - s.x; it.h = b.y - s.y;
+          if (ref) it.bind1 = ref; else delete it.bind1;
+        } else {
+          it.x = a.x; it.y = a.y; it.w = s.x - a.x; it.h = s.y - a.y;
+          if (ref) it.bind2 = ref; else delete it.bind2;
+        }
+      } else if (k === 'bend') {
+        const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+        if (!l2) return;
+        const mx = ev.x - a.x, my = ev.y - a.y;
+        const u = (mx * dx + my * dy) / l2, v = (mx * -dy + my * dx) / l2;
+        const l = Math.sqrt(l2), tol = this.slop(10, 16);
+        // close to straight: straight
+        if (Math.abs(v) * l < tol && Math.abs(u - 0.5) * l < tol * 2) delete it.curve;
+        else it.curve = [U.round(u, 4), U.round(v, 4)];
+        this.lineSnap = null;
+      } else if (k[0] === 'v') {
+        const i = +k.slice(1) * 2, via = it.via.slice();
+        const prev = i ? { x: via[i - 2], y: via[i - 1] } : a;
+        const s = this.lineSnap = snapTo(app, ev, { from: prev, skip, force15: app.opts.cad && app.opts.cad.ortho });
+        via[i] = s.x; via[i + 1] = s.y;
+        it.via = via;
+      }
+      it._b = null;
+      app.requestDraw();
+    }
+
     up() {
       const app = this.app;
+      if (this.mode === 'line') {
+        this.mode = null; this.lineSnap = null;
+        if (this.lineMoved) app.scene.commit(); else app.scene.cancel();
+        app.requestDrawLive();
+        app.afterEdit();
+        return;
+      }
       if (this.mode === 'pending') {
         // a tap on a page or picture selects it; the next drag then moves it
         clearTimeout(this.holdTimer);
@@ -733,10 +975,30 @@
     cancel() {
       clearTimeout(this.holdTimer);
       if (this.lifted) { this.app.renderer.liftEnd(); this.lifted = false; }
-      this.mode = null; this.pending = null; this.poly = null; this.app.scene.cancel();
+      /* A line half-dragged by a handle is put back as it was: cancel()
+         must leave nothing behind, and the scene's step only records. */
+      const it = this.app.selection[0];
+      if (this.mode === 'line' && this.lineMoved && it && this.lineWas) {
+        for (const k of Object.keys(it)) if (k[0] !== '_') delete it[k];
+        Object.assign(it, D.clone(this.lineWas));
+        this.app.scene.dirty(it);
+        this.app.requestDraw();
+      }
+      this.mode = null; this.pending = null; this.poly = null; this.lineSnap = null; this.app.scene.cancel();
     }
 
     paint(r) {
+      if (this.mode === 'line') {
+        const it = this.app.selection[0];
+        if (!D.cad || !it || !this.lineMoved) return;
+        D.cad.paintSnap(r, this.lineSnap);
+        const [a, b] = this.app.scene.lineEnds(it);
+        if (this.handle === 'bend') return;
+        D.cad.paintReadout(r, this.app.pointer, it.via
+          ? ['Total ' + D.cad.fmtLen(this.app.scene, U.pathLength(this.app.scene.linePath(it)))]
+          : D.cad.lineReadout(this.app.scene, a, b));
+        return;
+      }
       if (this.mode === 'marquee') {
         const ctx = r.liveScreen(), cam = this.app.camera;
         const a = cam.toScreen(this.start.x, this.start.y);
@@ -772,6 +1034,7 @@
   }
 
   D.tools = { PenTool, EraserTool, ShapeTool, NodeTool, NoteTool, TextTool, ConnectorTool, LaserTool, PanTool, SelectTool };
+  D.snapTo = snapTo;
   D.splitStroke = splitStroke;
 
 })(window.DPO);
