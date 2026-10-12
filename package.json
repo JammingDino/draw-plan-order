@@ -1,6 +1,6 @@
 {
   "name": "draw-plan-order",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "An endless canvas for pen, keyboard and decision trees",
   "scripts": {
@@ -11,10 +11,12 @@
     "app:build": "tauri build",
     "app:dev": "tauri dev",
     "test": "node --test test/*.test.mjs",
-    "bench": "node test/bench.mjs"
+    "bench": "node test/bench.mjs",
+    "bench:app": "node test/bench-app.mjs"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2",
+    "playwright-core": "^1.47.2"
   },
   "dependencies": {
     "pdfjs-dist": "^4.10.38"

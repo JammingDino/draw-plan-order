@@ -2,11 +2,11 @@
    Network first, cache as the fallback: edits to the source show up straight
    away while you are working on it, and the app still opens with nothing
    running (or no network) because every response is kept in the cache. */
-const CACHE = 'dpo-v4';
+const CACHE = 'dpo-v6';
 const ASSETS = [
   './', './index.html', './css/app.css', './manifest.webmanifest',
   './js/util.js', './js/freehand.js', './js/recognize.js', './js/scene.js',
-  './js/camera.js', './js/render.js', './js/store.js', './js/editor.js',
+  './js/camera.js', './js/render.js', './js/preview.js', './js/store.js', './js/editor.js', './js/taps.js',
   './js/tools.js', './js/ui.js', './js/app.js', './js/pdf.js', './js/perf.js', './js/desktop.js',
   './icons/icon-192.png', './icons/icon-512.png'
 ];

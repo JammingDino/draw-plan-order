@@ -535,6 +535,7 @@
     down(ev) {
       const app = this.app, scene = app.scene;
       this.mode = null;
+      this.lifted = false;
       this.start = { x: ev.x, y: ev.y, sx: ev.sx, sy: ev.sy };
 
       // 1 · resize handle?
@@ -642,7 +643,9 @@
             app.select(copies);
           }
           this.origin = app.selection.map(it => D.clone(it));
+          this.lifted = app.renderer.liftBegin(app.selection);
         }
+        if (this.lifted && app.renderer.lift) { app.renderer.lift.dx = dx; app.renderer.lift.dy = dy; }
         // re-apply from the original positions so the drag never drifts
         app.selection.forEach((it, i) => {
           const o = this.origin[i];
@@ -710,6 +713,7 @@
           app.select(has ? app.selection.filter(i => !group.includes(i)) : [...app.selection, ...group]);
         }
       }
+      if (this.lifted) { app.renderer.liftEnd(); this.lifted = false; }
       if (this.mode === 'move' && !this.moved) app.scene.cancel();
       else if (this.mode) app.scene.commit();
       if (this.mode === 'marquee' || this.mode === 'lasso') { this.poly = null; app.renderer.clearLive(); }
@@ -717,7 +721,11 @@
       app.requestDrawLive();
       app.afterEdit();
     }
-    cancel() { clearTimeout(this.holdTimer); this.mode = null; this.pending = null; this.poly = null; this.app.scene.cancel(); }
+    cancel() {
+      clearTimeout(this.holdTimer);
+      if (this.lifted) { this.app.renderer.liftEnd(); this.lifted = false; }
+      this.mode = null; this.pending = null; this.poly = null; this.app.scene.cancel();
+    }
 
     paint(r) {
       if (this.mode === 'marquee') {

@@ -77,6 +77,12 @@
   }
   F.decimate = decimate;
 
+  /* How fast a stroke's width may change along it (radius per unit of
+     length) before a join needs its disc to fill the bulge; see F.shapes.
+     At this slope the disc stands proud of the quads' slanted edge by
+     about 1% of the radius. */
+  const WIDTH_SLOPE = 0.15;
+
   /** Minimum useful sample spacing for a nib of this size, in world units. */
   F.spacing = size => Math.max(0.3, size * 0.13);
 
@@ -127,6 +133,7 @@
 
     const out = [];
     const nrm = new Float32Array((n - 1) * 2);
+    const len = new Float32Array(n - 1);
     let lnx = 0, lny = 1;
     for (let i = 0; i < n - 1; i++) {
       const ax = pts[i * 3], ay = pts[i * 3 + 1];
@@ -135,6 +142,7 @@
       let nx, ny;
       if (l < 1e-9) { nx = lnx; ny = lny; } else { nx = lnx = -dy / l; ny = lny = dx / l; }
       nrm[i * 2] = nx; nrm[i * 2 + 1] = ny;
+      len[i] = l;
       const ra = rad[i], rb = rad[i + 1];
 
       /* Grow each quad a hair past its ends so neighbours overlap instead of
@@ -150,12 +158,30 @@
       out.push([px + nx * ra, py + ny * ra, qx + nx * rb, qy + ny * rb, qx - nx * rb, qy - ny * rb, px - nx * ra, py - ny * ra]);
     }
 
-    /* round off the joins — only where the quads would actually leave a notch */
+    /* Round off the joins — only where the quads would actually leave a
+       notch. Two quads meeting at an angle θ leave a wedge open on the
+       outside of the turn, and the overlap each grows past the joint (e,
+       above) fills it as long as r·sin(θ/2) ≤ e. Handwriting turns a few
+       degrees per sample, so nearly every join is filled already, and its
+       disc was most of the stroke's geometry — geometry the GPU process
+       tessellated on every repaint, for nothing that reached a pixel.
+       The cos(θ/2) bound keeps the corner left in its place (a mitre, not
+       an arc) within a fraction of a pixel even at full zoom.
+       The disc also does a second job: where the width changes quickly
+       (a sudden press), the quads' edges are slanted and the disc fills
+       the bulge beside them. So it stays wherever either neighbour's
+       width changes faster than a gentle slope. */
     for (let i = 1; i < n - 1; i++) {
       const ax = nrm[(i - 1) * 2], ay = nrm[(i - 1) * 2 + 1];
       const bx = nrm[i * 2], by = nrm[i * 2 + 1];
-      if (ax * bx + ay * by > 0.9995) continue;
-      out.push(disc(pts[i * 3], pts[i * 3 + 1], rad[i]));
+      const dot = ax * bx + ay * by;
+      if (dot > 0.9995) continue;
+      const r = rad[i];
+      const steady = Math.abs(r - rad[i - 1]) <= len[i - 1] * WIDTH_SLOPE && Math.abs(r - rad[i + 1]) <= len[i] * WIDTH_SLOPE;
+      const e = Math.min(len[i - 1] * 0.45, len[i] * 0.45, r * 0.3);
+      const sinHalf = Math.sqrt(Math.max(0, (1 - dot) / 2)), cosHalf = Math.sqrt((1 + dot) / 2);
+      if (steady && cosHalf > 0.99 && r * sinHalf <= e * 0.9) continue;
+      out.push(disc(pts[i * 3], pts[i * 3 + 1], r));
     }
     if (cap) {
       out.push(disc(pts[0], pts[1], rad[0]));

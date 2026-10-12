@@ -8,19 +8,7 @@
     "beforeBuildCommand": "python tools/pack.py"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Draw · Plan · Order",
-        "width": 1440,
-        "height": 920,
-        "minWidth": 640,
-        "minHeight": 460,
-        "resizable": true,
-        "center": true,
-        "decorations": true,
-        "dragDropEnabled": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

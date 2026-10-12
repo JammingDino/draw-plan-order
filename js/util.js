@@ -19,8 +19,39 @@ window.DPO = window.DPO || {};
   U.round = (v, n = 2) => Math.round(v * 10 ** n) / 10 ** n;
 
   U.debounce = (fn, ms) => {
-    let t; return function (...a) { clearTimeout(t); t = setTimeout(() => fn.apply(this, a), ms); };
+    let t;
+    const f = function (...a) { clearTimeout(t); t = setTimeout(() => fn.apply(this, a), ms); };
+    f.cancel = () => clearTimeout(t);
+    return f;
   };
+  /**
+   * Decode a picture into something a canvas can draw, with its size:
+   * { img, w, h }. createImageBitmap cannot read SVG at all in Chromium, so
+   * an SVG (or anything else it refuses) goes through an <img>, which
+   * also keeps an SVG sharp at any zoom. An SVG with no size of its own
+   * gets 300×150, as a browser would give it.
+   */
+  U.decodeImage = async (blob) => {
+    const svg = /svg/i.test(blob.type || '');
+    if (!svg) {
+      try {
+        const img = await createImageBitmap(blob);
+        return { img, w: img.width, h: img.height };
+      } catch (_) { /* try the slow way */ }
+    }
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const w = img.naturalWidth || 300, h = img.naturalHeight || 150;
+      return { img, w, h, url };
+    } catch (err) {
+      URL.revokeObjectURL(url);
+      throw err;
+    }
+  };
+
   U.throttle = (fn, ms) => {
     let last = 0, t = null, ctxArgs;
     return function (...a) {

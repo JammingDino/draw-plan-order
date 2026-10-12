@@ -56,6 +56,7 @@
 
       this.scene.onchange = () => { this.needBase = true; this.schedule(); };
       this.tree = new Tree(this);
+      this.taps = new D.Taps(this);       // two fingers tap to undo, three to redo
     }
 
     /* ── boot ─────────────────────────────────────────────────────── */
@@ -178,6 +179,22 @@
       D.store.setLast(board.id);
       this.requestDraw();
       if (this.ui) this.ui.refresh();
+      this.warmSave();
+    }
+
+    /* Get the board's saved text ready while the pen is idle, so the first
+       autosave after opening a big board is as quick as every later one
+       (Scene.docText). */
+    warmSave() {
+      if (!self.requestIdleCallback || this._warmJob) return;
+      const scene = this.scene;
+      const step = deadline => {
+        this._warmJob = null;
+        if (this.scene !== scene) return;
+        if (this.active) { this._warmJob = requestIdleCallback(step); return; }
+        if (!scene.warmText(deadline)) this._warmJob = requestIdleCallback(step);
+      };
+      this._warmJob = requestIdleCallback(step);
     }
 
     /* ── updates (desktop app) ────────────────────────────────────── */
@@ -207,6 +224,10 @@
        it already has instead of repainting (Renderer.scrollFrom). Anything
        else asking for a draw in the same frame still gets a full one. */
     requestPan() { this.needPan = true; this.needLive = true; this.schedule(); }
+    /* A zoom in progress (the wheel, a pinch): the scene layer may scale
+       the last sharp picture rather than repaint, and paints it properly
+       once the zoom stops (Renderer.drawZoom). */
+    requestZoom() { this.needZoom = true; this.needLive = true; this.schedule(); }
 
     /**
      * Pan by a screen distance, in whole device pixels.
@@ -231,10 +252,10 @@
     frame() {
       const r = this.renderer;
       if (this.perf) this.perf.frameStart();
-      if (this.needBase || this.needPan) {
-        const full = this.needBase;
-        this.needBase = this.needPan = false;
-        r.drawScene(!full);
+      if (this.needBase || this.needPan || this.needZoom) {
+        const full = this.needBase, zoom = this.needZoom && !full;
+        this.needBase = this.needPan = this.needZoom = false;
+        if (zoom) r.drawZoom(); else r.drawScene(!full);
         if (this.perf) {
           this.perf.drawn = r.lastDrawn;
           this.perf.simplified = r.lastSimplified;
@@ -441,6 +462,7 @@
 
     onDown(e) {
       if (e.target.closest('#overlay .text-edit')) return;
+      this.taps.down(e);
       if (this.editor.active) this.editor.close();
       // a primary press means nothing else is really down: drop anything stale
       // (pointers can go missing when the pen leaves the digitiser range)
@@ -484,12 +506,13 @@
     }
 
     onMove(e) {
+      this.taps.move(e);
       if (this.pointers.has(e.pointerId)) { e._t = performance.now(); this.pointers.set(e.pointerId, e); }
 
       if (this.gesture && this.pointers.size >= 2) {
         const [a, b] = [...this.pointers.values()];
         applyGesture(this.gesture, a, b, this.camera);
-        this.requestDraw();
+        this.requestZoom();
         if (this.ui) $('#btn-zoom-reset').textContent = Math.round(this.camera.zoom * 100) + '%';
         return;
       }
@@ -523,6 +546,7 @@
     }
 
     onUp(e, cancelled) {
+      this.taps.up(e, cancelled);
       this.pointers.delete(e.pointerId);
       if (this.gesture && this.pointers.size < 2) { this.gesture = null; this.saveView(); }
       if (!this.active || e.pointerId !== this.downId) return;
@@ -540,7 +564,7 @@
       if (e.ctrlKey || e.metaKey) {
         const f = Math.exp(-e.deltaY * 0.0035);
         this.camera.zoomBy(f, e.clientX, e.clientY);
-        this.requestDraw();
+        this.requestZoom();
       } else if (e.shiftKey) {
         this.panScreen(-e.deltaY - e.deltaX, 0);
       } else {
@@ -569,6 +593,8 @@
     /* ── keyboard ─────────────────────────────────────────────────── */
     onKey(e) {
       if (e.target.matches('input, textarea')) return;
+      // the boards sheet has the keyboard while it is open, not the board behind it
+      if (this.ui && !$('#sheet').hidden) { this.ui.sheetKey(e); return; }
       const k = e.key, ctrl = e.ctrlKey || e.metaKey;
 
       if (e.code === 'Space' && !this.spaceDown) {
@@ -646,8 +672,11 @@
     }
 
     /* ── editing commands ─────────────────────────────────────────── */
-    undo() { this.scene.undo(); this.select([]); this.afterEdit(); }
-    redo() { this.scene.redo(); this.select([]); this.afterEdit(); }
+    /** both hand back the step they undid or redid, or null if there was none */
+    undo() { const op = this.scene.undo(); this.select([]); this.afterEdit(); return op; }
+    redo() { const op = this.scene.redo(); this.select([]); this.afterEdit(); return op; }
+    /** a word or two on screen for a moment, for a gesture that has no button to light up */
+    flash(text) { this.ui.toast(text, null, null, 1100); }
 
     deleteSelection() {
       if (!this.selection.length) return;
@@ -798,13 +827,14 @@
     async insertImageFile(file, at) {
       let size;
       try {
-        const bmp = await createImageBitmap(file);
-        size = { w: bmp.width, h: bmp.height };
-        if (bmp.close) bmp.close();
+        const d = await U.decodeImage(file);
+        size = { w: d.w, h: d.h };
+        if (d.img.close) d.img.close();
+        if (d.url) URL.revokeObjectURL(d.url);
       } catch (err) { return this.toast('Could not read that picture'); }
       const max = 520;
       const s = Math.min(1, max / Math.max(size.w, size.h));
-      const type = file.type || 'image/png';
+      const type = file.type || (/\.svg$/i.test(file.name) ? 'image/svg+xml' : 'image/png');
       let it;
       try {
         const id = U.uid();
@@ -844,7 +874,7 @@
           made.set(it.src, a);
         }
         this.renderer.renamePicture(it.src, a.id);   // already decoded: no flicker
-        it.asset = a.id; it.mime = a.type; delete it.src;
+        it.asset = a.id; it.mime = a.type; delete it.src; it._json = null;
       }
       if (this.board === board) this.markDirty();
     }
@@ -924,98 +954,130 @@
     /* ── persistence ──────────────────────────────────────────────── */
     afterEdit() { this.markDirty(); this.requestDraw(); if (this.ui) this.ui.refresh(); }
 
+    /* Autosave waits for a pause: SAVE_IDLE after the last edit, and every
+       edit starts the wait again, so a run of writing is saved once, when
+       you stop. It also saves on leaving the board, on hiding or closing
+       the window, and on Ctrl+S. SAVE_MAX is the one exception: work that
+       has gone that long unsaved because you never paused is saved at the
+       next gap between strokes anyway. */
     markDirty() {
       if (!this._dirty) this._dirtySince = Date.now();
       this._dirty = true;
-      $('#save-state').textContent = 'saving…';
-      this.saveDebounced();
+      this._edits = (this._edits || 0) + 1;
+      $('#save-state').textContent = 'unsaved';
+      if (Date.now() - this._dirtySince > SAVE_MAX) this.saveSoon();
+      else this.saveDebounced();
+      /* the save is seconds away: serialise what changed in the gaps
+         before it, so a big edit (a drag of thousands of strokes) does not
+         land on the save as one long task */
+      this.warmSave();
     }
 
-    /* Where the debounced autosave lands. Saving copies the whole board
-       (about 50ms at twenty thousand strokes) on the main thread, and the
-       debounce fires 450ms after the last edit — which is often just as the
-       pen comes down for the next stroke, so the start of that stroke
-       stuttered. While something is being drawn or dragged the save waits
-       for it, unless the board has gone unsaved for ten seconds. */
+    /** never in the middle of a stroke or a drag: that waits for the pen to lift */
     saveSoon() {
-      if (this.active && Date.now() - (this._dirtySince || 0) < 10000) { this.saveDebounced(); return; }
+      if (this.active) { this.saveDebounced(); return; }
       return this.saveNow();
+    }
+
+    /**
+     * Save before the window closes (the desktop shell holds the close
+     * until this answers, or gives up after a few seconds).
+     */
+    async onCloseRequested() {
+      try { if (this._dirty) await this.saveNow(true); }
+      catch (err) { console.error('[dpo] save on close', err); }
+      finally { self.__TAURI_INTERNALS__.invoke('dpo_close'); }
     }
 
     /** `force` refreshes the board's card picture; either flag updates the board list */
     async saveNow(force, listToo) {
       if (!this.board) return;
+      this.saveDebounced.cancel?.();
+      const edits = this._edits;
+      $('#save-state').textContent = 'saving…';
       this.snapshot();
-      // the dashboard picture is cheap but not free: refresh it now and then,
-      // and always when we are about to leave the board
-      if (force) {
-        this._thumbAt = Date.now();
-        this.board.thumb = this.makeThumb();
-        this.board.thumbTheme = document.documentElement.dataset.theme;
-      } else if (Date.now() - (this._thumbAt || 0) > 6000) {
-        /* Repainting the whole board and PNG-encoding it is not something to
-           do in the middle of a stroke: on a busy board it is a visible hitch
-           every few seconds. The card can wait for a gap in the drawing. */
-        this._thumbAt = Date.now();
-        this.queueThumb();
-      }
-      await D.store.save(this.board, force || listToo);
+      // the board's picture: always when leaving the board, otherwise now and then
+      const board = this.board;
+      const shot = force ? this.captureThumb() : null;
+      if (!force && Date.now() - (this._thumbAt || 0) > 6000) this.queueThumb();
+      await D.store.save(board, force || listToo);
+      if (shot) await this.storeThumb(board, shot);
+      // an edit made while that was writing is not in it: still unsaved
+      if (this._edits !== edits) { $('#save-state').textContent = 'unsaved'; return; }
       this._dirty = false;
       $('#save-state').textContent = 'saved';
       clearRescue();
     }
 
     /**
-     * A small picture of the board for the dashboard. Rendered with the
-     * current theme, so it is refreshed whenever the board is opened or the
-     * theme flips rather than cached forever.
+     * A picture of the board for the boards list: the view you were last
+     * looking at, as it is on screen. It used to be the whole board
+     * squeezed into 340×212, which made writing on any sizeable board
+     * unreadable, and repainted every item on the board to get there. The
+     * screen already holds the view, so this is a scaled copy of it.
+     * Taken in the current theme; thumbTheme records which.
      */
-    makeThumb(w = 340, h = 212) {
-      if (!this.scene.items.length) return null;      // the card shows a placeholder instead
+    /* In two halves. Copying the screen is a few ms and has to happen while
+       it still shows this board, so it is synchronous. Encoding the copy
+       took 150ms on the main thread as toDataURL — a hitch on every board
+       switch and every few saves — so it goes through toBlob, which
+       encodes on another thread. */
+    captureThumb(w = 480) {
+      if (!this.scene.items.length) return 'empty';   // the card shows a placeholder instead
+      const src = this.renderer.base;
+      if (!src.width || !src.height) return null;
+      if (this.renderer._painted == null) this.renderer.drawScene();
       const c = document.createElement('canvas');
-      c.width = w; c.height = h;
+      c.width = w; c.height = Math.round(w * src.height / src.width);
       const ctx = c.getContext('2d');
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--paper').trim() || '#fff';
-      ctx.fillRect(0, 0, w, h);
-      const b = this.scene.contentBounds();
-      if (b && isFinite(b.w)) {
-        const pad = 16;
-        const z = Math.min((w - pad * 2) / Math.max(b.w, 1), (h - pad * 2) / Math.max(b.h, 1), 1.4);
-        ctx.setTransform(z, 0, 0, z, (w - b.w * z) / 2 - b.x * z, (h - b.h * z) / 2 - b.y * z);
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        // the card's scale, not the camera's, decides how much detail survives
-        try { this.renderer.drawItems(ctx, this.scene.items, z); } catch (_) { }
-      }
-      try { return c.toDataURL('image/webp', 0.7); } catch (_) { return c.toDataURL('image/png'); }
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(src, 0, 0, c.width, c.height);
+      return c;
     }
 
-    /** redraw the dashboard card once the user stops long enough not to notice */
+    /** a captured picture as the data URL a board record keeps; null for an empty board */
+    encodeThumb(c) {
+      if (!c || c === 'empty') return Promise.resolve(null);
+      return new Promise(res => c.toBlob(blob => {
+        if (!blob) return res(null);
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = () => res(null);
+        fr.readAsDataURL(blob);
+      }, 'image/webp', 0.75));
+    }
+
+    /**
+     * Give `board` the picture `shot` and bring its entry in the board list
+     * up to date. Only the list is written: the picture rides along in the
+     * board's own file with its next real save, rather than costing one.
+     */
+    async storeThumb(board, shot) {
+      if (shot == null) return;
+      const theme = document.documentElement.dataset.theme;
+      board.thumb = await this.encodeThumb(shot);
+      board.thumbTheme = theme;
+      this._thumbAt = Date.now();
+      await D.store.touchIndex(board, true);
+    }
+
+    /** refresh the board's picture once the pen has been still long enough not to notice */
     queueThumb() {
       if (this._thumbJob) return;
+      this._thumbAt = Date.now();
       const run = () => {
         this._thumbJob = null;
         if (!this.board || this.active) return;     // still drawing: catch it next time
-        this.board.thumb = this.makeThumb();
-        this.board.thumbTheme = document.documentElement.dataset.theme;
-        this.markDirty();
+        this.storeThumb(this.board, this.captureThumb()).catch(err => console.warn('[dpo] picture', err));
       };
       this._thumbJob = self.requestIdleCallback
         ? requestIdleCallback(run, { timeout: 4000 })
         : setTimeout(run, 400);
     }
 
-    /** refresh the thumbnail for the board that is open, then persist it */
-    async refreshThumb() {
-      if (!this.board) return;
-      this.snapshot();                                // keep picture and content in step
-      this.board.thumb = this.makeThumb();
-      this.board.thumbTheme = document.documentElement.dataset.theme;
-      await D.store.save(this.board, true);
-    }
-
     /** copy the live scene into the board record */
     snapshot() {
-      this.board.doc = this.scene.toJSON();
+      D.store.setDocBytes(this.board, this.scene.docBytes(), this.scene.items.length);
       this.board.camera = this.camera.toJSON();
       this.board.name = $('#board-title').value || 'Untitled board';
       this.board.updated = Date.now();
@@ -1030,7 +1092,7 @@
      */
     writeRescue() {
       if (!this.board || !this._dirty) return;
-      try { localStorage.setItem('dpo:rescue', JSON.stringify(this.snapshot())); } catch (_) { /* board too big: the DB copy stands */ }
+      try { localStorage.setItem('dpo:rescue', D.store.boardText(this.snapshot())); } catch (_) { /* board too big: the DB copy stands */ }
     }
 
     /* Where you are looking is kept apart from the board. Writing it used
@@ -1062,20 +1124,51 @@
       this.toast('New board');
     }
 
-    async duplicateBoard() {
-      await this.saveNow(true);   // leaving this board: make its card current
-      const b = D.store.newBoard(this.board.name + ' copy');
-      b.doc = JSON.parse(JSON.stringify(this.scene.toJSON()));
-      b.camera = this.camera.toJSON();
-      await D.store.save(b);
-      this.setBoard(b);
-      this.ui.closeSheet();
+    /** copy any board, open or not; the copy is saved but not opened. Its id, or null */
+    async duplicateBoard(id = this.board.id) {
+      const open = id === this.board.id;
+      if (open && this._dirty) await this.saveNow(true);
+      const src = open ? this.board : await D.store.load(id);
+      if (!src) { this.toast('Could not read that board'); return null; }
+      const b = D.store.newBoard((open ? $('#board-title').value || src.name : src.name) + ' copy');
+      b.doc = open ? JSON.parse(this.scene.docText()) : src.doc;
+      b.camera = open ? this.camera.toJSON() : src.camera;
+      if (src.assets) b.assets = src.assets.slice();
+      b.thumb = src.thumb; b.thumbTheme = src.thumbTheme;
+      await D.store.save(b, true);
+      this.toast('Made ' + b.name);
+      return b.id;
     }
 
-    async openBoard(id) {
-      await this.saveNow(true);   // leaving this board: make its card current
+    /** rename any board; the open one's title follows */
+    async renameBoard(id, name) {
+      name = (name || '').trim() || 'Untitled board';
+      if (id === this.board.id) {
+        $('#board-title').value = name;
+        this.board.name = name;
+        this._edits = (this._edits || 0) + 1; this._dirty = true;
+        return this.saveNow(false, true);
+      }
       const b = await D.store.load(id);
+      if (!b) return;
+      b.name = name;
+      await D.store.save(b, true);
+    }
+
+    /* Leaving a board: it is saved only if something changed (an unchanged
+       board just gets its card picture refreshed in the list), and that
+       write runs while the next board is being read rather than before. */
+    async openBoard(id) {
+      let leaving;
+      // both take their picture of the screen before they first wait, while it still shows this board
+      if (this._dirty) leaving = this.saveNow(true);
+      else leaving = this.storeThumb(this.board, this.captureThumb());
+      const [, b] = await Promise.all([
+        leaving.catch(err => console.error('[dpo] saving the board left behind', err)),
+        D.store.load(id)
+      ]);
       if (b) this.setBoard(b);
+      else this.toast('Could not open that board');
     }
 
     async deleteBoard(id) {
@@ -1096,17 +1189,22 @@
 
     /* ── import / export ──────────────────────────────────────────── */
     /** a .board carries its PDFs with it, so the file stands on its own */
-    async exportJSON() {
-      const doc = this.scene.toJSON();
+    /** a .board file of any board, open or not, with its PDFs and pictures inside */
+    async exportJSON(id = this.board.id) {
+      const open = id === this.board.id;
+      const b = open ? this.board : await D.store.load(id);
+      if (!b) return this.toast('Could not read that board');
+      const doc = open ? this.scene.toJSON() : b.doc;
+      const name = open ? $('#board-title').value || b.name : b.name;
       const assets = {};
-      for (const id of new Set(doc.items.map(i => i.asset).filter(Boolean))) {
-        const bytes = await this.getAsset(id);
+      for (const aid of new Set(doc.items.map(i => i.asset).filter(Boolean))) {
+        const bytes = open ? await this.getAsset(aid) : await D.store.getAsset(aid);
         if (!bytes) continue;
-        const meta = (this.board.assets || []).find(a => a.id === id) || {};
-        assets[id] = { name: meta.name, type: meta.type, b64: D.store.toB64(bytes) };
+        const meta = (b.assets || []).find(a => a.id === aid) || {};
+        assets[aid] = { name: meta.name, type: meta.type, b64: D.store.toB64(bytes) };
       }
-      const data = JSON.stringify({ app: 'draw-plan-order', v: 1, name: this.board.name, doc, assets });
-      download(new Blob([data], { type: 'application/json' }), safeName(this.board.name) + '.board');
+      const data = JSON.stringify({ app: 'draw-plan-order', v: 1, name, doc, assets });
+      download(new Blob([data], { type: 'application/json' }), safeName(name) + '.board');
     }
 
     /** the theme and background an export is painted with — see opts.export */
@@ -1173,13 +1271,16 @@
     }
 
     onFile(e) {
-      const f = e.target.files[0];
-      if (!f) return;
-      const at = U.boxCenter(this.camera.viewport(innerWidth, innerHeight));
-      if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) this.insertPdf(f, at);
-      else if (f.type.startsWith('image/')) this.insertImageFile(f, at);
-      else this.importFile(f);
+      const files = [...e.target.files];
       e.target.value = '';
+      const at = U.boxCenter(this.camera.viewport(innerWidth, innerHeight));
+      files.forEach((f, i) => {
+        // several pictures at once land in a short diagonal rather than in one pile
+        const p = { x: at.x + i * 40, y: at.y + i * 40 };
+        if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) this.insertPdf(f, p);
+        else if (f.type.startsWith('image/') || /\.svg$/i.test(f.name)) this.insertImageFile(f, p);
+        else this.importFile(f);
+      });
     }
 
     importFile(file) {
@@ -1327,8 +1428,13 @@
   }
   function clearRescue() { try { localStorage.removeItem('dpo:rescue'); } catch (_) { } }
 
+  /* autosave: this long after the last edit, or at the next gap once work
+     has gone this long unsaved (App.markDirty) */
+  const SAVE_IDLE = 5000, SAVE_MAX = 60000;
+
   /** the last view of a board in this window, if it has one — see saveView */
   const VIEW = 'dpo:view:';
+  D.readView = id => readView(id);
   function readView(id) {
     try {
       const c = JSON.parse(localStorage.getItem(VIEW + id));
@@ -1346,7 +1452,7 @@
   /* ── go ─────────────────────────────────────────────────────────── */
   const app = new App();
   D.app = app;
-  app.saveDebounced = U.debounce(() => app.saveSoon(), 450);
+  app.saveDebounced = U.debounce(() => app.saveSoon(), SAVE_IDLE);
   app.saveViewDebounced = U.debounce(() => app.saveView(), 500);
   app.savePrefs = U.debounce(app.savePrefs.bind(app), 400);
   app.start();

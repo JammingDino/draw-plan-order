@@ -32,6 +32,13 @@
     <svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h5"/></svg>
   </button>
   <span class="sep"></span>
+  <button class="icon" id="btn-insert" title="Insert a PDF or picture (PDF, PNG, JPG, SVG…)">
+    <svg viewBox="0 0 24 24"><path d="M4 16l4.5-4.5 3.5 3.5"/><path d="M13 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7"/><circle cx="15" cy="8.5" r="1.5"/><path d="M18 16v6M15 19h6"/></svg>
+  </button>
+  <button class="icon" id="btn-export" title="Export this board">
+    <svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
+  </button>
+  <span class="sep"></span>
   <button class="icon" id="btn-theme" title="Toggle theme">
     <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
   </button>
@@ -63,25 +70,60 @@
 <!-- ── Board / file sheet ────────────────────────────────────────────── -->
 <div id="sheet-backdrop" hidden></div>
 <section id="sheet" class="glass" hidden>
-  <div class="sheet-head">
-    <h2>Boards</h2>
-    <input id="board-search" type="search" placeholder="Search boards…" spellcheck="false">
-    <button class="icon sm" id="sheet-close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  <!-- left: every board, by name -->
+  <div class="bs-list">
+    <div class="sheet-head">
+      <h2>Boards</h2>
+      <button class="icon sm" id="act-new" title="New board">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+    <div class="bs-search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      <input id="board-search" type="search" placeholder="Search boards" spellcheck="false" autocomplete="off">
+    </div>
+    <div id="board-list" role="listbox" aria-label="Boards"></div>
+    <div class="bs-foot">
+      <button class="btn ghost" id="act-import" title="Open a .board file as a new board">
+        <svg viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>Import board
+      </button>
+      <button class="btn ghost" id="act-install" hidden>Install as an app</button>
+      <span class="grow"></span>
+      <button class="icon sm" id="act-help" title="Shortcuts and help">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.1-2.4 3.6"/><path d="M12 17.2v.1"/></svg>
+      </button>
+    </div>
   </div>
-  <div class="sheet-actions">
-    <button class="pill" id="act-new">＋ New board</button>
-    <button class="pill" id="act-duplicate">⧉ Duplicate</button>
-    <button class="pill" id="act-export-json">↧ Export .board</button>
-    <button class="pill" id="act-import">↥ Import board</button>
-    <button class="pill" id="act-open-pdf">＋ Add a PDF</button>
-    <button class="pill" id="act-export-png">↧ PNG</button>
-    <button class="pill" id="act-export-svg">↧ SVG</button>
-    <button class="pill" id="act-install" hidden>⊞ Install as an app</button>
-    <button class="pill" id="act-settings">⚙ Settings</button>
-  </div>
-  <div id="board-grid"></div>
-  <div class="sheet-foot">
-    <details><summary>Keyboard &amp; pen shortcuts</summary>
+
+  <!-- right: the chosen board, large enough to read, and what to do with it -->
+  <div class="bs-detail">
+    <div class="bs-head">
+      <div class="bs-title">
+        <input id="bs-name" spellcheck="false" aria-label="Board name">
+        <div class="bs-meta" id="bs-meta"></div>
+      </div>
+      <button class="icon sm" id="sheet-close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="bs-preview" id="bs-preview">
+      <canvas id="bs-canvas"></canvas>
+      <img id="bs-still" alt="">
+      <div class="bs-empty" id="bs-empty" hidden>Empty board</div>
+      <div class="bs-hint">Drag to look around · scroll to zoom · double-click to open</div>
+      <button class="icon sm bs-reset" id="bs-reset" title="Back to where you left off">
+        <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+      </button>
+    </div>
+    <div class="bs-actions">
+      <button class="btn primary" id="bs-open">Open board</button>
+      <button class="btn" id="bs-dup"><svg viewBox="0 0 24 24"><path d="M9 9h11v11H9z"/><path d="M15 5.5V4H4v11h1.5"/></svg>Duplicate</button>
+      <button class="btn" id="bs-export"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>Export .board</button>
+      <span class="grow"></span>
+      <button class="btn danger" id="bs-delete"><svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13"/></svg>Delete</button>
+    </div>
+
+    <!-- shown in place of the preview by the help button -->
+    <div class="bs-help" id="bs-help" hidden>
+      <h3>Keyboard &amp; pen shortcuts</h3>
       <div class="keys">
         <div><kbd>V</kbd> select</div><div><kbd>P</kbd> pen</div><div><kbd>H</kbd> highlighter</div>
         <div><kbd>E</kbd> eraser</div><div><kbd>L</kbd> line</div><div><kbd>R</kbd> rectangle</div>
@@ -94,21 +136,41 @@
         <div><kbd>Ctrl</kbd>+<kbd>\</kbd> hide panels</div><div><kbd>Ctrl</kbd>+<kbd>,</kbd> settings</div>
         <div class="wide">Hold the pen still at the end of a stroke to snap it into a clean shape. Scribble over ink to rub it out. Flip the Surface Pen to erase. The eraser only takes ink — PDFs, images, notes and nodes are removed with the select tool and Delete.</div>
       </div>
-    </details>
-    <div class="foot-links">
-      <a href="#" data-link="feature">💡 Suggest a feature</a>
-      <a href="#" data-link="bug">Report a problem</a>
+      <div class="foot-links">
+        <a href="#" data-link="feature">Suggest a feature</a>
+        <a href="#" data-link="bug">Report a problem</a>
+        <a href="#" data-link="releases">What’s new</a>
+      </div>
     </div>
   </div>
 </section>
 
+<!-- export choices, opened from the top bar -->
+<div class="menu" id="export-menu" hidden>
+  <button data-export="png">Picture (.png)</button>
+  <button data-export="svg">Vector drawing (.svg)</button>
+  <button data-export="board">Board file (.board)</button>
+</div>
+
 <!-- ── Settings ──────────────────────────────────────────────────────── -->
 <section id="settings" class="glass" hidden>
-  <div class="sheet-head">
-    <h2>Settings</h2>
-    <button class="icon sm" id="settings-close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  <!-- left: the sections, laid out as the boards list is -->
+  <div class="bs-list">
+    <div class="sheet-head"><h2>Settings</h2></div>
+    <nav id="settings-nav" aria-label="Settings sections"></nav>
+    <div class="bs-foot"><span class="set-version" id="settings-version"></span></div>
   </div>
-  <div id="settings-body"></div>
+  <!-- right: the section picked -->
+  <div class="bs-detail">
+    <div class="bs-head">
+      <div class="bs-title">
+        <h3 class="set-title" id="settings-title"></h3>
+        <div class="bs-meta" id="settings-sub"></div>
+      </div>
+      <button class="icon sm" id="settings-close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div id="settings-body"></div>
+  </div>
 </section>
 
 <input type="file" id="file-input" hidden accept=".board,.json,.pdf,image/*">
@@ -120,10 +182,12 @@
 <script src="js/scene.js"></script>
 <script src="js/camera.js"></script>
 <script src="js/render.js"></script>
+<script src="js/preview.js"></script>
 <script src="js/perf.js"></script>
 <script src="js/store.js"></script>
 <script src="js/desktop.js"></script>
 <script src="js/editor.js"></script>
+<script src="js/taps.js"></script>
 <script src="js/tools.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/app.js"></script>

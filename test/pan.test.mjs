@@ -82,13 +82,11 @@ test('an item added on top is painted alone, over what is there', () => {
   assert.equal(r.lastDrawn, 1);
 });
 
-test('anything other than adding on top repaints the board', () => {
+test('a change that cannot say where it happened repaints the board', () => {
   for (const change of [
-    s => s.add(D.make.stroke({ pts: inked([5, 5, 30, 30]) }), 0),           // underneath
-    s => { s.add(D.make.stroke({ pts: inked([5, 5, 9, 9]) })); s.touch(s.items[3]); },
-    s => { s.add(D.make.stroke({ pts: inked([5, 5, 9, 9]) })); s.remove(s.items[3]); },
     s => { s.add(D.make.stroke({ pts: inked([5, 5, 9, 9]) })); s.reorder([s.items[0]], 'front'); },
-    s => { s.begin('x'); s.add(D.make.stroke({ pts: inked([5, 5, 9, 9]) })); s.commit(); s.undo(); s.redo(); }
+    s => { s.begin('x'); s.add(D.make.stroke({ pts: inked([5, 5, 9, 9]) })); s.commit(); s.undo(); s.redo(); },
+    s => { s.add(D.make.note({ x: 5, y: 5 }), 0); }
   ]) {
     const { r, scene, visible } = rig();
     change(scene);
@@ -96,6 +94,31 @@ test('anything other than adding on top repaints the board', () => {
     assert.equal(cleared(r), 1, String(change));
     assert.ok(r.lastDrawn >= visible, String(change));
   }
+});
+
+/* Changes to strokes say where they happened (Scene.takeDamage), and the
+   painter repaints that part of the screen — never just the new item, as
+   adding on top does, since what is underneath has to show again. */
+test('a change to strokes repaints around it, not just the item', () => {
+  for (const change of [
+    s => s.add(D.make.stroke({ pts: inked([5, 5, 30, 30]) }), 0),           // underneath
+    s => { s.add(D.make.stroke({ pts: inked([5, 5, 9, 9]) })); s.touch(s.items[3]); },
+    s => { s.add(D.make.stroke({ pts: inked([5, 5, 9, 9]) })); s.remove(s.items[3]); }
+  ]) {
+    const { r, scene, visible } = rig();
+    change(scene);
+    r.drawScene();
+    assert.ok(r.bctx.calls.includes('clip'), String(change));
+    assert.ok(r.lastDrawn > 1 && r.lastDrawn < visible, `${String(change)}: ${r.lastDrawn} of ${visible}`);
+  }
+});
+
+test('rubbing out one stroke repaints its neighbourhood only', () => {
+  const { r, scene, visible } = rig();
+  scene.begin('erase'); scene.remove(scene.items[45]); scene.commit();
+  r.drawScene();
+  assert.equal(cleared(r), 0, 'the canvas was not wiped');
+  assert.ok(r.lastDrawn < visible / 10, `${r.lastDrawn} of ${visible}`);
 });
 
 test('an add together with a pan, or after an invalidate, repaints', () => {

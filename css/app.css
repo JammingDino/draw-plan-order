@@ -47,11 +47,13 @@ svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke
 body.grab #stage{cursor:grab}
 body.grabbing #stage{cursor:grabbing}
 
-/* ── Glass chrome ──────────────────────────────────────────────────── */
+/* ── Panel chrome ──────────────────────────────────────────────────── */
+/* Solid, not frosted. The blur behind each panel had to be recomputed on
+   every frame the canvas under it changed — every frame of writing,
+   panning and zooming — for a look hardly anyone noticed; without the blur
+   a translucent panel would just show ink through its buttons. */
 .glass{
-  background:var(--panel);
-  -webkit-backdrop-filter:blur(20px) saturate(1.6);
-  backdrop-filter:blur(20px) saturate(1.6);
+  background:var(--panel-solid);
   border:1px solid var(--stroke);
   border-radius:var(--r);
   box-shadow:var(--shadow);
@@ -162,67 +164,168 @@ input[type=range]{width:100%;accent-color:var(--accent);background:none}
 .sheet-actions{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px}
 .pill{padding:7px 12px;border-radius:999px;background:var(--accent-soft);font-size:12.5px;transition:.14s var(--ease)}
 .pill:hover{background:var(--accent);color:#fff}
-/* boards dashboard */
-#board-search{
-  flex:1;margin:0 10px;background:var(--accent-soft);border:1px solid transparent;border-radius:9px;
-  padding:7px 10px;color:var(--text);font:inherit;font-size:12.5px;outline:0;min-width:0;
+/* boards: names on the left, the chosen board large on the right */
+#sheet{width:min(940px,94vw);height:min(640px,86vh);max-height:none;flex-direction:row;overflow:hidden}
+.bs-list{width:300px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--stroke);min-height:0}
+.bs-list .sheet-head{padding:14px 12px 10px 16px}
+.bs-search{
+  display:flex;align-items:center;gap:8px;margin:0 12px 8px;padding:0 10px;
+  background:var(--accent-soft);border:1px solid transparent;border-radius:9px;color:var(--muted);
 }
-#board-search:focus{border-color:var(--accent)}
-#board-grid{
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:12px;
-  padding:2px 16px 16px;overflow:auto;flex:1;align-content:start;
+.bs-search:focus-within{border-color:var(--accent)}
+.bs-search svg{width:15px;height:15px;flex:none}
+#board-search{flex:1;min-width:0;background:none;border:0;outline:0;padding:7px 0;color:var(--text);font:inherit;font-size:12.5px}
+#board-list{flex:1;min-height:0;overflow-y:auto;padding:2px 8px 8px;display:flex;flex-direction:column;gap:1px;scrollbar-width:thin}
+.bs-item{
+  display:grid;grid-template-columns:56px 1fr;gap:10px;align-items:center;text-align:left;
+  padding:6px 8px;border-radius:9px;transition:background .12s var(--ease);
 }
-.board-card{
-  position:relative;border-radius:12px;overflow:hidden;cursor:pointer;text-align:left;
-  border:1px solid var(--stroke);background:var(--paper);
-  transition:transform .16s var(--ease),box-shadow .16s var(--ease),border-color .16s var(--ease);
+.bs-item:hover{background:color-mix(in srgb,var(--accent-soft) 55%,transparent)}
+.bs-item.sel{background:var(--accent-soft)}
+.bs-item .mini{
+  width:56px;aspect-ratio:16/10;border-radius:5px;overflow:hidden;border:1px solid var(--stroke);
+  background:var(--paper);display:block;object-fit:cover;object-position:center;
 }
-.board-card:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:var(--accent)}
-.board-card.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
-.board-card .shot{
-  display:block;width:100%;aspect-ratio:16/10;object-fit:cover;background:var(--paper);
-  border-bottom:1px solid var(--stroke);
+.bs-item .tx{min-width:0;display:flex;flex-direction:column;gap:1px}
+.bs-item .nm{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bs-item .dt{font-size:11px;color:var(--muted);display:flex;gap:6px;align-items:center;font-variant-numeric:tabular-nums}
+.bs-item .now{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:650;background:var(--accent);color:#fff;border-radius:5px;padding:1px 5px}
+.board-empty{text-align:center;color:var(--muted);font-size:12.5px;padding:26px 0}
+.bs-foot{border-top:1px solid var(--stroke);padding:8px 10px;display:flex;align-items:center;gap:4px}
+.grow{flex:1}
+
+.bs-detail{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;padding:14px 16px 16px;position:relative}
+.bs-head{display:flex;align-items:flex-start;gap:10px}
+.bs-title{flex:1;min-width:0}
+#bs-name{
+  width:100%;background:none;border:0;outline:0;color:var(--text);
+  font-family:inherit;font-size:17px;font-weight:650;line-height:1.3;
+  padding:3px 6px;margin-left:-6px;border-radius:7px;text-overflow:ellipsis;
 }
-.board-card .shot.empty{display:grid;place-items:center;color:var(--muted);font-size:11.5px}
-.board-card .meta{padding:8px 10px 10px;background:var(--panel-solid)}
-.board-card .nm{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.board-card .dt{font-size:11px;color:var(--muted);margin-top:2px}
-.board-card .del{
-  position:absolute;top:6px;right:6px;width:26px;height:26px;border-radius:8px;opacity:0;
-  background:var(--panel-solid);border:1px solid var(--stroke);color:var(--muted);
-  display:grid;place-items:center;transition:.14s var(--ease);
+#bs-name:hover{background:var(--accent-soft)}
+#bs-name:focus{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.bs-meta{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.bs-preview{
+  position:relative;flex:1;min-height:0;border:1px solid var(--stroke);border-radius:12px;overflow:hidden;
+  background:var(--paper);cursor:grab;touch-action:none;
 }
-.board-card .del svg{width:15px;height:15px}
-.board-card:hover .del{opacity:1}
-.board-card .del:hover{color:#e5484d;border-color:#e5484d}
-.board-card .badge-now{
-  position:absolute;top:6px;left:6px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;
-  background:var(--accent);color:#fff;border-radius:6px;padding:2px 6px;font-weight:600;
+.bs-preview.grabbing{cursor:grabbing}
+.bs-preview canvas,.bs-preview img{position:absolute;inset:0;width:100%;height:100%;display:block}
+.bs-preview img{object-fit:cover;pointer-events:none}
+.bs-preview img:not([src]),.bs-preview img[src=""]{display:none}
+.bs-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px}
+.bs-hint{
+  position:absolute;left:10px;bottom:10px;font-size:11px;color:var(--muted);pointer-events:none;
+  background:var(--panel);border:1px solid var(--stroke);border-radius:8px;padding:3px 8px;
+  opacity:0;transition:opacity .2s var(--ease);
 }
-.board-empty{grid-column:1/-1;text-align:center;color:var(--muted);font-size:12.5px;padding:26px 0}
-.sheet-foot{border-top:1px solid var(--stroke);padding:10px 16px 14px;font-size:12.5px;color:var(--muted)}
-.sheet-foot summary{cursor:pointer;outline:0}
-.foot-links{display:flex;gap:16px;margin-top:10px}
+.bs-preview:hover .bs-hint{opacity:1}
+.bs-preview.moved .bs-hint{opacity:0}
+.bs-reset{position:absolute;right:8px;top:8px;background:var(--panel);border:1px solid var(--stroke)}
+.bs-preview:not(.moved) .bs-reset{display:none}
+.bs-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.btn{
+  display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:9px;font-size:12.5px;font-weight:550;
+  white-space:nowrap;border:1px solid var(--stroke);background:var(--panel-solid);color:var(--text);
+  transition:background .14s var(--ease),border-color .14s var(--ease),color .14s var(--ease);
+}
+.btn svg{width:15px;height:15px}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{border-color:transparent;background:none;color:var(--muted)}
+.btn.ghost:hover{background:var(--accent-soft);color:var(--text)}
+.btn.danger{color:#e5484d}
+.btn.danger:hover{border-color:#e5484d;background:#e5484d14}
+.btn:disabled{opacity:.45;pointer-events:none}
+#sheet.busy{cursor:progress}
+#sheet.busy .bs-list,#sheet.busy .bs-actions{pointer-events:none;opacity:.7}
+.bs-help{position:absolute;inset:0;background:var(--panel-solid);padding:16px 18px;overflow:auto;font-size:12.5px;color:var(--muted)}
+.bs-help h3{margin:0 0 4px;font-size:15px;color:var(--text)}
+.foot-links{display:flex;gap:16px;margin-top:16px}
 .foot-links a{color:var(--muted);text-decoration:none}
 .foot-links a:hover{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+/* small popover menus (export) */
+.menu{
+  position:fixed;z-index:40;display:flex;flex-direction:column;padding:5px;min-width:200px;
+  background:var(--panel-solid);border:1px solid var(--stroke);border-radius:11px;box-shadow:var(--shadow);
+  animation:pop .14s var(--ease);
+}
+.menu button{text-align:left;padding:7px 10px;border-radius:7px;font-size:12.5px}
+.menu button:hover{background:var(--accent-soft)}
+
+/* narrow windows: the list alone; picking a board opens it */
+@media (max-width:720px){
+  #sheet{width:94vw}
+  .bs-list{width:100%;border-right:0}
+  .bs-detail{display:none}
+}
 .pill:disabled{opacity:.5;pointer-events:none}
 
 /* ── Settings ──────────────────────────────────────────────────────── */
-#settings{width:min(480px,92vw)}
-#settings-body{overflow:auto;padding:0 16px 14px}
-.set{padding:12px 0 14px;border-top:1px solid var(--stroke);display:flex;flex-direction:column;gap:9px}
-.set:first-child{border-top:0;padding-top:2px}
-.set h3{margin:0 0 2px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-.set-row{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:12.5px;color:var(--muted)}
-.set-row .seg{flex:0 1 260px}
-.set .path{
+/* The boards sheet's layout: the sections on the left, the one picked on
+   the right, its options in cards of rows (what it is on the left, the
+   control on the right). */
+#settings{width:min(860px,94vw);height:min(600px,86vh);max-height:none;flex-direction:row;overflow:hidden}
+#settings .bs-list{width:230px}
+#settings-nav{flex:1;min-height:0;overflow-y:auto;padding:2px 8px 8px;display:flex;flex-direction:column;gap:1px}
+.set-tab{
+  display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;text-align:left;
+  font-size:13px;color:var(--text);transition:background .12s var(--ease);
+}
+.set-tab svg{width:17px;height:17px;color:var(--muted);flex:none}
+.set-tab:hover{background:color-mix(in srgb,var(--accent-soft) 55%,transparent)}
+.set-tab.sel{background:var(--accent-soft);font-weight:600}
+.set-tab.sel svg{color:var(--accent)}
+.set-version{font-size:11.5px;color:var(--muted);padding:4px 6px;font-variant-numeric:tabular-nums}
+.set-title{margin:0;font-size:17px;font-weight:650;line-height:1.3;padding:3px 0}
+#settings-body{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-bottom:4px;scrollbar-width:thin}
+.set-group{border:1px solid var(--stroke);border-radius:12px;overflow:hidden;flex:none}
+.set-row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:12px 14px;border-top:1px solid var(--stroke)}
+.set-row:first-child{border-top:0}
+.set-row.stack{flex-direction:column;align-items:stretch;gap:10px}
+.set-lbl{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:13px;color:var(--text)}
+.set-lbl small{font-size:11.5px;line-height:1.45;color:var(--muted)}
+.set-row .seg{flex:0 0 auto;min-width:220px}
+.set-path{
   font:12px/1.45 ui-monospace,Consolas,monospace;color:var(--text);background:var(--accent-soft);
   border-radius:9px;padding:8px 10px;word-break:break-all;user-select:text;-webkit-user-select:text;
 }
-.set .note{margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
-.set .ver{font:12px ui-monospace,Consolas,monospace;color:var(--text)}
+.set-note{margin:0 2px;font-size:12px;line-height:1.5;color:var(--muted)}
 .set-actions{display:flex;flex-wrap:wrap;gap:6px}
-.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 12px;margin-top:10px}
+.set-status{font-size:12px;color:var(--muted)}
+.set-status:empty{display:none}
+/* an on/off switch, in place of a bare checkbox */
+.switch{
+  appearance:none;-webkit-appearance:none;flex:none;margin:0;width:36px;height:20px;border-radius:999px;
+  background:color-mix(in srgb,var(--muted) 38%,transparent);position:relative;cursor:pointer;
+  transition:background .16s var(--ease);
+}
+.switch::after{
+  content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 2px #0003;transition:transform .16s var(--ease);
+}
+.switch:checked{background:var(--accent)}
+.switch:checked::after{transform:translateX(16px)}
+@media (prefers-reduced-motion:reduce){.switch,.switch::after{transition:none}}
+.set-row .seg button{white-space:nowrap;padding:6px 10px}
+.set-row .keys{font-size:12.5px;color:var(--muted)}
+#settings .bs-foot:has(.set-version:empty){display:none}
+@media (max-width:720px){
+  #settings{flex-direction:column;height:86vh}
+  #settings .bs-list{width:100%;flex:none;border-right:0;border-bottom:1px solid var(--stroke)}
+  #settings .bs-detail{display:flex}
+  #settings-nav{flex:none;flex-direction:row;overflow-x:auto;padding-bottom:10px}
+  .set-tab{white-space:nowrap}
+  #settings .bs-list .bs-foot{display:none}
+  .set-row{flex-wrap:wrap}
+  .set-row:has(> .switch){flex-wrap:nowrap}
+  .set-row .seg{min-width:0;flex:1 1 100%}
+  .set-row .keys{grid-template-columns:repeat(2,1fr)}
+}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 12px}
 .keys .wide{grid-column:1/-1;line-height:1.5;opacity:.85}
 kbd{
   font:11px/1 ui-monospace,Consolas,monospace;background:var(--accent-soft);
@@ -281,12 +384,7 @@ kbd{
    swatch. It sticks 22px clear of the panel, which is the whole point of
    it: something to grab.
 
-   Opaque, and without a backdrop-filter, on purpose. The two grips do not
-   share a parent — one is appended to #rail, which is itself a
-   backdrop-filter panel and so establishes a backdrop root, the other to
-   <body> — and an element's backdrop-filter samples whatever root it finds
-   itself in. That made the two grips sit at noticeably different opacities
-   for no reason the eye could account for. A solid fill cannot drift. */
+   Opaque, like the panels themselves (see .glass). */
 .collapse.stick{
   position:absolute;z-index:6;width:22px;height:40px;
   background:var(--panel-solid);border:1px solid var(--stroke);
@@ -298,10 +396,8 @@ kbd{
 .tab{
   display:none;place-items:center;position:fixed;z-index:5;
   width:34px;height:34px;padding:0;color:var(--muted);
-  background:var(--panel);border:1px solid var(--stroke);border-radius:12px;
+  background:var(--panel-solid);border:1px solid var(--stroke);border-radius:12px;
   box-shadow:var(--shadow);
-  -webkit-backdrop-filter:blur(20px) saturate(1.6);
-  backdrop-filter:blur(20px) saturate(1.6);
   transition:background .16s var(--ease),color .16s var(--ease);
 }
 .tab svg{width:16px;height:16px}

@@ -26,6 +26,7 @@
     name: 'localStorage',
     get: async k => { const v = localStorage.getItem(KEY + ':' + k); return v ? JSON.parse(v) : null; },
     set: async (k, v) => localStorage.setItem(KEY + ':' + k, JSON.stringify(v)),
+    setText: async (k, text) => localStorage.setItem(KEY + ':' + k, text),
     del: async k => localStorage.removeItem(KEY + ':' + k),
     keys: async () => Object.keys(localStorage).filter(k => k.startsWith(KEY + ':')).map(k => k.slice(KEY.length + 1))
   };
@@ -108,6 +109,12 @@
     return {
       name: 'vault',
       get: async k => {
+        if (String(k).startsWith('b:')) {
+          // the file as it is, parsed here once (dpo_get_board)
+          const raw = new Uint8Array(await invoke('dpo_get_board', { id: k.slice(2) }));
+          if (!raw.length) return null;
+          try { return JSON.parse(new TextDecoder().decode(raw)); } catch (_) { return null; }
+        }
         const v = await invoke('dpo_get', { key: k });
         if (v && String(k).startsWith('a:')) {
           v.bytes = new Uint8Array(await invoke('dpo_asset', { id: k.slice(2) }));
@@ -122,6 +129,14 @@
           headers: { 'dpo-id': k.slice(2), 'dpo-meta': encodeURIComponent(JSON.stringify(meta)) }
         });
       },
+      /* A board already in saved form goes over as raw bytes. Handed over
+         as an object, invoke() serialised all of it again on this thread —
+         a sixth of a second at eight thousand strokes, on every save. */
+      setBytes: (k, bytes, board) => invoke('dpo_put_board', bytes, {
+        headers: Object.assign(
+          { 'dpo-id': encodeURIComponent(k.slice(2)), 'dpo-name': encodeURIComponent(board.name || '') },
+          board.file ? { 'dpo-file': encodeURIComponent(board.file) } : {})
+      }),
       del: k => invoke('dpo_del', { key: k }),
       keys: () => invoke('dpo_keys')
     };
@@ -244,9 +259,10 @@
     indexed = { id: board.id, name: board.name, thumb: board.thumb, thumbTheme: board.thumbTheme, at: now };
     const list = await S.list();
     const i = list.findIndex(b => b.id === board.id);
+    const text = texts.get(board);
     const entry = {
       id: board.id, name: board.name, updated: Date.now(),
-      count: board.doc.items.length, thumb: board.thumb, thumbTheme: board.thumbTheme
+      count: text ? text.count : board.doc.items.length, thumb: board.thumb, thumbTheme: board.thumbTheme
     };
     if (i < 0) list.unshift(entry); else list[i] = entry;
     list.sort((a, b) => b.updated - a.updated);
@@ -259,9 +275,51 @@
   /** `force` also brings the board's card in the index up to date */
   S.save = async (board, force) => {
     board.updated = Date.now();
-    await backend.set('b:' + board.id, board);
+    const key = 'b:' + board.id;
+    if (!texts.has(board)) await backend.set(key, board);
+    else if (backend.setBytes) await backend.setBytes(key, S.boardBytes(board), board);
+    else if (backend.setText) await backend.setText(key, S.boardText(board));
+    else await backend.set(key, board);
     await S.touchIndex(board, force);
   };
+
+  /* ── boards whose contents are already serialised ─────────────────
+     The open board's contents come from Scene.docBytes(), which is cheap
+     because each item keeps its own saved form. Turning that back into
+     objects only for the store to serialise them again would put the cost
+     back, so the board record carries the bytes, and `doc` becomes an
+     object only for a backend that needs one (IndexedDB, the Obsidian
+     host). */
+  const texts = new WeakMap();      // board → { bytes, count }
+  const enc = new TextEncoder(), dec = new TextDecoder();
+
+  S.setDocBytes = (board, bytes, count) => {
+    let doc = null;
+    texts.set(board, { bytes, count });
+    Object.defineProperty(board, 'doc', {
+      configurable: true, enumerable: true,
+      get: () => doc || (doc = JSON.parse(dec.decode(bytes))),
+      set: v => {
+        texts.delete(board);
+        Object.defineProperty(board, 'doc', { value: v, writable: true, enumerable: true, configurable: true });
+      }
+    });
+  };
+
+  /** the whole board record as UTF-8 JSON, without parsing its `doc` */
+  S.boardBytes = board => {
+    const t = texts.get(board);
+    if (!t) return enc.encode(JSON.stringify(board));
+    const rest = {};
+    for (const k of Object.keys(board)) if (k !== 'doc') rest[k] = board[k];
+    const head = JSON.stringify(rest);
+    const a = enc.encode((head === '{}' ? '{' : head.slice(0, -1) + ',') + '"doc":');
+    const out = new Uint8Array(a.length + t.bytes.length + 1);
+    out.set(a, 0); out.set(t.bytes, a.length); out[out.length - 1] = 125;   // '}'
+    return out;
+  };
+
+  S.boardText = board => texts.has(board) ? dec.decode(S.boardBytes(board)) : JSON.stringify(board);
 
   S.remove = async id => {
     await backend.del('b:' + id);

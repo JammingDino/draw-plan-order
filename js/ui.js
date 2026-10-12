@@ -143,6 +143,31 @@
       $('#btn-menu').onclick = () => this.openSheet();
       $('#btn-theme').onclick = () => app.toggleTheme();
       $('#btn-settings').onclick = () => this.openSettings();
+      $('#btn-insert').onclick = () => {
+        const f = $('#file-input');
+        f.accept = '.pdf,image/*,.svg';
+        f.multiple = true;
+        f.click();
+      };
+      const menu = $('#export-menu');
+      $('#btn-export').onclick = e => {
+        e.stopPropagation();
+        if (!menu.hidden) { menu.hidden = true; return; }
+        const r = $('#btn-export').getBoundingClientRect();
+        menu.style.left = r.left + 'px';
+        menu.style.top = (r.bottom + 8) + 'px';
+        menu.hidden = false;
+        // a press anywhere else closes it; one on the button is left to the click, which toggles
+        addEventListener('pointerdown', ev => {
+          if (!menu.contains(ev.target) && !$('#btn-export').contains(ev.target)) menu.hidden = true;
+        }, { once: true });
+      };
+      for (const b of menu.querySelectorAll('[data-export]')) {
+        b.onclick = () => {
+          menu.hidden = true;
+          ({ png: () => app.exportPNG(), svg: () => app.exportSVG(), board: () => app.exportJSON() })[b.dataset.export]();
+        };
+      }
       const t = $('#board-title');
       t.addEventListener('input', () => { app.board.name = t.value; app.markDirty(); });
       t.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') t.blur(); });
@@ -431,7 +456,7 @@
           this.check('Snap to grid', g.snapGrid, v => { g.snapGrid = v; this.app.savePrefs(); }),
           this.check('Touch pans the canvas', g.touchPan, v => { g.touchPan = v; this.app.savePrefs(); }),
           this.check('Keep drawing tool after each shape', g.stickyTools, v => { g.stickyTools = v; this.app.savePrefs(); })),
-        this.group('', this.pill('⚙ All settings…', () => this.openSettings()))
+        this.group('', el('button', { class: 'btn', onclick: () => this.openSettings() }, 'All settings…'))
       );
     }
 
@@ -468,108 +493,325 @@
       );
     }
 
-    /* ── sheet ───────────────────────────────────────────────────── */
+    /* ── boards sheet ────────────────────────────────────────────── */
+    /* Every board by name on the left; the one picked is shown on the
+       right, large and movable, opening where it was left (BoardPreview),
+       with what can be done to it underneath. Arrow keys walk the list,
+       Enter opens, Escape closes. */
     buildSheet() {
       const app = this.app;
       $('#sheet-close').onclick = () => this.closeSheet();
       $('#sheet-backdrop').onclick = () => { this.closeSheet(); this.closeSettings(); };
       $('#settings-close').onclick = () => this.closeSettings();
-      $('#act-settings').onclick = () => this.openSettings();
       for (const a of document.querySelectorAll('[data-link]')) {
         a.onclick = e => { e.preventDefault(); D.desktop.open(D.desktop.links[a.dataset.link]); };
       }
       $('#act-new').onclick = () => app.newBoard();
-      $('#act-duplicate').onclick = () => app.duplicateBoard();
-      $('#act-export-json').onclick = () => app.exportJSON();
-      $('#act-export-png').onclick = () => app.exportPNG();
-      $('#act-export-svg').onclick = () => app.exportSVG();
-      $('#act-import').onclick = () => { const f = $('#file-input'); f.accept = '.board,.json'; f.click(); };
-      $('#act-open-pdf').onclick = () => {
-        const f = $('#file-input'); f.accept = '.pdf,image/*'; f.click();
-        this.closeSheet();
+      $('#act-import').onclick = () => { const f = $('#file-input'); f.accept = '.board,.json'; f.multiple = false; f.click(); };
+      $('#act-help').onclick = () => this.showHelp($('#bs-help').hidden);
+
+      this.preview = new D.BoardPreview($('#bs-preview'), $('#bs-canvas'), () => this.openSelected());
+      this.preview.onPaint = () => { $('#bs-still').hidden = true; };
+      $('#bs-reset').onclick = () => this.preview.home();
+      $('#bs-open').onclick = () => this.openSelected();
+      $('#bs-dup').onclick = async () => {
+        const id = await app.duplicateBoard(this.selId);
+        if (!id) return;
+        this.boards = await D.store.list();
+        this.renderBoards();
+        this.selectBoard(id);
       };
+      $('#bs-export').onclick = () => app.exportJSON(this.selId);
+      $('#bs-delete').onclick = async () => {
+        const b = this.selected();
+        if (!b || !confirm(`Delete “${b.name}”? This cannot be undone.`)) return;
+        const list = this.filtered(), i = list.findIndex(x => x.id === b.id);
+        await app.deleteBoard(b.id);
+        this.records.delete(b.id);
+        this.boards = await D.store.list();
+        this.renderBoards();
+        const rest = this.filtered();
+        this.selectBoard((rest[Math.min(i, rest.length - 1)] || {}).id || app.board.id);
+      };
+
+      const name = $('#bs-name');
+      name.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Enter') name.blur();
+        if (e.key === 'Escape') { name.value = (this.selected() || {}).name || ''; name.blur(); }
+      });
+      name.addEventListener('change', async () => {
+        const b = this.selected();
+        if (!b || name.value.trim() === b.name) return;
+        await app.renameBoard(b.id, name.value);
+        this.records.delete(b.id);
+        this.boards = await D.store.list();
+        this.renderBoards();
+        this.selectBoard(b.id);
+      });
+
+      const s = $('#board-search');
+      s.oninput = () => {
+        this.renderBoards();
+        const list = this.filtered();
+        if (list.length && !list.some(b => b.id === this.selId)) this.selectBoard(list[0].id);
+      };
+      s.addEventListener('keydown', e => {
+        if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(e.key)) this.sheetKey(e);
+        e.stopPropagation();
+      });
+
+      this.records = new Map();         // id → Scene, the last few boards looked at
     }
 
+    /* Opens at once, on the board you are on: the list it was last shown
+       with, then the fresh one when the store answers. It used to save the
+       whole board first and wait for the write — on a big board long
+       enough to click the button again. The open board's card is brought
+       up to date here in memory instead (a copy of the screen, a few ms),
+       and reaches the disk with the next save. */
     async openSheet() {
-      // make sure the board you are looking at is represented as it is now
-      await this.app.refreshThumb();
-      this.boards = await D.store.list();
-      const s = $('#board-search');
-      s.value = '';
-      s.oninput = () => this.renderBoards();
-      this.renderBoards();
+      if (!$('#sheet').hidden) return;
+      const app = this.app;
+      // the open board's picture: taken now, encoded off the main thread, swapped in when ready
+      const shot = app.captureThumb();
+      app.storeThumb(app.board, shot).then(() => {
+        if ($('#sheet').hidden) return;
+        this.boards = this.withOpenBoard(this.boards || []);
+        const img = $('#board-list').querySelector(`[data-id="${app.board.id}"] img.mini`);
+        if (img && app.board.thumb) img.src = app.board.thumb;
+      }).catch(err => console.warn('[dpo] picture', err));
+      app.board.name = $('#board-title').value || app.board.name;
+      this.records.clear();
+      $('#board-search').value = '';
+      this.showHelp(false);
       $('#sheet').hidden = false; $('#sheet-backdrop').hidden = false;
+      this.boards = this.withOpenBoard(this.boards || []);
+      this.renderBoards();
+      this.selectBoard(app.board.id);
+      $('#board-search').focus();
+
+      const list = await D.store.list();
+      if ($('#sheet').hidden) return;
+      this.boards = this.withOpenBoard(list);
+      this.renderBoards();                // keeps the selection; the preview is left as it is
     }
+
+    /** the board list, with the open board's entry as it is right now */
+    withOpenBoard(list) {
+      const b = this.app.board;
+      const entry = { id: b.id, name: b.name, thumb: b.thumb, thumbTheme: b.thumbTheme,
+        count: this.app.scene.items.length, updated: Date.now() };
+      const i = list.findIndex(x => x.id === b.id);
+      const out = list.slice();
+      if (i < 0) out.unshift(entry); else out[i] = { ...list[i], ...entry, updated: list[i].updated || entry.updated };
+      return out;
+    }
+
+    closeSheet() {
+      if ($('#sheet').hidden) return;
+      $('#sheet').hidden = true; $('#sheet-backdrop').hidden = true;
+      this.preview.clear();
+      this.records.clear();             // other boards' contents: let them go
+    }
+
+    /** keys while the sheet is open (App.onKey sends them here) */
+    sheetKey(e) {
+      const list = this.filtered();
+      const i = list.findIndex(b => b.id === this.selId);
+      if (e.key === 'Escape') { e.preventDefault(); this.closeSheet(); }
+      else if (e.key === 'Enter') { e.preventDefault(); this.openSelected(); }
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const next = list[U.clamp(i + (e.key === 'ArrowDown' ? 1 : -1), 0, list.length - 1)];
+        if (next) this.selectBoard(next.id);
+      }
+    }
+
+    filtered() {
+      const q = ($('#board-search').value || '').trim().toLowerCase();
+      return (this.boards || []).filter(b => !q || (b.name || '').toLowerCase().includes(q));
+    }
+
+    selected() { return (this.boards || []).find(b => b.id === this.selId) || null; }
 
     renderBoards() {
-      const app = this.app;
-      const q = ($('#board-search').value || '').trim().toLowerCase();
-      const grid = $('#board-grid');
-      grid.textContent = '';
-      const list = (this.boards || []).filter(b => !q || (b.name || '').toLowerCase().includes(q));
-
+      const app = this.app, box = $('#board-list');
+      const q = ($('#board-search').value || '').trim();
+      box.textContent = '';
+      const list = this.filtered();
       if (!list.length) {
-        grid.append(el('div', { class: 'board-empty' }, q ? `Nothing matching “${q}”` : 'No boards yet'));
+        box.append(el('div', { class: 'board-empty' }, q ? `Nothing matching “${q}”` : 'No boards yet'));
         return;
       }
-
+      const narrow = matchMedia('(max-width:720px)');
       for (const b of list) {
         const current = b.id === app.board.id;
-        const shot = b.thumb
-          ? el('img', { class: 'shot', src: b.thumb, alt: '', loading: 'lazy', draggable: 'false' })
-          : el('div', { class: 'shot empty' }, 'Empty board');
-        const card = el('button', { class: 'board-card' + (current ? ' on' : ''), title: b.name || 'Untitled' },
-          shot,
-          el('div', { class: 'meta' },
-            el('div', { class: 'nm' }, b.name || 'Untitled'),
-            el('div', { class: 'dt' }, `${b.count || 0} item${b.count === 1 ? '' : 's'} · ${when(b.updated)}`)),
-          current ? el('span', { class: 'badge-now' }, 'open') : null,
-          el('span', { class: 'del', title: 'Delete board', html: ICON.trash }));
-
-        card.onclick = async e => {
-          if (e.target.closest('.del')) {
-            e.stopPropagation();
-            if (!confirm(`Delete “${b.name}”? This cannot be undone.`)) return;
-            await app.deleteBoard(b.id);
-            this.boards = await D.store.list();
-            this.renderBoards();
-            return;
-          }
-          if (!current) await app.openBoard(b.id);
-          this.closeSheet();
-        };
-        grid.append(card);
+        const mini = b.thumb
+          ? el('img', { class: 'mini', src: b.thumb, alt: '', loading: 'lazy', draggable: 'false' })
+          : el('span', { class: 'mini' });
+        const item = el('button', { class: 'bs-item' + (b.id === this.selId ? ' sel' : ''), role: 'option', 'data-id': b.id, title: b.name || 'Untitled' },
+          mini,
+          el('span', { class: 'tx' },
+            el('span', { class: 'nm' }, b.name || 'Untitled'),
+            el('span', { class: 'dt' }, current ? el('span', { class: 'now' }, 'open') : null, when(b.updated))));
+        item.onclick = () => { if (narrow.matches) this.openBoard(b.id); else this.selectBoard(b.id); };
+        item.ondblclick = () => this.openBoard(b.id);
+        box.append(item);
       }
     }
-    closeSheet() { $('#sheet').hidden = true; $('#sheet-backdrop').hidden = true; }
+
+    /** show a board on the right */
+    async selectBoard(id) {
+      const app = this.app, b = (this.boards || []).find(x => x.id === id);
+      this.selId = id;
+      for (const n of $('#board-list').children) {
+        const on = n.dataset && n.dataset.id === id;
+        n.classList.toggle('sel', on);
+        n.setAttribute('aria-selected', on ? 'true' : 'false');
+        /* after the frame: scrolling first would force a layout of the
+           whole sheet before it has even been shown */
+        if (on) requestAnimationFrame(() => n.scrollIntoView({ block: 'nearest' }));
+      }
+      this.showHelp(false);
+      const current = !!b && id === app.board.id;
+      for (const k of ['#bs-open', '#bs-dup', '#bs-export', '#bs-delete', '#bs-name']) $(k).disabled = !b;
+      $('#bs-name').value = b ? b.name || 'Untitled' : '';
+      $('#bs-meta').textContent = b
+        ? `${(b.count || 0).toLocaleString()} item${b.count === 1 ? '' : 's'} · ${current ? 'open now' : 'edited ' + when(b.updated)}`
+        : '';
+      $('#bs-open').textContent = current ? 'Back to board' : 'Open board';
+
+      // the saved picture straight away; the live board replaces it once it has loaded
+      const still = $('#bs-still');
+      still.hidden = !(b && b.thumb);
+      still.src = (b && b.thumb) || '';
+      $('#bs-empty').hidden = true;
+      if (!b) { this.preview.clear(); return; }
+
+      const token = this._sel = (this._sel || 0) + 1;
+      let scene, view, getAsset;
+      if (current) {
+        scene = app.scene;
+        view = app.camera.toJSON();
+        getAsset = aid => app.getAsset(aid);
+      } else {
+        scene = await this.recordScene(id);
+        if (token !== this._sel) return;          // picked something else meanwhile
+        if (!scene) { $('#bs-meta').textContent = 'Could not read this board'; return; }
+        view = D.readView(id) || scene._camera || null;
+        getAsset = aid => D.store.getAsset(aid);
+      }
+      $('#bs-empty').hidden = scene.items.length > 0;
+      this.preview.show(scene, view, getAsset);
+    }
+
+    /** a board that is not open, loaded for looking at; kept for the last few picked */
+    async recordScene(id) {
+      if (this.records.has(id)) return this.records.get(id);
+      const rec = await D.store.load(id);
+      if (!rec) return null;
+      const scene = new D.Scene(rec.doc);
+      scene._camera = rec.camera;
+      this.records.set(id, scene);
+      while (this.records.size > 4) this.records.delete(this.records.keys().next().value);
+      return scene;
+    }
+
+    openSelected() { if (this.selId) this.openBoard(this.selId); }
+
+    /* Opening a big board takes a moment to read: say so at once, and
+       ignore the clicks that would otherwise queue up behind it. */
+    async openBoard(id) {
+      if (this._opening) return;
+      if (id === this.app.board.id) { this.closeSheet(); return; }
+      this._opening = true;
+      const btn = $('#bs-open');
+      $('#sheet').classList.add('busy');
+      btn.textContent = 'Opening…';
+      try { await this.app.openBoard(id); }
+      finally {
+        this._opening = false;
+        $('#sheet').classList.remove('busy');
+        this.closeSheet();
+      }
+    }
+
+    showHelp(on) {
+      $('#bs-help').hidden = !on;
+      $('#act-help').classList.toggle('on', on);
+    }
 
     /* ── settings ────────────────────────────────────────────────── */
     /* Everything that is not about the ink in your hand: where boards are
        kept, how the canvas looks, what the pen and touch do, updates, and
-       where to ask for things. Rebuilt on every open, so it shows the state
-       as it is now rather than as it was when the page loaded. */
-    async openSettings() {
+       help. Laid out as the boards sheet is — the sections on the left,
+       the one picked on the right — and rebuilt on every open, so it shows
+       the state as it is now rather than as it was when the page loaded. */
+    async openSettings(section) {
       this.closeSheet();
       const X = D.desktop;
-      const cfg = X.on ? await X.config().catch(() => null) : null;
-      const body = $('#settings-body');
-      body.textContent = '';
-      body.append(...[
-        this.setStorage(cfg),
-        this.setCanvas(),
-        this.setExport(),
-        this.setInput(),
-        X.on ? this.setUpdates(cfg) : null,
-        this.setFeedback(cfg)
-      ].filter(Boolean));
+      this._cfg = X.on ? await X.config().catch(() => null) : null;
+      const sections = this.settingsSections();
+      let pick = section || (() => { try { return localStorage.getItem('dpo:settings-tab'); } catch (_) { return null; } })();
+      if (!sections.some(s => s.id === pick)) pick = sections[0].id;
+
+      const nav = $('#settings-nav');
+      nav.textContent = '';
+      for (const s of sections) {
+        const b = el('button', { class: 'set-tab', 'data-id': s.id, html: s.icon });
+        b.append(s.title);
+        b.onclick = () => this.showSettings(s.id);
+        nav.append(b);
+      }
+      $('#settings-version').textContent = this._cfg ? 'Version ' + this._cfg.version : '';
       $('#settings').hidden = false; $('#sheet-backdrop').hidden = false;
+      this.showSettings(pick);
     }
     closeSettings() { $('#settings').hidden = true; $('#sheet-backdrop').hidden = true; }
 
-    section(title, ...kids) { return el('section', { class: 'set' }, el('h3', {}, title), ...kids); }
-    row(label, control) { return el('div', { class: 'set-row' }, el('span', {}, label), control); }
-    note(text) { return el('p', { class: 'note' }, text); }
-    pill(label, onclick) { return el('button', { class: 'pill', onclick }, label); }
+    showSettings(id) {
+      const s = this.settingsSections().find(x => x.id === id);
+      if (!s) return;
+      for (const b of $('#settings-nav').children) b.classList.toggle('sel', b.dataset.id === id);
+      $('#settings-title').textContent = s.title;
+      $('#settings-sub').textContent = s.sub;
+      const body = $('#settings-body');
+      body.textContent = '';
+      body.append(...s.build().filter(Boolean));
+      body.scrollTop = 0;
+      try { localStorage.setItem('dpo:settings-tab', id); } catch (_) { }
+    }
+
+    settingsSections() {
+      const X = D.desktop;
+      const icon = d => svg(d);
+      return [
+        { id: 'saving', title: 'Saving', sub: 'Where your boards are kept', icon: icon('M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z'), build: () => this.setStorage(this._cfg) },
+        { id: 'canvas', title: 'Canvas', sub: 'How the board looks', icon: icon('M4 5h16v14H4z|M4 10h16|M9 5v14'), build: () => this.setCanvas() },
+        { id: 'pen', title: 'Pen and touch', sub: 'What the pen, your fingers and the tools do', icon: ICON.pen, build: () => this.setInput() },
+        { id: 'export', title: 'Export', sub: 'How PNG and SVG exports come out', icon: icon('M12 4v11|M7.5 10.5L12 15l4.5-4.5|M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3'), build: () => this.setExport() },
+        X.on ? { id: 'updates', title: 'Updates', sub: 'New versions, from GitHub', icon: icon('M20 11a8 8 0 1 0-2.3 5.7|M20 5v6h-6'), build: () => this.setUpdates(this._cfg) } : null,
+        { id: 'help', title: 'Help', sub: 'Shortcuts, and where to ask for things', icon: icon('M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17z|M9.6 9.4a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.1-2.4 3.6|M12 17.2v.1'), build: () => this.setHelp() }
+      ].filter(Boolean);
+    }
+
+    /* the pieces each section is made of */
+    setGroup(...rows) { return el('div', { class: 'set-group' }, ...rows.filter(Boolean)); }
+    setLabel(title, desc) { return el('div', { class: 'set-lbl' }, el('span', {}, title), desc ? el('small', {}, desc) : null); }
+    setRow(title, desc, control) { return el('div', { class: 'set-row' }, this.setLabel(title, desc), control); }
+    setStack(...kids) { return el('div', { class: 'set-row stack' }, ...kids.filter(Boolean)); }
+    setNote(text) { return el('p', { class: 'set-note' }, text); }
+    setButton(label, onclick, primary) { return el('button', { class: 'btn' + (primary ? ' primary' : ''), onclick }, label); }
+    setToggle(title, desc, value, onchange) {
+      const i = el('input', { type: 'checkbox', class: 'switch', 'aria-label': title });
+      i.checked = value;
+      i.onchange = () => onchange(i.checked);
+      const r = this.setRow(title, desc, i);
+      r.onclick = e => { if (e.target !== i) { i.checked = !i.checked; onchange(i.checked); } };
+      r.style.cursor = 'pointer';
+      return r;
+    }
 
     /* seg() rebuilds the style panel to show its pick; this one marks its
        own, because the settings page is not rebuilt underneath you */
@@ -585,7 +827,7 @@
 
     setStorage(cfg) {
       const app = this.app, X = D.desktop;
-      const path = text => el('div', { class: 'path' }, text);
+      const path = text => el('div', { class: 'set-path' }, text);
 
       if (!X.on) {
         const where = {
@@ -595,13 +837,13 @@
           memory: 'Nowhere — this board is not being saved',
           scratch: 'Nowhere — a ?scratch board is thrown away when you close it'
         }[D.store.backend] || 'In this browser';
-        return this.section('Saving', path(where),
-          this.note(D.store.backend === 'host'
+        return [this.setGroup(this.setStack(this.setLabel('Boards are kept'), path(where))),
+          this.setNote(D.store.backend === 'host'
             ? 'The folder is set in the plugin’s settings inside Obsidian.'
-            : 'Each browser keeps its own boards. Export a board from ☰ to move it elsewhere, or use the desktop app to keep boards as files in a folder you choose.'));
+            : 'Each browser keeps its own boards. Export a board from the boards list to move it elsewhere, or use the desktop app to keep boards as files in a folder you choose.')];
       }
 
-      const choose = this.pill(cfg && cfg.dir ? 'Change folder…' : 'Choose a folder…', async () => {
+      const choose = this.setButton(cfg && cfg.dir ? 'Change folder…' : 'Choose a folder…', async () => {
         await app.saveNow(true);              // the board on screen belongs to where it came from
         let next;
         try { next = await X.chooseFolder(); }
@@ -612,26 +854,29 @@
       if (!cfg || !cfg.dir) {
         let copied = false;
         try { copied = !localStorage.getItem('dpo:migrated-to-vault'); } catch (_) { }
-        return this.section('Saving', path('Inside the app, on this computer'),
-          this.note('Choose a folder to keep boards as ordinary files you can back up, sync, or open from Obsidian.' +
-            (copied ? ' The boards you have now are copied into it.' : '')),
-          el('div', { class: 'set-actions' }, choose));
+        return [this.setGroup(this.setStack(this.setLabel('Boards are kept'), path('Inside the app, on this computer'),
+          el('div', { class: 'set-actions' }, choose))),
+          this.setNote('Choose a folder to keep boards as ordinary files you can back up, sync, or open from Obsidian.' +
+            (copied ? ' The boards you have now are copied into it.' : ''))];
       }
 
-      return this.section('Saving', path(cfg.dir),
-        cfg.obsidian ? this.note('This is an Obsidian vault, so the Draw · Plan · Order plugin opens these same boards.') : null,
-        this.note('Changing the folder leaves the boards already saved where they are; switch back to reach them.'),
-        el('div', { class: 'set-actions' }, choose,
-          this.pill('Open folder', () => X.revealFolder().catch(err => app.toast('Could not open the folder: ' + err)))));
+      return [
+        this.setGroup(this.setStack(
+          this.setLabel('Boards are kept in', cfg.obsidian ? 'An Obsidian vault: the Draw · Plan · Order plugin opens these same boards.' : null),
+          path(cfg.dir),
+          el('div', { class: 'set-actions' }, choose,
+            this.setButton('Open folder', () => X.revealFolder().catch(err => app.toast('Could not open the folder: ' + err)))))),
+        this.setNote('Changing the folder leaves the boards already saved where they are; switch back to reach them.')
+      ];
     }
 
     setCanvas() {
       const app = this.app, dark = () => document.documentElement.dataset.theme === 'dark';
-      return this.section('Canvas',
-        this.row('Theme', this.setSeg([['light', 'Light'], ['dark', 'Dark']], dark() ? 'dark' : 'light',
+      return [this.setGroup(
+        this.setRow('Theme', 'Also on the moon button in the top bar', this.setSeg([['light', 'Light'], ['dark', 'Dark']], dark() ? 'dark' : 'light',
           v => { if ((v === 'dark') !== dark()) app.toggleTheme(); })),
-        this.row('Paper', this.setSeg([['dots', 'Dots'], ['lines', 'Grid'], ['lined', 'Ruled'], ['none', 'Plain']], app.renderer.grid,
-          v => { app.renderer.grid = v; app.requestDraw(); app.savePrefs(); })));
+        this.setRow('Paper', 'What the board is printed with', this.setSeg([['dots', 'Dots'], ['lines', 'Grid'], ['lined', 'Ruled'], ['none', 'Plain']], app.renderer.grid,
+          v => { app.renderer.grid = v; app.requestDraw(); app.savePrefs(); })))];
     }
 
     /* PNG and SVG exports. The theme decides what "ink" comes out as and
@@ -640,53 +885,54 @@
        slide. Transparent is the default: the work alone, nothing behind. */
     setExport() {
       const o = this.app.opts.export, save = () => this.app.savePrefs();
-      return this.section('Export',
-        this.row('Theme', this.setSeg([['auto', 'Match the app'], ['light', 'Light'], ['dark', 'Dark']], o.theme,
-          v => { o.theme = v; save(); })),
-        this.row('Background', this.setSeg([['transparent', 'Transparent'], ['paper', 'Paper colour']], o.background,
-          v => { o.background = v; save(); })),
-        this.note('For ↧ PNG and ↧ SVG. Transparent keeps only what is on the board, ready to drop onto a slide or page of any colour. Light or dark sets the colour of default ink and of PDF pages, whatever the app is showing.'));
+      return [this.setGroup(
+        this.setRow('Theme', 'Sets the colour of default ink and of PDF pages, whatever the app is showing',
+          this.setSeg([['auto', 'Match the app'], ['light', 'Light'], ['dark', 'Dark']], o.theme, v => { o.theme = v; save(); })),
+        this.setRow('Background', 'Transparent keeps only what is on the board, ready for a slide or page of any colour',
+          this.setSeg([['transparent', 'Transparent'], ['paper', 'Paper colour']], o.background, v => { o.background = v; save(); }))),
+        this.setNote('Export from the download button in the top bar.')];
     }
 
     setInput() {
       const g = this.app.opts.general, set = (k, v) => { g[k] = v; this.app.savePrefs(); this.refresh(); };
-      return this.section('Pen and touch',
-        this.check('Hold the pen still to snap a shape clean', g.holdToSnap, v => set('holdToSnap', v)),
-        this.check('Scribble over ink to erase it', g.scribbleErase, v => set('scribbleErase', v)),
-        this.check('Snap to grid', g.snapGrid, v => set('snapGrid', v)),
-        this.check('A finger pans and zooms instead of drawing', g.touchPan, v => set('touchPan', v)),
-        this.check('Keep the drawing tool after each shape', g.stickyTools, v => set('stickyTools', v)));
+      return [this.setGroup(
+        this.setToggle('Hold to snap shapes', 'Hold the pen still at the end of a stroke to turn it into a clean line, box or circle', g.holdToSnap, v => set('holdToSnap', v)),
+        this.setToggle('Scribble to erase', 'Scribble back and forth over ink to rub it out', g.scribbleErase, v => set('scribbleErase', v)),
+        this.setToggle('Snap to grid', 'Shapes, notes and nodes line up with the paper', g.snapGrid, v => set('snapGrid', v)),
+        this.setToggle('Fingers pan and zoom', 'A finger moves the board instead of drawing, so a resting hand leaves no marks', g.touchPan, v => set('touchPan', v)),
+        this.setToggle('Keep the tool', 'Stay on the shape, note or node tool after making one', g.stickyTools, v => set('stickyTools', v)))];
     }
 
     setUpdates(cfg) {
       const app = this.app, X = D.desktop;
-      const status = el('div', { class: 'note' });
-      const check = this.pill('Check now', async () => {
+      const status = el('div', { class: 'set-status' });
+      const check = this.setButton('Check now', async () => {
         check.disabled = true;
         status.textContent = 'Checking…';
         try {
           const u = await X.checkUpdate();
           status.textContent = u ? `Version ${u.version} is ready to install.` : 'You have the newest version.';
-          if (u) status.append(' ', el('button', { class: 'pill', onclick: () => app.installUpdate(u) }, 'Install and restart'));
+          if (u) status.append(' ', this.setButton('Install and restart', () => app.installUpdate(u), true));
         } catch (err) {
           status.textContent = 'Could not reach GitHub to check: ' + err;
         }
         check.disabled = false;
       });
-      return this.section('Updates',
-        this.row('Version', el('span', { class: 'ver' }, cfg ? cfg.version : '…')),
-        this.check('Check for updates when the app starts', X.autoUpdate, v => { X.autoUpdate = v; }),
-        el('div', { class: 'set-actions' }, check), status);
+      return [this.setGroup(
+        this.setRow('Version', null, el('span', { class: 'set-version' }, cfg ? cfg.version : '…')),
+        this.setToggle('Check when the app starts', 'Offers an update when there is one; nothing installs without asking', X.autoUpdate, v => { X.autoUpdate = v; }),
+        this.setStack(el('div', { class: 'set-actions' }, check, this.setButton('What’s new', () => X.open(X.links.releases))), status))];
     }
 
-    setFeedback() {
+    setHelp() {
       const X = D.desktop, go = k => () => X.open(X.links[k]);
-      return this.section('Ideas and problems',
-        this.note('Something missing, or something that would make this better to work with? Requests and bug reports live on GitHub (you will need a free account to post one).'),
-        el('div', { class: 'set-actions' },
-          this.pill('💡 Suggest a feature', go('feature')),
-          this.pill('Report a problem', go('bug')),
-          this.pill('What’s new', go('releases'))));
+      const keys = $('#bs-help .keys').cloneNode(true);
+      return [
+        this.setGroup(this.setStack(this.setLabel('Keyboard and pen shortcuts'), keys)),
+        this.setGroup(this.setStack(
+          this.setLabel('Ideas and problems', 'Something missing, or something that would make this better to work with? Requests and bug reports live on GitHub (you will need a free account to post one).'),
+          el('div', { class: 'set-actions' }, this.setButton('Suggest a feature', go('feature')), this.setButton('Report a problem', go('bug')))))
+      ];
     }
 
     /* ── toast ───────────────────────────────────────────────────── */

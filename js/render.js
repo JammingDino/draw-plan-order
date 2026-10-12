@@ -31,6 +31,9 @@
   /* Zoom is snapped to third-octave steps before it reaches the cache, so
      a pinch rebuilds the simplified paths a handful of times instead of
      on every frame. */
+  const ZOOM_SETTLE = 150;      // ms after the last zoom step before painting sharp
+  const ZOOM_STRETCH = 2;       // how far the last sharp picture may be scaled
+
   const zoomBucket = z => Math.round(Math.log2(z) * 3);
   const bucketZoom = b => 2 ** (b / 3);
 
@@ -71,20 +74,87 @@
      */
     drawScene(scroll) {
       const cam = this.app.camera, editor = this.app.editor, scene = this.app.scene;
+      this.endZoom();
       const st = {
         x: cam.x, y: cam.y, zoom: cam.zoom, dpr: this.dpr, w: this.w, h: this.h,
         theme: U.theme(), grid: this.grid, v: scene.version, edit: editor && editor.item,
         edits: scene.edits, count: scene.items.length
       };
+      if (this.lift) {
+        if (this.paintLift()) { this._painted = null; return; }
+        this.liftEnd();                  // the view moved under the drag: paint it properly
+      }
       const was = this._painted;
       this._painted = st;
+      const damage = scene.takeDamage ? scene.takeDamage() : true;
       if (was && this.addedOnly(was, st)) return;
+      if (was && damage && damage !== true && this.repaintDamage(was, st, damage)) return;
       if (scroll && was && this.scrollFrom(was, st)) return;
       this.paintAll();
     }
 
     /** the next paint must be a whole one: something changed that the scene cannot see */
     invalidate() { this._painted = null; }
+
+    /* ── zooming ──────────────────────────────────────────────────────
+       A wheel or a pinch zooms a step every frame, and every step was a
+       repaint of everything in view at the new scale: the most expensive
+       picture the app draws, sixty times a second, mostly in the GPU
+       process where the battery pays for it. While a zoom is under way
+       the last sharp picture is scaled instead — one textured copy — and
+       the board is painted properly ZOOM_SETTLE ms after the zoom stops.
+       Past ZOOM_STRETCH either way the scaled copy would be visibly soft,
+       so it is painted properly then and the zoom carries on from there.
+       Zooming out leaves plain paper at the edges until it settles. */
+    drawZoom() {
+      const cam = this.app.camera, d = this.dpr;
+      let z = this.zoomShot;
+      const fresh = z && z.w === this.w && z.h === this.h && z.dpr === d && z.theme === U.theme() &&
+        z.v === this.app.scene.version;
+      if (!fresh) {
+        // the picture to scale from: what is on screen, if it is a whole one
+        const was = this._painted;
+        if (z || !was || this.lift) { this.drawScene(); return this.takeZoomShot(this._painted); }
+        z = this.takeZoomShot(was);
+        if (!z) return this.drawScene();
+      }
+      const r = cam.zoom / z.zoom;
+      if (r > ZOOM_STRETCH || r < 1 / ZOOM_STRETCH) { this.drawScene(); this.takeZoomShot(this._painted); return; }
+
+      const ctx = this.bctx, css = this.tokens();
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = css.paper;
+      ctx.fillRect(0, 0, this.base.width, this.base.height);
+      ctx.setTransform(r, 0, 0, r, (cam.x - z.x * r) * d, (cam.y - z.y * r) * d);
+      ctx.imageSmoothingQuality = 'low';
+      ctx.drawImage(z.canvas, 0, 0);
+      ctx.restore();
+      this._painted = null;            // what is on screen is no longer a sharp picture of anything
+      this.lastDrawn = 0;
+
+      clearTimeout(this._zoomSettle);
+      this._zoomSettle = setTimeout(() => { this.endZoom(); this.app.requestDraw(); }, ZOOM_SETTLE);
+    }
+
+    /** keep a copy of the screen, painted for camera state `st`, to scale from */
+    takeZoomShot(st) {
+      if (!st) return null;
+      const c = (this.zoomShot && this.zoomShot.canvas) || document.createElement('canvas');
+      if (c.width !== this.base.width || c.height !== this.base.height) { c.width = this.base.width; c.height = this.base.height; }
+      const g = c.getContext('2d');
+      g.globalCompositeOperation = 'copy';
+      g.drawImage(this.base, 0, 0);
+      return this.zoomShot = { canvas: c, x: st.x, y: st.y, zoom: st.zoom, w: this.w, h: this.h, dpr: this.dpr, theme: U.theme(), v: this.app.scene.version };
+    }
+
+    endZoom() {
+      clearTimeout(this._zoomSettle);
+      if (!this.zoomShot) return;
+      const c = this.zoomShot.canvas;
+      this.zoomShot = null;
+      c.width = c.height = 0;          // a screen-sized copy is worth handing back straight away
+    }
 
     /**
      * Items were only added on top since the last paint — a stroke just
@@ -111,6 +181,26 @@
       this.drawItems(ctx, fresh);
       ctx.restore();
       this.lastDrawn = fresh.length;
+      return true;
+    }
+
+    /**
+     * Only some strokes changed, all within `box` (world units; see
+     * Scene.takeDamage): repaint that rectangle of the screen and leave
+     * the rest. The eraser used to cost a repaint of the whole view per
+     * nibble. Anything about the view itself changing, or a damaged area
+     * covering most of it anyway, and the caller repaints everything.
+     */
+    repaintDamage(was, st, box) {
+      for (const k of ['x', 'y', 'zoom', 'dpr', 'w', 'h', 'theme', 'grid', 'edit']) if (was[k] !== st[k]) return false;
+      const cam = this.app.camera, d = this.dpr;
+      // a little spare: anti-aliasing reaches a pixel past the edge
+      const a = cam.toScreen(box.x, box.y), b = cam.toScreen(box.x2, box.y2);
+      const x0 = Math.max(0, Math.floor(a.x * d) - 3), y0 = Math.max(0, Math.floor(a.y * d) - 3);
+      const x1 = Math.min(this.base.width, Math.ceil(b.x * d) + 3), y1 = Math.min(this.base.height, Math.ceil(b.y * d) + 3);
+      if (x1 <= x0 || y1 <= y0) { this.lastDrawn = 0; return true; }          // all of it off screen
+      if ((x1 - x0) * (y1 - y0) > this.base.width * this.base.height * 0.6) return false;
+      this.lastDrawn = this.paintRegion(x0, y0, x1 - x0, y1 - y0);
       return true;
     }
 
@@ -185,7 +275,7 @@
         if (U.boxesOverlap(view, scene.bbox(it))) D.pdf.bitmap(this.app, it, cam.zoom * this.dpr);
     }
 
-    paintAll() {
+    paintAll(keep) {
       const ctx = this.bctx, app = this.app, cam = app.camera;
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.clearRect(0, 0, this.w, this.h);
@@ -198,9 +288,84 @@
       this.worldTransform(ctx);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       const view = cam.viewport(this.w, this.h, 80);
-      const visible = app.scene.near(view);
+      let visible = app.scene.near(view);
+      if (keep) visible = visible.filter(keep);
       this.lastDrawn = visible.length;
       this.drawItems(ctx, visible);
+    }
+
+    /* ── dragging a selection ─────────────────────────────────────────
+       A drag moved its items a little every frame, and every frame the
+       whole view was repainted: each stroke on screen re-rasterised,
+       sixty times a second, for a picture in which almost nothing
+       changes. Lifted, the board is painted once without the selection
+       and the selection once on its own, and a frame of the drag is two
+       copies, the selection's offset by however far it has gone — next
+       to nothing for the GPU, whatever the board holds. Dropping it
+       paints everything properly again.
+
+       Only where that picture is exact: a connector attached to a moving
+       node bends rather than moves, grid snapping moves items by
+       different amounts, and a selection reaching far off screen would
+       be dragged into view unpainted. Those keep the plain repaint. */
+    liftBegin(items) {
+      const app = this.app, scene = app.scene, cam = app.camera, d = this.dpr;
+      if (!items.length || !this.base.width) return false;
+      const ids = new Set(items.map(i => i.id));
+      for (const e of scene.items) {
+        if (e.type === 'edge' && !ids.has(e.id) && ((e.from.id && ids.has(e.from.id)) || (e.to.id && ids.has(e.to.id)))) return false;
+      }
+      if (app.opts.general.snapGrid && items.some(i => i.type !== 'stroke' && i.type !== 'edge')) return false;
+
+      const PAD = 0.25;
+      const W = this.base.width, H = this.base.height, px = Math.round(W * PAD), py = Math.round(H * PAD);
+      const v = cam.viewport(this.w, this.h, 0);
+      const room = U.box(v.x - v.w * PAD, v.y - v.h * PAD, v.x2 + v.w * PAD, v.y2 + v.h * PAD);
+      let box = null;
+      for (const it of items) box = U.unionBox(box, scene.bbox(it));
+      if (!box || box.x < room.x || box.y < room.y || box.x2 > room.x2 || box.y2 > room.y2) return false;
+
+      const set = new Set(items);
+      this.paintAll(it => !set.has(it));
+      const under = document.createElement('canvas');
+      under.width = W; under.height = H;
+      under.getContext('2d').drawImage(this.base, 0, 0);
+
+      const sel = document.createElement('canvas');
+      sel.width = W + px * 2; sel.height = H + py * 2;
+      const g = sel.getContext('2d');
+      g.setTransform(cam.zoom * d, 0, 0, cam.zoom * d, cam.x * d + px, cam.y * d + py);
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      this.drawItems(g, items.slice().sort((a, b) => a._z - b._z));
+
+      this.lift = { under, sel, px, py, x: cam.x, y: cam.y, zoom: cam.zoom, w: this.w, h: this.h, dpr: d, theme: U.theme(), dx: 0, dy: 0 };
+      this._painted = null;
+      return true;
+    }
+
+    /** a frame of a lifted drag; false if the view no longer matches the lift */
+    paintLift() {
+      const L = this.lift, cam = this.app.camera;
+      if (cam.x !== L.x || cam.y !== L.y || cam.zoom !== L.zoom || this.w !== L.w || this.h !== L.h || this.dpr !== L.dpr || U.theme() !== L.theme) return false;
+      const ctx = this.bctx, k = cam.zoom * L.dpr;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'copy';
+      ctx.drawImage(L.under, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+      // whole device pixels: the selection's pixels land exactly, never resampled
+      ctx.drawImage(L.sel, Math.round(L.dx * k) - L.px, Math.round(L.dy * k) - L.py);
+      ctx.restore();
+      this.lastDrawn = 0;
+      return true;
+    }
+
+    liftEnd() {
+      if (!this.lift) return;
+      const L = this.lift;
+      this.lift = null;
+      L.under.width = L.under.height = 0; L.sel.width = L.sel.height = 0;   // give the memory back now
+      this._painted = null;
     }
 
     /* The theme tokens the painter needs, read once per theme rather than
@@ -601,8 +766,8 @@
       const done = img => { p.img = img; this.invalidate(); this.app.requestDraw(); };
       if (it.asset) {
         p.ready = Promise.resolve(this.app.getAsset(it.asset))
-          .then(bytes => bytes && createImageBitmap(new Blob([bytes], { type: it.mime || '' })))
-          .then(img => { if (img) done(img); })
+          .then(bytes => bytes && U.decodeImage(new Blob([bytes], { type: it.mime || '' })))
+          .then(d => { if (d) done(d.img); })
           .catch(err => console.warn('[dpo] picture', it.asset, err));
       } else if (key) {
         p.ready = new Promise(res => {
@@ -695,10 +860,13 @@
       ctx.lineWidth = 1;
 
       let box = null;
+      /* a box round each item helps to tell a few apart; round hundreds of
+         strokes it is noise, and a frame's worth of drawing every frame */
+      const each = (sel.length > 1 && sel.length <= 120) || opts.showEach;
       for (const it of sel) {
         const b = scene.bbox(it);
         box = U.unionBox(box, b);
-        if (sel.length > 1 || opts.showEach) {
+        if (each) {
           const a = cam.toScreen(b.x, b.y), c = cam.toScreen(b.x2, b.y2);
           ctx.setLineDash([4, 4]); ctx.globalAlpha = .55;
           ctx.strokeRect(a.x - 2, a.y - 2, c.x - a.x + 4, c.y - a.y + 4);

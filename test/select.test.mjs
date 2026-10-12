@@ -16,7 +16,7 @@ function rig() {
     select(items) { this.selection = items.filter(Boolean); },
     selectionBounds() { let b = null; for (const it of this.selection) b = D.util.unionBox(b, this.scene.bbox(it)); return b; },
     requestDraw() {}, requestDrawLive() {}, afterEdit() {}, toast(m) { this.toasts.push(m); },
-    renderer: { clearLive() {}, handleRects: () => [] }
+    renderer: { clearLive() {}, handleRects: () => [], liftBegin: () => false, liftEnd() {} }
   });
   const page = app.scene.add(D.make.pdfpage({ asset: 'a', page: 1, x: 0, y: 0, w: 600, h: 800 }));
   const ink = app.scene.add(D.make.stroke({ pts: inked([100, 100, 200, 110, 300, 100]), size: 3 }));

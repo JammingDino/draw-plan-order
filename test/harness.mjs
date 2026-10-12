@@ -74,7 +74,7 @@ export function load(...files) {
     Math, JSON, Date, performance, console,
     Array, Object, String, Number, Boolean, Error, Map, Set, RegExp,
     Float32Array, Uint8Array, Uint8ClampedArray, Int32Array,
-    isFinite, isNaN, parseFloat, parseInt,
+    isFinite, isNaN, parseFloat, parseInt, TextEncoder, TextDecoder,
     setTimeout, clearTimeout, requestAnimationFrame: fn => setTimeout(fn, 0),
     document: {
       documentElement: Object.assign(stubElement('html'), { dataset: {} }),

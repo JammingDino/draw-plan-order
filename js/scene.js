@@ -118,6 +118,12 @@
          was, so the painter may draw just the new items over its last
          picture instead of repainting the board (Renderer.drawScene). */
       this.edits = 0;
+      /* Where the picture changed since the painter last asked (see
+         takeDamage): the area of each stroke added, removed or touched. */
+      this._damage = null;
+      this._damageFrom = 0;          // `edits` when the painter last asked
+      this._hurtCount = 0;           // how many of the edits since then are accounted for
+      this._later = new Set();       // strokes touched: their new area is known only once they are done
       this.onchange = null;
       this._grid = new Grid();
       if (doc) this.load(doc);
@@ -127,8 +133,42 @@
     get(id) { return this.byId.get(id); }
     indexOf(item) { return this.items.indexOf(item); }
 
+    /* ── damage ───────────────────────────────────────────────────────
+       The painter used to repaint the whole view for any change that was
+       not a stroke added on top — so each nibble of the eraser, on a dense
+       page, re-rasterised every stroke on screen. Each change made to a
+       stroke records the area it covers (before, and for a stroke that is
+       being changed, after), and takeDamage hands the painter the union,
+       to repaint that rectangle alone.
+
+       Only strokes: a connector bends when the node it hangs from moves,
+       a note casts a shadow, a text box reflows — their areas are not
+       worth chasing, so a change to anything else means "everything". And
+       it fails safe: takeDamage compares the number of edits accounted
+       for with the number made, so a change that does not come through
+       here (undo, reorder, a load) also means "everything". */
+    _hurt(item, counted) {
+      if (counted) this._hurtCount++;
+      if (this._damage === true) return;
+      if (!item || item.type !== 'stroke') { this._damage = true; return; }
+      this._damage = U.unionBox(this._damage, this.bbox(item));
+    }
+
+    /** the area changed since the last call, in world units; true for "everything", null for nothing */
+    takeDamage() {
+      let all = this._damage === true || this.edits - this._damageFrom !== this._hurtCount;
+      let box = all ? null : this._damage;
+      if (!all) for (const it of this._later) if (this.byId.get(it.id) === it) box = U.unionBox(box, this.bbox(it));
+      this._damage = null; this._hurtCount = 0; this._damageFrom = this.edits; this._later.clear();
+      return all ? true : box;
+    }
+
     dirty(item) {
-      if (item) { item._b = null; item._path = null; item._lod = null; item._lines = null; }
+      if (item) {
+        this._hurt(item, true);
+        if (item.type === 'stroke') this._later.add(item);
+        item._b = null; item._path = null; item._lod = null; item._lines = null; item._json = null;
+      }
       this.edits++;
       this.version++;
       if (this.onchange) this.onchange();
@@ -144,7 +184,9 @@
     /** snapshot an item before it is mutated */
     touch(item) {
       if (this.tx && !this.tx.before.has(item.id)) this.tx.before.set(item.id, clone(item));
-      item._b = null; item._path = null; item._lod = null; item._lines = null;
+      this._hurt(item, true);
+      if (item.type === 'stroke') this._later.add(item);
+      item._b = null; item._path = null; item._lod = null; item._lines = null; item._json = null;
       this.edits++;
       return item;
     }
@@ -162,7 +204,9 @@
      */
     touchMoved(item) {
       if (this.tx && !this.tx.before.has(item.id)) this.tx.before.set(item.id, clone(item));
-      item._b = null;
+      this._hurt(item, true);
+      if (item.type === 'stroke') this._later.add(item);
+      item._b = null; item._json = null;
       this.edits++;
       return item;
     }
@@ -240,7 +284,9 @@
 
     /* ── mutation ─────────────────────────────────────────────────── */
     add(item, index) {
+      const e0 = this.edits;
       this._insert(item, index ?? this.items.length);
+      this._hurt(item, this.edits !== e0);          // under something counts as an edit; on top does not
       if (this.tx) this.tx.adds.push(item);
       this.version++; if (this.onchange) this.onchange();
       return item;
@@ -250,6 +296,7 @@
       const index = this.items.indexOf(item);
       if (index < 0) return;
       if (this.tx) this.tx.removes.push({ item, index });
+      this._hurt(item, true);
       this._remove(item.id);
       // detach edges that pointed at it (nothing can be attached to ink)
       if (item.type !== 'stroke' && item.type !== 'edge') {
@@ -281,6 +328,8 @@
       for (const it of gone) if (it.type !== 'stroke' && it.type !== 'edge') ids.add(it.id);
       if (ids.size) for (const e of this.items)
         if (e.type === 'edge' && ((e.from.id && ids.has(e.from.id)) || (e.to.id && ids.has(e.to.id)))) gone.add(e);
+      for (const it of gone) this._hurt(it, false);
+      this._hurtCount++;                              // the one edit below
       const keep = [];
       let removed = 0;
       for (let i = 0; i < this.items.length; i++) {
@@ -296,7 +345,7 @@
     }
 
     _insert(item, index) {
-      item._b = null; item._path = null; item._lod = null; item._lines = null;
+      item._b = null; item._path = null; item._lod = null; item._lines = null; item._json = null;
       if (index < this.items.length) this.edits++;      // under something: not an add on top
       this.items.splice(Math.min(index, this.items.length), 0, item);
       this.byId.set(item.id, item);
@@ -644,6 +693,56 @@
     toJSON() {
       return { v: 1, items: this.items.map(strip) };
     }
+
+    /**
+     * The board as the bytes that get saved: the UTF-8 of what
+     * JSON.stringify(toJSON()) would give, assembled from a copy of each
+     * item's own kept beside it.
+     *
+     * Saving used to copy, round and serialise every item on the board on
+     * every autosave, and the autosave lands whenever the pen rests for
+     * half a second — at eight thousand strokes, half a second of frozen
+     * window that the next stroke started into. An item's saved form only
+     * changes when the item does, and every change goes through touch(),
+     * touchMoved() or dirty(), which drop it with the other caches; so a
+     * save now serialises the strokes drawn since the last one and copies
+     * the rest. Bytes rather than text, because encoding ten megabytes of
+     * text on the way out cost more than everything else left.
+     */
+    docBytes() {
+      const items = this.items, n = items.length;
+      const parts = new Array(n);
+      let size = DOC_HEAD.length + DOC_TAIL.length + Math.max(0, n - 1);
+      for (let i = 0; i < n; i++) size += (parts[i] = itemBytes(items[i])).length;
+      const out = new Uint8Array(size);
+      out.set(DOC_HEAD, 0);
+      let o = DOC_HEAD.length;
+      for (let i = 0; i < n; i++) {
+        if (i) out[o++] = 44;                          // ','
+        out.set(parts[i], o); o += parts[i].length;
+      }
+      out.set(DOC_TAIL, o);
+      return out;
+    }
+
+    /** docBytes() as text, for the few places that want a string */
+    docText() { return DECODER.decode(this.docBytes()); }
+
+    /**
+     * Serialise items ahead of the first save, a slice at a time, while
+     * nothing else is happening. A board just opened has no saved text
+     * yet, and its first autosave would otherwise pay for all of it at
+     * once. Returns true once every item is done.
+     */
+    warmText(deadline) {
+      const items = this.items;
+      for (let i = this._warm || 0; i < items.length; i++) {
+        if (!items[i]._json) itemBytes(items[i]);
+        if ((i & 63) === 63 && deadline.timeRemaining() < 2) { this._warm = i + 1; return false; }
+      }
+      this._warm = 0;
+      return true;
+    }
     load(doc) {
       this.items = []; this.byId.clear();
       for (const it of (doc.items || [])) this._insert(it, this.items.length);
@@ -691,6 +790,14 @@
     const o = clone(it);
     if (o.pts) { for (let i = 0; i < o.pts.length; i++) o.pts[i] = Math.round(o.pts[i] * 100) / 100; }
     return o;
+  }
+
+  /* An item's saved form, as UTF-8 JSON, kept on it until it changes
+     (see Scene.docBytes). */
+  const ENCODER = new TextEncoder(), DECODER = new TextDecoder();
+  const DOC_HEAD = ENCODER.encode('{"v":1,"items":['), DOC_TAIL = ENCODER.encode(']}');
+  function itemBytes(it) {
+    return it._json || (it._json = ENCODER.encode(JSON.stringify(strip(it))));
   }
 
   /** Deep equality on the same terms `clone` copies: caches ignored. */

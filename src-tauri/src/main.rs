@@ -210,6 +210,12 @@ fn remember_vault(app: &AppHandle, root: &Path, folder: Option<&str>) -> Result<
 }
 
 fn load_vault(app: &AppHandle, args: &Map<String, Value>) -> Vault {
+    /* A throwaway folder for the benchmark (test/bench-app.mjs --desktop):
+       used as it is and never remembered, so a run cannot touch, or move,
+       the place your real boards are kept. */
+    if let Some(dir) = std::env::var_os("DPO_BOARDS_DIR") {
+        return Vault { root: Some(PathBuf::from(dir)), folder: String::new() };
+    }
     let saved: Map<String, Value> = vault_cfg(app)
         .and_then(|p| fs::read_to_string(p).ok())
         .and_then(|s| serde_json::from_str::<Value>(&s).ok())
@@ -311,6 +317,23 @@ async fn dpo_get(ctx: State<'_, Ctx>, key: String) -> Result<Value, String> {
     })
 }
 
+/// A board's file exactly as it is on disk, for the page to parse. Going
+/// through dpo_get parsed the whole file here and serialised it again for
+/// the bridge, twice the work of the page parsing it once — and the wait
+/// every time a board was opened or previewed. Empty when there is none.
+#[tauri::command]
+async fn dpo_get_board(ctx: State<'_, Ctx>, id: String) -> Result<Response, String> {
+    let path = {
+        let v = ctx.vault.lock().unwrap();
+        let idx = v.read_index()?;
+        match idx["paths"].get(&id).and_then(|p| p.as_str()) {
+            Some(p) => v.abs(p)?,
+            None => return Ok(Response::new(Vec::new())),
+        }
+    };
+    Ok(Response::new(fs::read(path).unwrap_or_default()))
+}
+
 /// An asset's bytes as a raw ArrayBuffer: no JSON array of numbers and no
 /// base64, which for a 15MB PDF is most of the point of leaving Obsidian.
 #[tauri::command]
@@ -332,33 +355,93 @@ async fn dpo_set(ctx: State<'_, Ctx>, key: String, value: Value) -> Result<(), S
         "last" => { idx.insert("last".into(), value); }
         "prefs" => { idx.insert("prefs".into(), value); }
         k if k.starts_with("b:") => {
-            let id = &k[2..];
-            let name = safe_name(value.get("name").and_then(|n| n.as_str()).unwrap_or(""));
-            let wanted = match value.get("file").and_then(|f| f.as_str()) {
-                Some(f) => norm(f),
-                None => norm(&format!("{}/{}.dpo", v.folder, name)),
-            };
-            let current = idx["paths"].get(id).and_then(|p| p.as_str()).map(String::from);
-            let mut path = current.clone().unwrap_or_else(|| wanted.clone());
-
-            match &current {
-                // renaming the board renames the file, never onto another board
-                Some(cur) if *cur != wanted && !v.abs(&wanted)?.exists() => {
-                    if fs::rename(v.abs(cur)?, v.abs(&wanted)?).is_ok() { path = wanted; }
-                }
-                // a new board whose file name is taken gets a suffixed one
-                None if v.abs(&wanted)?.exists() => {
-                    let short: String = id.chars().take(4).collect();
-                    path = norm(&format!("{}/{} {}.dpo", v.folder, name, short));
-                }
-                _ => {}
-            }
-            write_atomic(&v.abs(&path)?, to_json(&value)?.as_bytes())?;
-            idx["paths"].as_object_mut().unwrap().insert(id.into(), Value::String(path));
+            let body = to_json(&value)?;
+            put_board(&v, &mut idx, &k[2..], value.get("name").and_then(|n| n.as_str()).unwrap_or(""),
+                value.get("file").and_then(|f| f.as_str()), body.as_bytes())?
         }
         _ => return Err(format!("cannot set {key}")),
     }
     v.write_index(&idx)
+}
+
+/// A board, sent as the raw bytes of its compact JSON, with the id, name
+/// and (if it has one) file in headers. Nothing here parses the board: the
+/// file is laid out exactly as to_json lays it out by reformatting the
+/// text (pretty_json), which is a single pass over the bytes. Parsing it
+/// into a Value and printing that back cost over a second of CPU on every
+/// autosave of a large board.
+#[tauri::command]
+async fn dpo_put_board(ctx: State<'_, Ctx>, request: Request<'_>) -> Result<(), String> {
+    let hdr = |k: &str| request.headers().get(k).and_then(|h| h.to_str().ok()).and_then(pct_decode);
+    let id = hdr("dpo-id").ok_or("missing dpo-id")?;
+    let name = hdr("dpo-name").unwrap_or_default();
+    let file = hdr("dpo-file");
+    let InvokeBody::Raw(bytes) = request.body() else { return Err("expected raw bytes".into()) };
+    let body = pretty_json(bytes);                    // before taking the lock
+    let v = ctx.vault.lock().unwrap();
+    let mut idx = v.read_index()?;
+    put_board(&v, &mut idx, &id, &name, file.as_deref(), &body)?;
+    v.write_index(&idx)
+}
+
+/// Compact JSON → the layout to_json writes (one-space indent, one value
+/// per line, `[]` and `{}` kept inline), by walking the bytes. Strings are
+/// copied through untouched, escapes and all; numbers are left exactly as
+/// the page wrote them.
+fn pretty_json(src: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(src.len() * 2);
+    let mut depth = 0usize;
+    let mut i = 0;
+    let newline = |out: &mut Vec<u8>, depth: usize| { out.push(b'\n'); out.extend(std::iter::repeat(b' ').take(depth)); };
+    while i < src.len() {
+        let c = src[i];
+        match c {
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < src.len() && src[i] != b'"' { if src[i] == b'\\' { i += 1; } i += 1; }
+                out.extend_from_slice(&src[start..(i + 1).min(src.len())]);
+            }
+            b'{' | b'[' => {
+                let close = if c == b'{' { b'}' } else { b']' };
+                if src.get(i + 1) == Some(&close) { out.push(c); out.push(close); i += 1; }
+                else { out.push(c); depth += 1; newline(&mut out, depth); }
+            }
+            b'}' | b']' => { depth = depth.saturating_sub(1); newline(&mut out, depth); out.push(c); }
+            b',' => { out.push(b','); newline(&mut out, depth); }
+            b':' => { out.extend_from_slice(b": "); }
+            b' ' | b'\n' | b'\r' | b'\t' => {}
+            _ => out.push(c),
+        }
+        i += 1;
+    }
+    out
+}
+
+fn put_board(v: &Vault, idx: &mut Map<String, Value>, id: &str, name: &str, file: Option<&str>, body: &[u8]) -> Result<(), String> {
+    let name = safe_name(name);
+    let wanted = match file {
+        Some(f) => norm(f),
+        None => norm(&format!("{}/{}.dpo", v.folder, name)),
+    };
+    let current = idx["paths"].get(id).and_then(|p| p.as_str()).map(String::from);
+    let mut path = current.clone().unwrap_or_else(|| wanted.clone());
+
+    match &current {
+        // renaming the board renames the file, never onto another board
+        Some(cur) if *cur != wanted && !v.abs(&wanted)?.exists() => {
+            if fs::rename(v.abs(cur)?, v.abs(&wanted)?).is_ok() { path = wanted; }
+        }
+        // a new board whose file name is taken gets a suffixed one
+        None if v.abs(&wanted)?.exists() => {
+            let short: String = id.chars().take(4).collect();
+            path = norm(&format!("{}/{} {}.dpo", v.folder, name, short));
+        }
+        _ => {}
+    }
+    write_atomic(&v.abs(&path)?, body)?;
+    idx["paths"].as_object_mut().unwrap().insert(id.into(), Value::String(path));
+    Ok(())
 }
 
 /// Store a dropped PDF. The bytes are the raw request body; the id and
@@ -470,9 +553,79 @@ async fn dpo_install_update(app: AppHandle) -> Result<(), String> {
     app.restart();
 }
 
+/// The page has saved (see onCloseRequested in app.js): close for real.
+/// destroy() rather than close(), which would only ask again.
+#[tauri::command]
+async fn dpo_close(window: tauri::Window) -> Result<(), String> {
+    window.destroy().map_err(e)
+}
+
+/* Closing the window waits for the page to save. The close is held, the
+   page is asked to save and answers with dpo_close; a page that never
+   answers (hung, or still loading) is closed anyway after a few seconds,
+   so the close button always works. Its rescue copy in localStorage is
+   still written on the way out as before. */
+const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
+
+fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) {
+    api.prevent_close();
+    let Some(view) = window.app_handle().get_webview_window(window.label()) else {
+        let _ = window.destroy();
+        return;
+    };
+    if view.eval("window.DPO && DPO.app ? DPO.app.onCloseRequested() : __TAURI_INTERNALS__.invoke('dpo_close')").is_err() {
+        let _ = window.destroy();
+        return;
+    }
+    let w = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(CLOSE_GRACE);
+        let _ = w.destroy();
+    });
+}
+
+/* ── the window ───────────────────────────────────────────────────── */
+
+/* Which graphics chip draws the board, on a laptop with two. The discrete
+   one is quicker and costs the battery a great deal just by being awake;
+   the integrated one is plenty for a 2D canvas. So: the discrete chip when
+   plugged in, the integrated one on battery. WebView2 takes this when the
+   window is made, so it is decided at launch — a laptop unplugged later
+   keeps the big chip until the app is next started. A machine with one
+   chip ignores the flag. */
+#[cfg(windows)]
+fn on_mains() -> bool {
+    use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    let mut s: SYSTEM_POWER_STATUS = unsafe { std::mem::zeroed() };
+    // ACLineStatus: 0 battery, 1 plugged in, 255 unknown (count unknown as plugged in: no battery to save)
+    unsafe { GetSystemPowerStatus(&mut s) != 0 && s.ACLineStatus != 0 }
+}
+#[cfg(not(windows))]
+fn on_mains() -> bool { true }
+
+fn open_window(app: &AppHandle) -> tauri::Result<()> {
+    let gpu = if on_mains() { "--force_high_performance_gpu" } else { "--force_low_power_gpu" };
+    // replaces Tauri's own default arguments, so they are repeated here
+    let browser_args = format!("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection {gpu}");
+    tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+        .title("Draw · Plan · Order")
+        .inner_size(1440.0, 920.0)
+        .min_inner_size(640.0, 460.0)
+        .resizable(true)
+        .center()
+        .decorations(true)
+        .disable_drag_drop_handler()
+        .additional_browser_args(&browser_args)
+        .build()?;
+    Ok(())
+}
+
 fn main() {
     let args = parse_args();
     tauri::Builder::default()
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event { on_close_requested(window, api); }
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -482,12 +635,34 @@ fn main() {
                 .filter_map(|k| args.get(*k).map(|v| ((*k).to_string(), v.clone())))
                 .collect();
             app.manage(Ctx { vault: Mutex::new(vault), launch: Mutex::new(launch) });
+            open_window(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            dpo_config, dpo_get, dpo_asset, dpo_set, dpo_put_asset, dpo_del, dpo_keys,
-            dpo_choose_folder, dpo_reveal_folder, dpo_open_url, dpo_check_update, dpo_install_update
+            dpo_config, dpo_get, dpo_get_board, dpo_asset, dpo_set, dpo_put_board, dpo_put_asset, dpo_del, dpo_keys,
+            dpo_choose_folder, dpo_reveal_folder, dpo_open_url, dpo_check_update, dpo_install_update,
+            dpo_close
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Draw · Plan · Order");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The reformatter lays a file out exactly as to_json does, and keeps
+    /// what it says. (Key order is the page's own; to_json, through a
+    /// Value, sorted them — so the layout is compared on the same order.)
+    #[test]
+    fn pretty_json_matches_to_json() {
+        let compact = r#"{"id":"a1","name":"Q3 [draft], {x}","created":1760000000000,"camera":{"x":-12.5,"y":0,"zoom":1.25},"assets":[],"meta":{},"thumb":"data:image/webp;base64,AAA=","doc":{"v":1,"items":[{"id":"s","type":"stroke","pts":[0.35,1.2,0.5,-3,4.75,1],"color":"ink","label":"say \"hi\": a\b, [c]"},{"id":"n","type":"node","text":"line\nbreak","from":{"id":"s"},"tags":[[],{}]}]}}"#;
+        let value: Value = serde_json::from_str(compact).unwrap();
+
+        let got = pretty_json(compact.as_bytes());
+        assert_eq!(serde_json::from_slice::<Value>(&got).unwrap(), value, "same content");
+
+        let sorted = serde_json::to_string(&value).unwrap();
+        assert_eq!(String::from_utf8(pretty_json(sorted.as_bytes())).unwrap(), to_json(&value).unwrap(), "same layout");
+    }
 }

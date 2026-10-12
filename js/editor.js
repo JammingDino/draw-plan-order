@@ -34,7 +34,7 @@
 
       ta.addEventListener('input', () => {
         item.text = ta.value;
-        item._lines = null; item._b = null;
+        item._lines = null; item._b = null; item._json = null;
         if (item.type === 'text' && item.autoWidth) {
           const L = this.app.scene.layout(item);
           item.w = L.width;
