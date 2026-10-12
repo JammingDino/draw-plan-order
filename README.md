@@ -3,6 +3,13 @@
 An endless canvas for pen, keyboard and decision trees. Plain HTML/CSS/JS —
 no build step, no dependencies, no account. Everything lives on your machine.
 
+It is built for working through engineering problems with a pen: a
+calculator that understands units, phasors, matrices and calculus, typed
+worksheets on the board, handwritten sums that answer themselves when you
+write `=`, and drawing tools with real arrowheads, dimensions, a drawing
+scale and snapping. Every part of it works with only a stylus or a finger
+— press and hold anywhere for a menu.
+
 ## Running it
 
 Double-click **`start.cmd`**. It serves the folder on <http://localhost:5273>

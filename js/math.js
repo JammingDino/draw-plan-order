@@ -276,6 +276,8 @@
    * The keypad's notation, and the bits of a textbook's, into math.js's.
    * Only what math.js cannot read is touched.
    */
+  const PREFIX = { T: 12, G: 9, M: 6, k: 3, u: -6, n: -9, p: -12 };
+
   function preprocess(src) {
     let s = String(src);
     s = s.replace(/[×✕⋅·]/g, '*').replace(/÷/g, '/').replace(/[−–]/g, '-')
@@ -287,7 +289,12 @@
       .replace(/[⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+/g, m => '^(' + [...m].map(c => SUP[c]).join('') + ')')
       .replace(/([√∛])\s*(\d+\.?\d*|[A-Za-z_]\w*(?!\s*\())/g, '$1($2)')
       .replace(/√/g, 'sqrt').replace(/∛/g, 'cbrt')
-      .replace(/∫/g, 'int');
+      .replace(/∫/g, 'int')
+      /* 4.7k, 10M, 100n, 22p: the way a resistor or a capacitor is
+         written on a schematic. A bare number with one prefix letter and
+         nothing after it; 5m is left alone because it already means five
+         metres, and 10uF, 2kN are units math.js reads for itself. */
+      .replace(/(^|[^\w.])(\d+(?:\.\d+)?)([kMGTunp])(?![\w(])/g, (m, pre, n, p) => `${pre}(${n}e${PREFIX[p]})`);
 
     // d/dx(f) → diff(f, x)
     for (let m; (m = /\bd\/d([A-Za-z]\w*)\s*\(/.exec(s));) {

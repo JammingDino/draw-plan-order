@@ -1688,7 +1688,9 @@
           const j = JSON.parse(fr.result);
           const doc = j.doc || j;
           const b = D.store.newBoard(j.name || file.name.replace(/\.[^.]+$/, ''));
-          b.doc = { v: 1, items: doc.items || [] };
+          /* meta carries the drawing scale (see Scene.meta); a board
+             without one saves without the key, so keep it that way */
+          b.doc = doc.meta ? { v: 1, meta: doc.meta, items: doc.items || [] } : { v: 1, items: doc.items || [] };
           b.assets = [];
           for (const [id, a] of Object.entries(j.assets || {})) {
             await D.store.putAsset(id, D.store.fromB64(a.b64), { name: a.name, type: a.type });
