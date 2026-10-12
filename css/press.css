@@ -1,3 +1,87 @@
 /* ── press.css ── the long-press menu and the selection action bar ────
-   Filled in by step 4 of the engineering release (issue #4). Linked
-   from index.html and sw.js already.                                  */
+   Sized for a fingertip: nothing to press is smaller than 44px. Colours
+   and surfaces come from the tokens in app.css, so both themes follow.  */
+
+/* ── the arming ring, under a held pen or finger ─────────────────────── */
+.press-ring{
+  position:fixed;left:0;top:0;z-index:8;pointer-events:none;display:none;
+}
+.press-ring.on{display:block}
+.press-ring svg{width:100%;height:100%;overflow:visible;opacity:0}
+.press-ring circle{fill:none;stroke-width:4}
+.press-ring .track{stroke:var(--accent-soft);fill:color-mix(in srgb,var(--accent) 7%,transparent)}
+.press-ring .arc{
+  stroke:var(--accent);stroke-linecap:round;
+  stroke-dasharray:100;stroke-dashoffset:100;
+  transform:rotate(-90deg);transform-origin:50% 50%;
+}
+
+/* ── the long-press menu ────────────────────────────────────────────── */
+.press-menu{
+  position:fixed;z-index:40;width:292px;padding:8px;
+  display:flex;flex-direction:column;gap:6px;
+  background:var(--panel-solid);border:1px solid var(--stroke);border-radius:16px;box-shadow:var(--shadow);
+  animation:press-in .18s var(--ease);
+  touch-action:none;
+}
+@keyframes press-in{from{opacity:0;transform:scale(.9)}}
+
+.press-menu button{color:var(--text);border-radius:11px;transition:background .14s var(--ease),transform .14s var(--ease)}
+.press-menu button:hover{background:var(--accent-soft)}
+.press-menu button:active{background:var(--accent-soft);transform:scale(.96)}
+.press-menu button:disabled{opacity:.38;pointer-events:none}
+.press-menu button.danger{color:#e5484d}
+.press-menu button.danger:hover,.press-menu button.danger:active{background:#e5484d1a}
+.press-menu svg{width:22px;height:22px;flex:none}
+
+/* four big tiles on top: the actions you came for */
+.press-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.press-tile{
+  min-height:66px;padding:11px 2px 7px;
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:6px;
+  font-size:11.5px;line-height:1.15;text-align:center;
+}
+.press-tile svg{color:var(--muted)}
+.press-tile.danger svg{color:inherit}
+
+/* then a list, and undo/redo at the foot */
+.press-list,.press-foot{display:flex;flex-direction:column;gap:2px;padding-top:6px;border-top:1px solid var(--stroke)}
+.press-foot{flex-direction:row}
+.press-pair{display:flex;gap:2px}
+.press-pair>*,.press-foot>*{flex:1 1 0;min-width:0}
+.press-row{
+  min-height:44px;padding:0 12px;display:flex;align-items:center;gap:12px;
+  font-size:14px;text-align:left;
+}
+.press-row svg{color:var(--muted)}
+.press-blank{width:22px;height:22px;flex:none}
+.press-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── the action bar over a selection ────────────────────────────────── */
+/* Positioned by transform alone (press.js), so following a pan or a
+   pinch is a compositor move, not a layout. */
+.press-bar{
+  position:fixed;left:0;top:0;z-index:7;
+  display:flex;align-items:center;gap:2px;padding:4px;
+  background:var(--panel-solid);border:1px solid var(--stroke);border-radius:14px;box-shadow:var(--shadow);
+  visibility:hidden;opacity:0;transition:opacity .14s var(--ease),visibility 0s linear .14s;
+  touch-action:none;
+}
+.press-bar.on{visibility:visible;opacity:1;transition:opacity .14s var(--ease)}
+.press-bar .icon{width:44px;height:44px;border-radius:10px;color:var(--text)}
+.press-bar .icon svg{width:21px;height:21px}
+.press-bar .icon.danger{color:#e5484d}
+.press-bar .icon.danger:hover{background:#e5484d1a}
+.press-bar .icon.txt{width:auto;padding:0 12px;font-size:13px;font-weight:550;white-space:nowrap}
+.press-bar .sep{height:24px;margin:0 3px}
+
+/* ── a connector's label, typed where it sits ───────────────────────── */
+.press-label{
+  position:absolute;pointer-events:auto;transform:translate(-50%,-50%);
+  field-sizing:content;min-width:96px;max-width:320px;height:40px;padding:0 14px;
+  font-family:inherit;font-size:15px;color:var(--text);text-align:center;
+  background:var(--panel-solid);border:0;border-radius:10px;outline:0;
+  box-shadow:0 0 0 2px var(--accent),var(--shadow);
+  caret-color:var(--accent);-webkit-user-select:text;user-select:text;
+}
+.press-label::placeholder{color:var(--muted)}
