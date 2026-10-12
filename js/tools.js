@@ -132,6 +132,7 @@
       }
       scene.begin('draw'); scene.add(item); scene.commit();
       app.afterEdit();
+      if (this.kind === 'pen') D.ext.emit('stroke', app, item);
     }
 
     cancel() { clearTimeout(this.holdTimer); this.item = null; this.app.renderer.clearLive(); this.app.hideHint(); }
@@ -654,6 +655,14 @@
           else if (it.type === 'edge') {
             if (!it.from.id) { it.from.x = o.from.x + dx; it.from.y = o.from.y + dy; }
             if (!it.to.id) { it.to.x = o.to.x + dx; it.to.y = o.to.y + dy; }
+          } else if (D.ext.items[it.type] && D.ext.items[it.type].translate) {
+            /* a registered type that moves itself: from where it started,
+               like everything else here, and with its own caches dropped
+               (touchMoved keeps them, which only strokes know how to use) */
+            const c = D.clone(o);
+            for (const k in c) it[k] = c[k];
+            it._path = null; it._lod = null; it._lines = null;
+            D.ext.items[it.type].translate(it, dx, dy);
           } else {
             let nx = o.x + dx, ny = o.y + dy;
             if (app.opts.general.snapGrid) { const g = 25; nx = Math.round(nx / g) * g; ny = Math.round(ny / g) * g; }
