@@ -213,6 +213,56 @@ the block or change the settings they were made under. `D.math` (in
 `js/math.js`) and `D.calc` (in `js/calc.js`) are documented at the top of
 each file, for anything else that wants an answer worked out.
 
+### Handwritten maths
+
+Write a sum with the pen, finish it with **=**, and lift the pen for a
+moment: the board reads the line and writes the answer beside the `=`,
+in a handwriting face and the accent colour. `12 + 30 =` gets `42`;
+stacked fractions, exponents written raised and small, roots with a
+roof over what they hold, brackets, decimals and implicit
+multiplication (`3x²`, `2(3 + 4)`) are understood. A line such as
+`x = 2` defines `x` for the lines below it — `3x² + 2 =` gets `14` —
+and when you rub out the `2` and write a `3`, the answers that use `x`
+change to match.
+
+The answer follows its ink. Rub out part of the sum, or write more of
+it, and it is worked out again when you pause; rub out the `=` and it
+goes; move the line and it moves too. It is not an edit of its own:
+undo the stroke that finished the `=` and the answer disappears with
+it, redo it and the answer comes back. Erasing or moving an answer
+yourself is an ordinary edit, undone like one.
+
+To check a reading, select the ink (lasso or marquee) and long-press
+it, or use the selection's action bar: **Solve this ink** shows what the
+strokes were read as, in a field to correct with one tap, with the
+answer, and **Insert result**, **Open in calculator** and **Teach**.
+Teach makes each symbol you corrected in place a template of your own,
+kept on this device (at most twelve per symbol), so the next one you
+write that way is read right. Double-tap an answer for the same panel.
+**Settings → Handwritten maths** turns solving as you write off, sets
+the decimal places and the answer colour, and forgets what you taught.
+
+It keeps out of the way. Nothing is read until the pen rests; a line
+that is not read with confidence, uses a letter nothing defines, or
+does not work out is left alone without a word; and the pen's own
+behaviours — hold to snap a shape, scribble to erase — are untouched.
+
+How it reads, in `js/inkmath.js`: each symbol is matched as a cloud of
+32 points against templates (the $P recogniser, Vatavu et al. 2012), so
+the order, direction and number of strokes do not matter — a 5 in one
+stroke or two, a + either way round. The templates are not shipped as
+data: about fifty glyph outlines for `0–9 + − × ÷ = ( ) . ^ √` and
+`x y z a b c n t θ π` are bent into slanted, squeezed and wobbled
+copies the first time something is read. Dots, dashes, `=`, `+`, `x`,
+`1` and `/`, which look alike once scaled to a box, are settled by
+rules; fraction bars, roofs, exponents and the difference between `x`
+and `×` by where things sit on the line. Measured against a second,
+independently drawn hand with jitter, slant, uneven pen speed and
+shuffled strokes (`test/inkmath.test.mjs`), it reads **99.4%** of
+2,500 single symbols and **98.4%** of 640 whole lines exactly; the
+weakest case is a slash leaning only a little more than a 1.
+Everything runs offline, in under ten milliseconds a line.
+
 ## Keyboard
 
 `V` select · `G` lasso · `P` pen · `H` highlighter · `E` eraser · `R` rectangle ·
