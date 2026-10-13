@@ -701,46 +701,7 @@
       this.mode = null;
       this.lifted = false;
       this.start = { x: ev.x, y: ev.y, sx: ev.sx, sy: ev.sy };
-
-      // 0 · a handle of a single selected line: an end, a corner, or the bend
-      if (app.selection.length === 1 && app.selBox && app.selBox.line) {
-        const reach = this.hitPx(ev) + this.handlePad(ev) + 2;
-        let best = null, bd = reach;
-        for (const h of app.selBox.line) {
-          const d = Math.hypot(ev.sx - h.x, ev.sy - h.y);
-          if (d < bd) { bd = d; best = h; }
-        }
-        if (best) {
-          const it = app.selection[0];
-          this.mode = 'line'; this.handle = best.k;
-          scene.begin('edit line'); scene.touch(it);
-          this.lineMoved = false;
-          this.lineWas = D.clone(it);
-          return;
-        }
-      }
-
-      // 1 · resize handle?
-      if (app.selection.length && app.selBox) {
-        for (const h of app.renderer.handleRects(app.selBox)) {
-          const pad = this.handlePad(ev);
-          if (ev.sx >= h.x - pad && ev.sx <= h.x + h.w + pad && ev.sy >= h.y - pad && ev.sy <= h.y + h.h + pad) {
-            this.mode = 'resize'; this.handle = h.k;
-            this.origBox = app.selectionBounds();
-            scene.begin('resize');
-            for (const it of app.selection) scene.touch(it);
-            this.snapshot = app.selection.map(it => D.clone(it));
-            return;
-          }
-        }
-      }
-
-      // 2 · edge endpoint drag
-      if (app.selection.length === 1 && app.selection[0].type === 'edge') {
-        const e = app.selection[0], p = scene.edgePath(e), tol = (this.hitPx(ev) + 2) / app.camera.zoom;
-        if (U.dist(ev.x, ev.y, p[0], p[1]) < tol) { this.mode = 'endpoint'; this.end = 'from'; scene.begin('edge'); scene.touch(e); return; }
-        if (U.dist(ev.x, ev.y, p[p.length - 2], p[p.length - 1]) < tol) { this.mode = 'endpoint'; this.end = 'to'; scene.begin('edge'); scene.touch(e); return; }
-      }
+      if (this.handleAt(ev)) return;
 
       // 3 · item under the pointer
       let hit = scene.hitTest(ev.x, ev.y, this.hitPx(ev) / app.camera.zoom);
@@ -780,10 +741,94 @@
       }
 
       // 4 · marquee
+      this.area(ev.shift, false);
+    }
+
+    /* 0–2 · a handle of the selection, if the press is on one: the ends,
+       corners and bend of a single line, the resize handles, the ends of
+       a connector. Sets the mode and returns true if it took the press. */
+    handleAt(ev) {
+      const app = this.app, scene = app.scene;
+      // 0 · a handle of a single selected line: an end, a corner, or the bend
+      if (app.selection.length === 1 && app.selBox && app.selBox.line) {
+        const reach = this.hitPx(ev) + this.handlePad(ev) + 2;
+        let best = null, bd = reach;
+        for (const h of app.selBox.line) {
+          const d = Math.hypot(ev.sx - h.x, ev.sy - h.y);
+          if (d < bd) { bd = d; best = h; }
+        }
+        if (best) {
+          const it = app.selection[0];
+          this.mode = 'line'; this.handle = best.k;
+          scene.begin('edit line'); scene.touch(it);
+          this.lineMoved = false;
+          this.lineWas = D.clone(it);
+          return true;
+        }
+      }
+
+      // 1 · resize handle?
+      if (app.selection.length && app.selBox) {
+        for (const h of app.renderer.handleRects(app.selBox)) {
+          const pad = this.handlePad(ev);
+          if (ev.sx >= h.x - pad && ev.sx <= h.x + h.w + pad && ev.sy >= h.y - pad && ev.sy <= h.y + h.h + pad) {
+            this.mode = 'resize'; this.handle = h.k;
+            this.origBox = app.selectionBounds();
+            scene.begin('resize');
+            for (const it of app.selection) scene.touch(it);
+            this.snapshot = app.selection.map(it => D.clone(it));
+            return true;
+          }
+        }
+      }
+
+      // 2 · edge endpoint drag
+      if (app.selection.length === 1 && app.selection[0].type === 'edge') {
+        const e = app.selection[0], p = scene.edgePath(e), tol = (this.hitPx(ev) + 2) / app.camera.zoom;
+        if (U.dist(ev.x, ev.y, p[0], p[1]) < tol) { this.mode = 'endpoint'; this.end = 'from'; scene.begin('edge'); scene.touch(e); return true; }
+        if (U.dist(ev.x, ev.y, p[p.length - 2], p[p.length - 1]) < tol) { this.mode = 'endpoint'; this.end = 'to'; scene.begin('edge'); scene.touch(e); return true; }
+      }
+      return false;
+    }
+
+    /** start a marquee or lasso from this.start; `shift` adds to the selection */
+    area(shift, quiet = true) {
+      const app = this.app;
       this.mode = this.lasso ? 'lasso' : 'marquee';
-      this.poly = [ev.x, ev.y];
-      if (!ev.shift) app.select([]);
-      this.baseSel = ev.shift ? app.selection.slice() : [];
+      this.poly = [this.start.x, this.start.y];
+      if (!shift) app.select([], quiet);
+      this.baseSel = shift ? app.selection.slice() : [];
+    }
+
+    /**
+     * A marquee or lasso from (ev.x, ev.y), whatever is there — for a
+     * press that was held and then dragged (App.dragFromHold). The point
+     * is where the press first landed, not where the drag began, so the
+     * box or loop takes in what the pen was held over.
+     */
+    areaFrom(ev) {
+      this.lifted = false;
+      this.start = { x: ev.x, y: ev.y, sx: ev.sx, sy: ev.sy };
+      this.area(false);
+    }
+
+    /**
+     * Take hold of the selection that is already there, under a tool that
+     * is not this one (App.onDown): a handle if the press is on one,
+     * otherwise all of it, to move — wherever inside its box the press
+     * landed, gaps between strokes included, and without first selecting
+     * what is under the press as down() would.
+     */
+    grab(ev) {
+      const app = this.app;
+      this.mode = null;
+      this.lifted = false;
+      this.start = { x: ev.x, y: ev.y, sx: ev.sx, sy: ev.sy };
+      if (this.handleAt(ev)) return;
+      this.mode = 'move';
+      this.moved = false;
+      this.alt = ev.alt || !!(app.opts.cad && app.opts.cad.dupDrag);
+      app.scene.begin('move');
     }
 
     /** the press on a page or picture was held: it is what you meant to move */
@@ -808,10 +853,7 @@
         // moved off before the hold: a marquee over the page, not the page
         clearTimeout(this.holdTimer);
         this.pending = null;
-        this.mode = this.lasso ? 'lasso' : 'marquee';
-        this.poly = [this.start.x, this.start.y];
-        if (!this.shift) app.select([], true);
-        this.baseSel = this.shift ? app.selection.slice() : [];
+        this.area(this.shift);
         tipOnce('backdrop', () => app.toast('Dragging over a page selects what is on it — press and hold to move the page itself'));
       }
       if (this.mode === 'line') return this.moveLine(ev);

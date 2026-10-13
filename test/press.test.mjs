@@ -113,8 +113,8 @@ function rig({ tool = 'pen', items = [] } = {}) {
   app.setBoard({ id: 'b', name: 'B', doc: { items: [] } });
   /* the DOM half of press.js, recorded rather than built */
   const press = app.press = {
-    menus: [], labels: [], rings: 0, aborts: 0,
-    ring() { this.rings++; }, unring() { this.aborts++; },
+    menus: [], labels: [], rings: 0, aborts: 0, locks: [],
+    ring() { this.rings++; }, unring() { this.aborts++; }, lock(h, mode) { this.locks.push(mode); },
     openMenu(ctx) { this.menus.push(ctx); }, closeMenu() {}, closeLabel() {},
     editLabel(e) { this.labels.push(e); }, hideBar() {}, frame() {}, reset() {}, key: () => false
   };
@@ -143,14 +143,18 @@ function rig({ tool = 'pen', items = [] } = {}) {
 const PEN = { pointerType: 'pen', pointerId: 7 };
 const menus = r => r.press.menus.length;
 const delay = 500;
+const MENU_WAIT = 350;         // app.js: armed and still this long, the menu opens anyway
 
-test('a finger held still opens the menu, at the delay, and leaves the board where it was', () => {
+test('a finger held still arms at the delay, opens the menu as it lifts, and leaves the board where it was', () => {
   const r = rig();
   r.down(600, 400);
   r.move(604, 403);                                    // a finger is never perfectly still: it nudges the pan
   r.clock.advance(delay - 1);
-  assert.equal(menus(r), 0);
+  assert.equal(r.press.locks.length, 0);
   r.clock.advance(1);
+  assert.deepEqual(r.press.locks, ['marquee'], 'the ring locks at the delay');
+  assert.equal(menus(r), 0, 'but the menu waits for the lift (or a little longer)');
+  r.up(604, 403);
   assert.equal(menus(r), 1);
   const ctx = r.press.menus[0];
   assert.equal(ctx.pointerType, 'touch');
@@ -158,7 +162,6 @@ test('a finger held still opens the menu, at the delay, and leaves the board whe
   assert.equal(ctx.hit, null);
   assert.deepEqual([r.app.camera.x, r.app.camera.y], [0, 0], 'the nudge is undone');
   assert.ok(r.press.rings >= 1, 'the ring showed while it was held');
-  r.up(604, 403);
   assert.equal(r.app.scene.items.length, 0);
 });
 
@@ -178,8 +181,11 @@ test('a pen held still where it landed opens the menu and leaves no dot', () => 
   const r = rig();
   r.down(500, 300, PEN);
   r.clock.advance(delay);
-  assert.equal(menus(r), 1);
+  assert.equal(menus(r), 0);
+  r.clock.advance(MENU_WAIT);
+  assert.equal(menus(r), 1, 'still held a moment after arming: the menu opens without waiting for the lift');
   r.up(500, 300, PEN);
+  assert.equal(menus(r), 1, 'and lifting does not open a second');
   r.clock.advance(1000);
   assert.equal(r.app.scene.items.length, 0, 'the pen’s stroke was cancelled, not committed');
   assert.equal(r.app.scene.undoStack.length, 0);
@@ -208,9 +214,11 @@ test('the select tool picks a page up first; the menu needs a longer hold, and d
   r.clock.advance(320);
   assert.deepEqual([...r.app.selection.map(i => i.type)], ['image'], 'picked up at the select tool’s 300ms');
   r.clock.advance(delay - 320);
-  assert.equal(menus(r), 0, 'not at the plain delay: there is time to start dragging');
+  assert.equal(r.press.locks.length, 0, 'not at the plain delay: there is time to start dragging');
   r.clock.advance(400);
-  assert.equal(menus(r), 1, 'still holding, still still: the menu');
+  assert.equal(r.press.locks.length, 1, 'still holding, still still: armed');
+  r.clock.advance(MENU_WAIT);
+  assert.equal(menus(r), 1, 'and then the menu');
   assert.deepEqual([...r.press.menus[0].selection.map(i => i.type)], ['image']);
   r.up(300, 250, PEN);
   assert.equal(r.app.scene.undoStack.length, 0, 'the half-made move left nothing');
@@ -324,9 +332,174 @@ test('holding a drawing tool on a page or picture is about the board there, not 
   const pic = r.items[0];
   r.down(300, 250, PEN);
   r.clock.advance(delay);
+  r.up(300, 250, PEN);
   const ctx = r.press.menus[0];
   assert.equal(ctx.hit, pic, 'it is what was pressed on');
   assert.deepEqual([...ctx.selection], [], 'but it is not selected');
+});
+
+/* ── hold, then drag: a selection (issue #15) ─────────────────────── */
+/* a note to box in, one to leave out, and a stroke under the first */
+const board = D => [
+  D.make.note({ x: 400, y: 200, w: 100, h: 100 }),
+  D.make.note({ x: 800, y: 200, w: 100, h: 100 }),
+  D.make.stroke({ pts: inked([420, 500, 480, 540]) })
+];
+/* hold at (x, y) until armed, then drag through pts and lift */
+function holdDrag(r, x, y, pts, o) {
+  r.down(x, y, o);
+  r.clock.advance(delay);
+  r.drag(pts, o);
+  const [ex, ey] = pts[pts.length - 1];
+  r.up(ex, ey, o);
+}
+
+test('a pen held, then dragged, draws a box from where it was held and selects what it encloses', () => {
+  const r = rig({ items: board });
+  const [inside, outside, stroke] = r.items;
+  r.down(350, 150, PEN);
+  r.clock.advance(delay);
+  assert.deepEqual(r.press.locks, ['marquee']);
+  r.drag([[362, 158], [450, 300]], PEN);
+  assert.equal(r.app.active, r.app.tools.select, 'the select tool’s box, under the pen');
+  assert.equal(r.app.active.mode, 'marquee');
+  assert.deepEqual([r.app.active.start.x, r.app.active.start.y], [350, 150], 'from the press, not from where the drag began');
+  r.drag([[560, 450], [600, 600]], PEN);
+  r.clock.advance(1000);
+  r.up(600, 600, PEN);
+  assert.equal(menus(r), 0, 'a drag, so no menu');
+  assert.deepEqual(new Set(r.app.selection), new Set([inside, stroke]));
+  assert.ok(!r.app.selection.includes(outside));
+  assert.equal(r.app.toolName, 'pen', 'the pen is still out');
+  assert.equal(r.app.scene.items.length, 3, 'and left no ink');
+  assert.equal(r.app.scene.undoStack.length, 0);
+});
+
+test('hold and drag draws a lasso when that is the choice: the select tool’s last mode, or the setting', () => {
+  const r = rig({ items: board });
+  const [inside] = r.items;
+  r.app.setTool('lasso'); r.app.setTool('pen');
+  assert.equal(r.app.opts.press.lastSelect, 'lasso', 'the select tool’s mode is remembered');
+  r.down(380, 180, PEN);
+  r.clock.advance(delay);
+  assert.deepEqual(r.press.locks, ['lasso'], 'and the locked ring says so');
+  r.drag([[395, 180], [520, 180], [520, 320], [380, 320], [380, 190]], PEN);
+  assert.equal(r.app.active, r.app.tools.lasso);
+  r.up(380, 190, PEN);
+  assert.deepEqual([...r.app.selection], [inside], 'only what the loop went round');
+
+  const s = rig({ items: board });
+  s.app.setTool('lasso'); s.app.setTool('pen');
+  s.app.opts.press.drag = 'box';
+  holdDrag(s, 350, 150, [[362, 158], [600, 600]], PEN);
+  assert.deepEqual(s.press.locks, ['marquee'], 'Box in settings wins over the tool');
+  assert.equal(s.app.selection.length, 2);
+
+  const t = rig({ items: board });
+  t.app.opts.press.drag = 'lasso';
+  t.down(380, 180, PEN); t.clock.advance(delay);
+  assert.deepEqual(t.press.locks, ['lasso'], 'and Lasso does too');
+});
+
+test('held long enough that the menu opened, a drag still selects, and takes the menu away', () => {
+  const r = rig({ items: board });
+  let closed = 0;
+  r.press.closeMenu = () => { closed++; };
+  r.down(350, 150, PEN);
+  r.clock.advance(delay + MENU_WAIT);
+  assert.equal(menus(r), 1);
+  r.drag([[362, 158], [600, 600]], PEN);
+  assert.ok(closed >= 1, 'the menu closed as the drag began');
+  r.up(600, 600, PEN);
+  assert.equal(menus(r), 1, 'and no second one on the lift');
+  assert.equal(r.app.selection.length, 2);
+});
+
+test('the pen moves a selection it made, from anywhere inside it, as one undo step; outside it draws and lets go', () => {
+  const r = rig({ items: board });
+  const [inside, , stroke] = r.items;
+  holdDrag(r, 350, 150, [[362, 158], [600, 600]], PEN);
+  r.clock.advance(500);
+  r.down(450, 400, PEN);                               // a gap between the note and the stroke, inside the box
+  r.drag([[460, 405], [480, 420], [500, 430]], PEN);
+  r.up(500, 430, PEN);
+  assert.deepEqual([inside.x, inside.y], [450, 230], 'moved by the drag');
+  assert.deepEqual([stroke.pts[0], stroke.pts[1]], [470, 530], 'all of it');
+  assert.deepEqual([...r.app.scene.undoStack.map(o => o.label)], ['move'], 'one step');
+  assert.deepEqual(new Set(r.app.selection), new Set([inside, stroke]), 'still selected, to move again');
+  assert.equal(r.app.scene.items.length, 3, 'no ink');
+  r.app.undo();
+  const back = r.app.scene.get(inside.id);
+  assert.deepEqual([back.x, back.y], [400, 200], 'and one undo puts it all back');
+
+  r.clock.advance(500);
+  r.down(900, 600, PEN); r.drag([[930, 620], [960, 640]], PEN); r.up(960, 640, PEN);
+  assert.deepEqual([...r.app.selection], [], 'outside: let go');
+  assert.equal(r.app.scene.items.length, 4, 'and drew');
+});
+
+test('a selection from the long-press menu moves with the pen too', () => {
+  const r = rig({ items: D => [D.make.note({ x: 400, y: 200, w: 190, h: 190 })] });
+  const note = r.items[0];
+  r.down(480, 280, PEN); r.clock.advance(delay); r.up(480, 280, PEN);
+  assert.deepEqual([...r.app.selection], [note]);
+  r.clock.advance(500);
+  r.down(480, 280, PEN); r.drag([[500, 280], [540, 300]], PEN); r.up(540, 300, PEN);
+  assert.deepEqual([note.x, note.y], [460, 220]);
+  assert.equal(r.app.scene.items.length, 1);
+});
+
+test('a finger held, then dragged, selects too; then drags the selection, and pans from outside it', () => {
+  const r = rig({ items: board });
+  const [inside, , stroke] = r.items;
+  holdDrag(r, 350, 150, [[370, 160], [600, 600]]);
+  assert.deepEqual(new Set(r.app.selection), new Set([inside, stroke]));
+  assert.deepEqual([r.app.camera.x, r.app.camera.y], [0, 0], 'the hold did not pan');
+  r.clock.advance(500);
+  r.down(450, 400); r.drag([[470, 400], [500, 420]]); r.up(500, 420);
+  assert.deepEqual([inside.x, inside.y], [450, 220], 'a finger inside moves it');
+  assert.deepEqual([r.app.camera.x, r.app.camera.y], [0, 0]);
+  r.clock.advance(500);
+  r.down(900, 700); r.move(912, 700);
+  assert.equal(r.app.camera.x, 12, 'outside, a finger pans straight away');
+  r.drag([[940, 700]]); r.up(940, 700);
+  assert.equal(r.app.selection.length, 2, 'and keeps the selection');
+});
+
+test('held on a page, a drag gathers up the ink on it, not the page', () => {
+  const r = rig({ items: D => [
+    D.make.image({ x: 100, y: 100, w: 600, h: 400, src: 'data:,' }),
+    D.make.stroke({ pts: inked([200, 200, 260, 240]) })
+  ] });
+  const [, ink] = r.items;
+  holdDrag(r, 150, 150, [[165, 160], [300, 300]], PEN);
+  assert.deepEqual([...r.app.selection], [ink]);
+});
+
+test('a drag that starts before the hold arms is the tool’s, as ever', () => {
+  const r = rig({ items: board });
+  r.down(350, 150, PEN);
+  r.clock.advance(delay - 100);
+  r.drag([[362, 158], [450, 300]], PEN);
+  r.clock.advance(1000);
+  r.up(450, 300, PEN);
+  assert.equal(r.press.locks.length, 0);
+  assert.deepEqual([...r.app.selection], []);
+  assert.equal(r.app.scene.items.length, 4, 'it drew');
+});
+
+test('a second finger while armed is a pinch: no menu, no selection', () => {
+  const r = rig({ items: board });
+  r.down(350, 150, { pointerId: 1 });
+  r.clock.advance(delay);
+  assert.equal(r.press.locks.length, 1);
+  r.down(500, 150, { pointerId: 2, isPrimary: false });
+  r.drag([[380, 170]], { pointerId: 1 });
+  r.up(380, 170, { pointerId: 1 });
+  r.up(500, 150, { pointerId: 2, isPrimary: false });
+  r.clock.advance(1000);
+  assert.equal(menus(r), 0);
+  assert.deepEqual([...r.app.selection], []);
 });
 
 /* ── taps ─────────────────────────────────────────────────────────── */
