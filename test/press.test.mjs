@@ -207,6 +207,27 @@ test('a pen that draws and then holds still snaps the shape instead', () => {
   assert.equal(r.app.scene.items[0].kind, 'rect');
 });
 
+test('a short bar held still at its end stays ink, so it can be half of an "="; a long one still snaps', () => {
+  const r = rig();
+  r.down(300, 300, PEN);
+  const pts = [];
+  for (let i = 1; i <= 14; i++) pts.push([300 + i * 2, 300]);     // 28px: a long "=" bar, written slowly
+  r.drag(pts, PEN);
+  r.clock.advance(1500);
+  r.up(328, 300, PEN);
+  assert.deepEqual([...r.app.scene.items.map(i => i.type)], ['stroke'], 'left as ink');
+
+  const s = rig();
+  s.down(300, 300, PEN);
+  const long = [];
+  for (let i = 1; i <= 20; i++) long.push([300 + i * 10, 300]);   // 200px: a line someone wants
+  s.drag(long, PEN);
+  s.clock.advance(1500);
+  s.up(500, 300, PEN);
+  assert.equal(s.app.scene.items[0].type, 'shape', 'snapped');
+  assert.equal(s.app.scene.items[0].kind, 'line');
+});
+
 test('the select tool picks a page up first; the menu needs a longer hold, and dragging after the pick-up still drags', () => {
   const page = D => [D.make.image({ x: 100, y: 100, w: 600, h: 400, src: 'data:,' })];
   const r = rig({ tool: 'select', items: page });

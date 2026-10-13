@@ -73,6 +73,11 @@
       if (!this.item || this.raw.length < 12) return;
       const shape = RG.recognise(this.item.pts, { snapAngle: true });
       if (!shape) return;
+      /* A bar shorter than a fingertip held still at its end is far more
+         often half of a handwritten "=" or a minus, written slowly, than
+         a line someone wants. Snapped, it would leave the ink for a shape
+         and never pair with the other bar (see inkmath.js). */
+      if (shape.kind === 'line' && Math.hypot(shape.x2 - shape.x1, shape.y2 - shape.y1) * this.app.camera.zoom < 30) return;
       this.snapped = shape;
       this.incremental = false;
       this.app.haptic();
