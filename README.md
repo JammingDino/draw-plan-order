@@ -254,9 +254,16 @@ write that way is read right. Double-tap an answer for the same panel.
 the decimal places and the answer colour, and forgets what you taught.
 
 It keeps out of the way. Nothing is read until the pen rests; a line
-that is not read with confidence, uses a letter nothing defines, or
-does not work out is left alone without a word; and the pen's own
-behaviours — hold to snap a shape, scribble to erase — are untouched.
+that uses a letter nothing defines, or does not work out, is left
+alone without a word; and the pen's own behaviours — hold to snap a
+shape, scribble to erase — are untouched. A sum of numbers it found
+but could not read with confidence gets a faint **?** beside its `=`
+instead of an answer: tap it, and Solve this ink opens on its best
+guess, so a misreading is one correction away. **Show why it didn't
+answer**, in the same Settings section, puts a short note by every `=`
+it found and left alone — nothing before it, no operator, a letter
+nothing defines, not sure of the reading — for when it misses one.
+The marks are not part of the board: never saved, never undone.
 
 How it reads, in `js/inkmath.js`: each symbol is matched as a cloud of
 32 points against templates (the $P recogniser, Vatavu et al. 2012), so
@@ -269,10 +276,25 @@ copies the first time something is read. Dots, dashes, `=`, `+`, `x`,
 rules; fraction bars, roofs, exponents and the difference between `x`
 and `×` by where things sit on the line. Measured against a second,
 independently drawn hand with jitter, slant, uneven pen speed and
-shuffled strokes (`test/inkmath.test.mjs`), it reads **99.4%** of
-2,500 single symbols and **98.4%** of 640 whole lines exactly; the
-weakest case is a slash leaning only a little more than a 1.
+shuffled strokes (`test/inkmath.test.mjs`), it reads **99.3%** of
+single symbols and **97.9%** of whole lines exactly and confidently;
+the weakest case is a slash leaning only a little more than a 1.
 Everything runs offline, in under ten milliseconds a line.
+
+A real pen is harder than any synthetic hand, and the thresholds are
+set from one: a Surface board of lecture notes (5,500 strokes, kept
+out of the repository). There, the second bar of an `=` is usually
+bowed or hooked where the pen lifts, so bars are judged as dashes, not
+ruled lines, and by their size on the screen rather than on the board;
+a stroke reaching from one bar to the other (an F, an E) rules a pair
+out. A line whose letters nothing defines is read again as a sum of
+numbers — digits, operators, brackets — so a 2 half taken for a z is a
+2; a bracket with no partner is the bowed 1 it nearly always is; and
+a loose match with a close runner-up is not trusted, which is where
+the **?** comes in. Sums put together from that hand's own digits and
+`=` signs are answered about half the time and offered with a **?**
+most of the rest, against one in twelve before; the notes themselves —
+`y² = 4ax`, `c = 9`, `z = x² + y² = 1` — get no answers at all.
 
 ## Keyboard
 

@@ -354,7 +354,7 @@ test('the registry: an answer item, a press action and a settings section', () =
   assert.equal(a.when({ selection: [], source: 'menu' }), false, 'nothing selected');
   assert.equal(a.when({ selection: [s, { id: 'n', type: 'note' }], source: 'bar' }), false, 'not with a note in it');
   assert.ok(D.ext.settings.some(x => x.id === 'inkmath'));
-  assert.deepEqual(JSON.parse(JSON.stringify(D.ext.opts.inkmath)), { auto: true, places: 'auto', color: 'accent' });
+  assert.deepEqual(JSON.parse(JSON.stringify(D.ext.opts.inkmath)), { auto: true, places: 'auto', color: 'accent', explain: false });
 });
 
 test('12 + 30 = answers 42 beside the "=", without an undo step of its own', async () => {
@@ -558,5 +558,116 @@ test('Solve this ink: the reading in a field, Insert as one undo step, Teach rem
   assert.equal(Math.round(answers(app).find(x => x.expr === '6+3').x), Math.round(ax + 30), 'it follows its ink');
   erase(app, bare);
   assert.equal(answers(app).filter(x => x.expr === '6+3').length, 0, 'and goes with it');
+});
+
+/* ── a real pen (issue #14) ──────────────────────────────────────────
+   Measured on a real board of lecture notes written on a Surface: the
+   second bar of an "=" is bowed or hooked where the pen lifts (its ink
+   strays a fifth of its length from the chord, against a ruled line's
+   twentieth); small handwriting makes bars a few pixels long; a 1 bows
+   like a bracket; a 2 is drawn with a flat top like a Z. Each case
+   below is built from those measurements — no real ink is kept here. */
+const bar = (x, y, w, { bow = 0, hook = 0, tilt = 0 } = {}) => {
+  const xy = [];
+  for (let i = 0; i <= 12; i++) { const t = i / 12; xy.push(x + t * w, y + tilt * w * t + bow * w * Math.sin(Math.PI * t)); }
+  if (hook) xy.push(x + w * 1.04, y + tilt * w - hook * w);
+  return stroke(dense(xy));
+};
+const sumThen = (line, seed, o = {}) => {
+  const ink = inkOf(line, seed, o);
+  let b = null;
+  for (const it of ink) b = D.util.unionBox(b, D.util.boxFromPoints(it.pts, 3));
+  return { ink, b };
+};
+
+test('real "=" bars — bowed, hooked, uneven — are found and read as an "="', async () => {
+  const app = board();
+  const { ink, b } = sumThen(['1', '2', '+', '3', '0'], 11);
+  const H = 40, x = b.x2 + 0.35 * H, y = 300 - 0.62 * H;
+  const top = bar(x, y, 0.6 * H, { tilt: 0.05 }), low = bar(x + 2, y + 0.3 * H, 0.52 * H, { bow: 0.12, hook: 0.25 });
+  const f = IM.feature(low);
+  assert.ok(f.dev > 0.16 && f.len > 1.18 * f.chord, 'as bowed and hooked as the bars measured (dev ' + f.dev.toFixed(2) + ')');
+  assert.ok(f.dash, 'and still a dash');
+  draw(app, [...ink, top, low]);
+  await IM.flush(app);
+  assert.deepEqual(Array.from(answers(app), a => a.text), ['42']);
+});
+
+test('a small "=" in small writing: the scene box\'s pixel of padding is taken off', async () => {
+  const app = board();
+  const { ink, b } = sumThen(['1', '2', '+', '3', '0'], 11, { size: 13 });
+  const x = b.x2 + 4, y = 300 - 8;
+  // 4.5 wide, 1.2 tall on the slant: half as tall as wide once the box is padded
+  draw(app, [...ink, bar(x, y, 5, { tilt: 0.1 }), bar(x, y + 4, 4.5, { tilt: 0.25 })]);
+  assert.equal(IM.state.eqs.size, 1, 'the "=" is found');
+  await IM.flush(app);
+  assert.deepEqual(Array.from(answers(app), a => a.text), ['42']);
+});
+
+test('zoomed in, a short "=" is judged by its size on the screen', async () => {
+  const app = board();
+  app.camera.zoom = 6;
+  const { ink, b } = sumThen(['1', '2', '+', '3', '0'], 11, { size: 4 });
+  const x = b.x2 + 1.2, y = 300 - 2.5;
+  draw(app, [...ink, bar(x, y, 2.4), bar(x, y + 1.3, 2.2, { bow: 0.1 })]);
+  assert.equal(IM.state.eqs.size, 1);
+  await IM.flush(app);
+  assert.deepEqual(Array.from(answers(app), a => a.text), ['42']);
+});
+
+test('the arms of an F are two dashes one over the other, but not an "="', () => {
+  const app = board();
+  draw(app, [stroke(dense([100, 100, 100, 140])), bar(100, 100, 22), bar(100, 118, 16)]);
+  assert.equal(IM.state.eqs.size, 0);
+});
+
+test('a shape no template comes near in proportion is an unknown, not a thrown line', async () => {
+  const xy = [];
+  for (let i = 0; i <= 60; i++) xy.push(100 + i * 4, 300 + 6 * Math.sin(i / 3));
+  assert.ok(IM.classify([stroke(dense(xy))]).length > 0, 'something to go on');
+  const app = board();
+  const errors = [];
+  const was = console.error;
+  console.error = (...a) => errors.push(a);
+  try {
+    const { ink, b } = sumThen(['1', '2', '+', '3', '0'], 11);
+    // a long wavy underline-ish stroke on the line, then the "="
+    draw(app, [stroke(dense([b.x - 90, 290, b.x - 70, 284, b.x - 50, 292, b.x - 30, 286, b.x - 10, 291])), ...ink]);
+    draw(app, pen(EXTRA['='][0], { r: rng(5), x: b.x2 + 14, y: 260, size: 40 }));
+    await IM.flush(app);
+  } finally { console.error = was; }
+  assert.deepEqual(errors, []);
+});
+
+test('read as a sum of numbers: a flat-topped 2, and a bowed 1 with no bracket to pair with', async () => {
+  EXTRA['2z'] = [[[0.0, 0.1, 0.12, 0.0, 0.66, 0.0, 0.66, 0.0, 0.02, 0.98, 0.02, 0.98, 0.7, 1.0]]];
+  EXTRA['1('] = [[[0.34, 0.0, 0.16, 0.5, 0.32, 1.0]]];
+  const app = board();
+  draw(app, inkOf(['2z', '+', '1', '='], 3));
+  draw(app, inkOf(['1(', '2', '+', '3', '='], 3, { base: 420 }));
+  await IM.flush(app);
+  const got = Array.from(answers(app), a => a.expr + '=' + a.text);
+  assert.ok(got.includes('12+3=15'), 'the bowed 1 is a 1');
+  // the z-like 2 is read as a 2 — answered, or offered with a "?" when a 1 runs it close
+  const guesses = Array.from(IM.state.marks.values(), m => m.reading.expr);
+  assert.ok(got.includes('2+1=3') || guesses.includes('2+1'), got.join() + ' / ' + guesses.join());
+});
+
+test('not sure enough to answer: a "?" with its best guess; "Show why" says why for any "="', async () => {
+  // the flat-topped 2 above, which a 1 runs close: seen, not answered, offered
+  const asked = board();
+  draw(asked, inkOf(['2z', '+', '1', '='], 3));
+  await IM.flush(asked);
+  const [m] = IM.state.marks.values();
+  assert.ok(m && m.guess, 'a "?"');
+  assert.equal(m.reading.expr, '2+1', 'with the best guess for Solve this ink');
+  assert.equal(answers(asked).length, 0, 'and no answer beside it');
+  const app = board();
+  app.opts.inkmath.explain = true;
+  draw(app, inkOf(['7', '='], 8));
+  await IM.flush(app);
+  assert.deepEqual([...IM.state.marks.values()].map(m => m.why), ['not-a-sum']);
+  IM.reset(app);
+  assert.equal(IM.state.marks.size, 0, 'and the notes go with the board');
 });
 
