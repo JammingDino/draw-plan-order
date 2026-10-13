@@ -354,7 +354,7 @@ test('the registry: an answer item, a press action and a settings section', () =
   assert.equal(a.when({ selection: [], source: 'menu' }), false, 'nothing selected');
   assert.equal(a.when({ selection: [s, { id: 'n', type: 'note' }], source: 'bar' }), false, 'not with a note in it');
   assert.ok(D.ext.settings.some(x => x.id === 'inkmath'));
-  assert.deepEqual(JSON.parse(JSON.stringify(D.ext.opts.inkmath)), { auto: true, places: 'auto', color: 'accent' });
+  assert.deepEqual(JSON.parse(JSON.stringify(D.ext.opts.inkmath)), { auto: true, places: 'auto', color: 'accent', explain: false });
 });
 
 test('12 + 30 = answers 42 beside the "=", without an undo step of its own', async () => {

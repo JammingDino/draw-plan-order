@@ -369,10 +369,14 @@
     // 0 is flat, 90 upright; lean > 0 when the top end is to the right (a "/")
     const ang = Math.atan2(Math.abs(by - ay), Math.abs(bx - ax)) * 180 / Math.PI;
     const top = ay < by ? [ax, bx] : [bx, ax];
+    const straight = chord > 0 && dev < 0.085 && len < chord * 1.18;
     return {
       id: it.id, item: it, xy, len, chord, dev, ang, lean: Math.sign(top[0] - top[1]),
       bulge: chord > 0 ? (left - right) / chord : 0,
-      straight: chord > 0 && dev < 0.085 && len < chord * 1.18,
+      straight,
+      /* a dash as a pen writes it: near level, and straight or only bowed
+         or hooked at an end — real bars are seldom ruled */
+      dash: ang < 24 && (straight || (chord > 0 && dev < 0.32 && len < chord * 1.45 && h < 0.5 * w)),
       x: x1, y: y1, x2, y2, w, h, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2
     };
   }
@@ -383,12 +387,12 @@
     return { x, y, x2, y2, w: x2 - x, h: y2 - y, cx: (x + x2) / 2, cy: (y + y2) / 2 };
   };
   const median = a => { if (!a.length) return 0; const s = a.slice().sort((p, q) => p - q); return s[s.length >> 1]; };
-  const flat = (s, H) => s.straight && s.ang < 24 && s.w > 0.18 * H;
+  const flat = (s, H) => s.dash && s.w > 0.18 * H;
   const isDot = (s, H) => Math.max(s.w, s.h) < 0.2 * H && s.len < 0.5 * H;
 
   /** how tall a symbol is on this line: the middle of the tall ones, dashes and dots aside */
   function lineHeight(strokes) {
-    const hs = strokes.filter(s => !(s.straight && s.ang < 24)).map(s => s.h).filter(h => h > 0);
+    const hs = strokes.filter(s => !s.dash).map(s => s.h).filter(h => h > 0);
     if (!hs.length) return Math.max(1, ...strokes.map(s => s.w)) * 0.8;
     const top = Math.max(...hs);
     return Math.max(median(hs.filter(h => h > 0.55 * top)), 1);
@@ -411,8 +415,8 @@
     if (n === dots.length) return [{ ch: '.', d: SURE }];
     if (n === 1) {
       const s = strokes[0];
+      if (s.dash) return [{ ch: '−', d: SURE }];
       if (s.straight) {
-        if (s.ang < 24) return [{ ch: '−', d: SURE }];
         // a 1 stands nearly upright; a / leans further, and reaches past the digits
         const slash = s.lean > 0 && (s.ang < 64 || (s.ang < 72 && s.h > 1.03 * H));
         if (!slash && (s.ang > 62 || (s.lean < 0 && s.ang > 50))) return [{ ch: '1', d: SURE }, { ch: '/', d: SURE * 3 }];
@@ -422,13 +426,14 @@
       if (s.ang > 60 && s.dev < 0.3 && s.len < s.chord * 1.35 && Math.abs(s.bulge) > 0.06 && s.h > s.w * 2) {
         // the bow's middle is left of its ends for "(" — whichever way it was drawn
         const ys = s.xy, mid = midX(ys, s);
-        return [{ ch: mid < (ys[0] + ys[ys.length - 2]) / 2 ? '(' : ')', d: SURE }];
+        // a bowed 1 is the same stroke: the line's brackets decide (repair, below)
+        return [{ ch: mid < (ys[0] + ys[ys.length - 2]) / 2 ? '(' : ')', d: SURE }, { ch: '1', d: SURE * 3 }];
       }
     }
     if (n === 2 && strokes[0].eqBar && strokes[1].eqBar) return [{ ch: '=', d: SURE }];
+    if (n === 2 && strokes.every(s => s.dash)) return [{ ch: '=', d: SURE }];
     if (n === 2 && strokes.every(s => s.straight)) {
       const [a, b] = strokes;
-      if (a.ang < 24 && b.ang < 24) return [{ ch: '=', d: SURE }];
       const t = crossing(a, b);
       if (t) {
         const [h, v] = a.ang < b.ang ? [a, b] : [b, a];
@@ -465,7 +470,7 @@
     }
     if (n === 3 && dots.length === 2) {
       const bar = strokes.find(s => !isDot(s, H));
-      if (bar && bar.straight && bar.ang < 24 && dots.some(d => d.cy < bar.cy) && dots.some(d => d.cy > bar.cy)) return [{ ch: '÷', d: SURE }];
+      if (bar && bar.dash && dots.some(d => d.cy < bar.cy) && dots.some(d => d.cy > bar.cy)) return [{ ch: '÷', d: SURE }];
     }
     return cloudMatch(strokes.filter(s => !isDot(s, H) || n === 1), box, H);
   }
@@ -501,7 +506,7 @@
     const c = cloud(strokes.map(s => s.xy));
     const rough = [];
     for (const t of templates()) {
-      if (Math.abs(t.c.a - c.a) > 1.15) continue;
+      if (Math.abs(t.c.a - c.a) > 1.15 || (ALLOW && !ALLOW(t.ch))) continue;
       rough.push({ t, d: gridDistance(c.g, t.c.g) + 6 * Math.abs(t.c.a - c.a) });
     }
     rough.sort((a, b) => a.d - b.d);
@@ -547,12 +552,12 @@
 
     if (depth < MAX_DEPTH) {
       // fraction bars, the longest first so an outer bar takes its inner ones with it
-      const bars = rest.filter(s => !s.eqBar && s.straight && s.ang < 14 && s.w > 0.45 * H).sort((a, b) => b.w - a.w);
+      const bars = rest.filter(s => !s.eqBar && s.dash && s.ang < 14 && s.w > 0.45 * H).sort((a, b) => b.w - a.w);
       for (const bar of bars) {
         if (!rest.includes(bar)) continue;
         const pad = 0.12 * bar.w;
         const inRange = s => s !== bar && !s.eqBar && s.cx > bar.x - pad && s.cx < bar.x2 + pad;
-        const like = s => s.straight && s.ang < 20 && s.w > 0.5 * bar.w && s.w < 2 * bar.w;      // the other half of an "="
+        const like = s => s.dash && s.ang < 20 && s.w > 0.5 * bar.w && s.w < 2 * bar.w;      // the other half of an "="
         // clearly over or under it: the bar of a + beside it sits level with it
         const above = rest.filter(s => inRange(s) && s.cy < bar.cy - 0.15 * H && s.y2 < bar.cy + 0.25 * H && bar.cy - s.y2 < 1.3 * H);
         const below = rest.filter(s => inRange(s) && s.cy > bar.cy + 0.15 * H && s.y > bar.cy - 0.25 * H && s.y - bar.cy < 1.3 * H);
@@ -580,11 +585,17 @@
 
     for (const g of group(rest, H)) {
       const box = boxOf(g);
-      const alts = classify(g, H);
+      let alts = classify(g, H);
+      if (ALLOW) {
+        const kept = alts.filter(a => ALLOW(a.ch));
+        kept.cloud = alts.cloud;
+        alts = kept.length ? kept : Object.assign([{ ch: '?', d: UNKNOWN }], { cloud: alts.cloud });
+      }
       nodes.push({ kind: 'sym', ch: alts[0].ch, d: alts[0].d, alts, strokes: g, box, cloud: alts.cloud });
     }
     nodes.sort((a, b) => a.box.x - b.box.x || a.box.cx - b.box.cx);
     descenders(nodes, H);
+    repairBrackets(nodes);
     return { nodes, H };
   }
 
@@ -604,6 +615,23 @@
       if (low && top.ch !== 'y') pick = n.alts.find(a => a.ch === 'y' && a.d < top.d * 1.6 + 0.1);
       else if (!low && top.ch === 'y' && n.box.y2 < base + 0.08 * H) pick = n.alts.find(a => a.ch !== 'y' && a.d < top.d * 1.6 + 0.1);
       if (pick) { n.ch = pick.ch; n.d = pick.d; }
+    }
+  }
+
+  /* A bracket with no partner on its line was most likely a bowed 1 —
+     real 1s lean and curve as much as a written "(" does. Each such
+     bracket takes its next reading, when it has one that is not a
+     bracket and is not much worse. */
+  function repairBrackets(nodes) {
+    const open = [], lone = [];
+    for (const n of nodes) {
+      if (n.kind !== 'sym') continue;
+      if (n.ch === '(') open.push(n);
+      else if (n.ch === ')') { if (open.length) open.pop(); else lone.push(n); }
+    }
+    for (const n of lone.concat(open)) {
+      const alt = n.alts && n.alts.find(a => a.ch !== '(' && a.ch !== ')' && a.d < n.d + 0.8);
+      if (alt) { n.ch = alt.ch; n.d = alt.d; }
     }
   }
 
@@ -671,7 +699,7 @@
       if (dots[i] && dots[j]) continue;
       if (dots[i] || dots[j]) {
         const [d, o] = dots[i] ? [a, b] : [b, a];
-        if (o.straight && o.ang < 24 && d.cx > o.x && d.cx < o.x2 && Math.abs(d.cy - o.cy) < 0.7 * H && Math.abs(d.cy - o.cy) > 0.08 * H) parent[find(i)] = find(j);
+        if (o.dash && d.cx > o.x && d.cx < o.x2 && Math.abs(d.cy - o.cy) < 0.7 * H && Math.abs(d.cy - o.cy) > 0.08 * H) parent[find(i)] = find(j);
         continue;
       }
       // a stroke too narrow to overlap anything (the stem of a +) is given some width
@@ -823,6 +851,7 @@
 
   /* ══ reading ═════════════════════════════════════════════════════════ */
   const ACCEPT = 1.25;          // the worst a symbol may match by for the line to be trusted
+  const GUESS = 2.0;            // …and for a "?" that offers its best guess instead
 
   /**
    * Read a line of ink. Strokes are scene items (pts [x,y,p,…]) or
@@ -831,7 +860,17 @@
    * out. `expr` is the line before a trailing "="; a line with an "="
    * in it gives `lhs` and `rhs` as well.
    */
-  function read(items, eqIds) {
+  /* What a symbol may be read as, while a line is read for a sum whose
+     letters nothing defines: digits, operators and brackets (and x,
+     which between numbers is a times sign). Null: anything. */
+  let ALLOW = null;
+  const ARITH = /^[0-9+−×·/÷=().√^x]$/;
+
+  function read(items, eqIds, allow) {
+    ALLOW = allow || null;
+    try { return read1(items, eqIds); } finally { ALLOW = null; }
+  }
+  function read1(items, eqIds) {
     const eqs = eqIds && eqIds.length === 2 ? new Set(eqIds) : null;
     let strokes = items.map(s => s.xy ? s : feature(s)).filter(s => s.xy.length >= 2);
     if (eqs) strokes = strokes.map(s => eqs.has(s.id) ? Object.assign({}, s, { eqBar: true }) : s.eqBar ? Object.assign({}, s, { eqBar: false }) : s);
@@ -860,7 +899,7 @@
     // fraction, the digits over and under the bar will do
     const inner = nodes.filter(n => n.kind === 'frac').flatMap(n => n.num.nodes.concat(n.den.nodes)).filter(n => n.kind === 'sym' && DIGIT.test(n.ch));
     const size = median((digits.length ? digits : inner).map(n => n.box.h)) || null;
-    return { ok: worst <= ACCEPT && shaped, conf, worst, expr, lhs, rhs, eq, syms, map, H, base, size, box: boxOf(strokes), text };
+    return { ok: worst <= ACCEPT && shaped, shaped, conf, worst, expr, lhs, rhs, eq, syms, map, H, base, size, box: boxOf(strokes), text };
   }
   function balanced(s) {
     let d = 0;
@@ -883,7 +922,7 @@
      touch of the glass puts it off — and then the waiting lines are read
      in one go, after a look to see that what they were about is still
      there. */
-  D.ext.opts.inkmath = { auto: true, places: 'auto', color: 'accent' };
+  D.ext.opts.inkmath = { auto: true, places: 'auto', color: 'accent', explain: false };
 
   const PAUSE = 800;
   const MAX_EQS = 60;          // "=" signs remembered, newest kept
@@ -896,6 +935,7 @@
     eqs: new Map(),            // "=" signs: key → { key, ids, x, x2, cy, L }
     defs: new Map(),           // "x = 5" lines: eq key → { key, name, rhs, src, cy, x }
     known: new Map(),          // answers: id → { id, item, ours, why }
+    marks: new Map(),          // "?" beside an "=" not answered: eq key → { el, e, why, reading, guess }
     byEq: new Map(),           // eq key → answer id
     lastFlat: null,
     quiet: false
@@ -905,6 +945,7 @@
     clearTimeout(S.timer);
     Object.assign(S, { app, timer: 0, lastFlat: null });
     S.jobs.clear(); S.eqs.clear(); S.defs.clear(); S.known.clear(); S.byEq.clear();
+    unmarkAll();
     if (!app || !app.scene) return;
     // the answers already on the board, and the "=" each hangs on (once, on opening a board)
     let uses = null;
@@ -929,22 +970,50 @@
     if (S.known.size > 400) { const first = S.known.keys().next().value; S.known.delete(first); }
   }
 
-  /** two strokes that make an "=": flat, about as long, one over the other */
+  /**
+   * Two strokes that make an "=": flat, about as long, one over the
+   * other. Measured on a real hand, the second bar is often bowed or
+   * hooked where the pen lifts (its ink strays a fifth of its length
+   * from the chord) and the bars are not quite parallel, so the bars
+   * are judged as dashes, not ruled lines; what keeps a pair honest is
+   * that each is clear of the other — their middles further apart than
+   * either is tall.
+   */
   function pairs(a, b) {
     const wa = a.w, wb = b.w, w = Math.max(wa, wb);
     if (Math.min(wa, wb) < 0.45 * w) return false;
     const ov = Math.min(a.x2, b.x2) - Math.max(a.x, b.x);
     if (ov < 0.5 * Math.min(wa, wb)) return false;
     const gap = Math.abs(a.cy - b.cy);
-    return gap > 0.1 * w && gap < 1.1 * w && gap > Math.max(a.h, b.h) * 0.8;
+    return gap > 0.1 * w && gap < 1.1 * w && gap > Math.max(a.h, b.h) * 0.6 && gap > Math.min(a.h, b.h);
   }
-  const flatish = f => f.ang < 22 && f.dev < 0.16 && f.w > 2;
+  /* A bar of an "=" — a dash — at least a few pixels long as it was
+     written: world units mean nothing on a board that zooms, and lecture
+     notes are written small. */
+  const MIN_BAR_PX = 3;
+  const flatish = (f, zoom = 1) => f.dash && f.w * zoom > MIN_BAR_PX;
+
+  /* The arms of an F or an E, or the bars of a ≡ with a stroke through
+     them, are two dashes one over the other too. What they have and an
+     "=" has not is a stroke joining them: one that reaches from one bar
+     to the other, over their width. Only asked of a pair, so rare. */
+  function stemmed(app, a, b) {
+    const [t, u] = a.cy < b.cy ? [a, b] : [b, a];
+    const w = Math.max(a.w, b.w), tol = 0.2 * w;
+    for (const it of app.scene.near(U.box(Math.min(a.x, b.x) - tol, t.cy - tol, Math.max(a.x2, b.x2) + tol, u.cy + tol))) {
+      if (!isInk(it) || it.id === a.id || it.id === b.id) continue;
+      const bx = app.scene.bbox(it), pad = (it.size || 0) / 2;
+      const y1 = bx.y + pad, y2 = bx.y + bx.h - pad, cx = bx.x + bx.w / 2;
+      if (y1 < t.cy + tol && y2 > u.cy - tol && cx > Math.min(a.x, b.x) - tol && cx < Math.max(a.x2, b.x2) + tol) return true;
+    }
+    return false;
+  }
 
   function rememberEq(fs) {
     const key = keyOf(fs.map(f => f.id));
     const b = boxOf(fs);
     // a digit is about one and a half times as tall as an "=" is wide
-    const e = { key, ids: fs.map(f => f.id), x: b.x, x2: b.x2, cx: b.cx, cy: b.cy, L: Math.max(b.w * 1.6, b.h * 2.6, 4) };
+    const e = { key, ids: fs.map(f => f.id), x: b.x, x2: b.x2, cx: b.cx, cy: b.cy, L: Math.max(b.w * 1.6, b.h * 2.6) || 1 };
     S.eqs.delete(key);
     S.eqs.set(key, e);
     if (S.eqs.size > MAX_EQS) S.eqs.delete(S.eqs.keys().next().value);
@@ -1015,7 +1084,7 @@
       if (f.cy > e.cy - 0.85 * L && f.cy < e.cy + 0.85 * L) fs.push(f); else wide.push(f);
     }
     // a fraction reaches further up and down than the line: what is over and under its bar belongs
-    for (const bar of fs.filter(f => f.straight && f.ang < 14 && f.w > 0.45 * L)) {
+    for (const bar of fs.filter(f => f.dash && f.ang < 14 && f.w > 0.45 * L)) {
       for (const f of wide) {
         if (f.line || Math.abs(f.cy - bar.cy) > 1.8 * L || f.cx < bar.x - 0.1 * bar.w || f.cx > bar.x2 + 0.1 * bar.w) continue;
         f.line = true;
@@ -1051,15 +1120,17 @@
       S.eqs.delete(e.key);
       dropDef(e.key, changed);
       unanswer(app, e.key, 'line');
+      unmark(e.key);
       return;
     }
     const eqf = bars.map(feature);
     const { left, right } = gather(app, e);
-    if (!left.length) { e.why = 'alone'; e.reading = null; dropDef(e.key, changed); unanswer(app, e.key); return; }
+    if (!left.length) { note(e, 'alone', null); dropDef(e.key, changed); unanswer(app, e.key); return; }
 
     if (right.length) {
       // "x = 5": a definition, if that is how it reads
       unanswer(app, e.key);
+      unmark(e.key);
       const r = read([...left, ...eqf, ...right], e.ids);
       e.reading = r; e.why = 'right';
       if (r.ok && r.eq === 'mid' && NAME.test(r.lhs) && r.rhs) {
@@ -1072,16 +1143,36 @@
     }
 
     dropDef(e.key, changed);
-    const r = read([...left, ...eqf], e.ids);
-    e.reading = r;
-    if (!r.ok || r.eq !== 'end' || !worthAnswering(r.expr)) {
-      e.why = r.worst > ACCEPT ? 'unsure' : r.eq !== 'end' ? 'no-end' : !worthAnswering(r.expr) ? 'not-a-sum' : 'shape';
+    const ink = [...left, ...eqf];
+    let r = read(ink, e.ids);
+    /* A letter nothing defines cannot be answered, so a reading that has
+       one — or that is not sure of itself — is tried again as a sum of
+       numbers: digits, operators, brackets, and the letters that are
+       defined above. A 2 the matcher half took for a z, or a 1 for a t,
+       is then a 2 and a 1. Lines of notes, all letters, read no better. */
+    const scope = scopeAbove(e.cy);
+    const unknown = q => namesIn(q.expr).some(n => !scope.has(n));
+    if (r.eq !== 'mid' && (!r.ok || unknown(r))) {
+      const n = read(ink, e.ids, ch => ARITH.test(ch) || scope.has(ch));
+      if (n.eq === 'end' && n.shaped && (n.ok || !r.shaped || unknown(r) || n.worst < r.worst)) r = n;
+    }
+    if (r.eq !== 'end' || !worthAnswering(r.expr)) {
+      note(e, r.eq !== 'end' ? 'no-end' : 'not-a-sum', r);
       unanswer(app, e.key); return;
     }
     const uses = namesIn(r.expr);
-    const out = work1(app, r.expr, uses, e.cy, around(U.box(e.x, e.cy, e.x2, e.cy), e.L));
-    if (!out) { e.why = 'eval'; unanswer(app, e.key); return; }
-    e.why = 'answered';
+    const out = r.shaped ? work1(app, r.expr, uses, e.cy, around(U.box(e.x, e.cy, e.x2, e.cy), e.L)) : null;
+    if (!r.ok || !out) {
+      unanswer(app, e.key);
+      /* Not sure enough to write an answer, but it is a sum that works
+         out, of numbers alone: a faint "?" by the "=" says it was seen,
+         and a tap puts the best guess in Solve this ink. Lines with
+         letters in — notes — never get one. */
+      const guess = out && !uses.length && r.worst <= GUESS;
+      note(e, !r.shaped ? 'shape' : !out ? 'eval' : 'unsure', r, guess);
+      return;
+    }
+    note(e, 'answered', r);
     answer(app, e, eqf, left, r, out, uses);
   }
 
@@ -1142,16 +1233,16 @@
     const flats = [];
     for (const it of app.scene.near(box)) {
       if (!isInk(it)) continue;
-      const b = app.scene.bbox(it);
-      if (b.h > b.w * 0.6) continue;
+      const b = app.scene.bbox(it), pad = (it.size || 2) + 2;
+      if (b.h - pad > (b.w - pad) * 0.6) continue;
       const f = feature(it);
-      if (flatish(f)) flats.push(f);
+      if (flatish(f, (app.camera && app.camera.zoom) || 1)) flats.push(f);
       if (flats.length > 200) break;
     }
     let found = 0;
     for (let i = 0; i < flats.length && found < 40; i++) for (let j = i + 1; j < flats.length; j++) {
       const a = flats[i], b = flats[j];
-      if (!pairs(a, b)) continue;
+      if (!pairs(a, b) || stemmed(app, a, b)) continue;
       // an "=" already known has been read, and is read again when its line changes
       const key = keyOf([a.id, b.id]);
       if (S.eqs.has(key) || S.defs.has(key) || S.byEq.has(key)) continue;
@@ -1223,6 +1314,78 @@
     quietRemove(app, it, why);
   }
 
+  /* ── why it did not answer ───────────────────────────────────────────
+     Every "=" read keeps what it was read as and why it was or was not
+     answered (e.why, e.reading), for the tests and for this. A sum of
+     numbers read with too little confidence gets a faint "?" beside its
+     "=": the board saw it, and a tap opens Solve this ink on the best
+     guess, so a misreading is one correction away. With "Show why it
+     did not answer" on (Settings), every "=" that went unanswered says
+     why, the same way. The marks are page furniture, not board items:
+     never saved, never in the history, and gone as soon as the line
+     reads again. */
+  const WHY = {
+    alone: 'Nothing written before this "="',
+    'no-end': 'Read, but not as a sum that ends in "="',
+    'not-a-sum': 'Nothing to work out: no operator',
+    shape: 'Read, but not as a sum that makes sense',
+    eval: 'Read, but it does not work out — a letter nothing defines?',
+    unsure: 'Not sure of the reading — tap to check it'
+  };
+  function note(e, why, r, guess = false) {
+    e.why = why; e.reading = r || null;
+    const o = S.app && S.app.opts && S.app.opts.inkmath;
+    if (why !== 'answered' && (guess || (o && o.explain))) mark(e, why, r, guess);
+    else unmark(e.key);
+  }
+  function mark(e, why, r, guess) {
+    let m = S.marks.get(e.key);
+    if (!m) {
+      if (typeof document === 'undefined' || !document.getElementById) return;
+      const host = document.getElementById('overlay');
+      if (!host) return;
+      m = { key: e.key, el: el('button', { class: 'inkmath-ask', type: 'button' }) };
+      m.el.addEventListener('pointerdown', ev => { ev.stopPropagation(); ev.preventDefault(); });
+      m.el.addEventListener('click', ev => { ev.stopPropagation(); ask(m); });
+      host.append(m.el);
+      S.marks.set(e.key, m);
+      if (S.marks.size === 1) D.ext.on('frame', placeMarks);
+    }
+    Object.assign(m, { e, why, reading: r || null, guess });
+    const said = (WHY[why] || why) + (r && r.text ? ' (read as ' + r.text + (r.worst != null ? ', ' + r.worst.toFixed(2) : '') + ')' : '');
+    m.el.title = said;
+    m.el.setAttribute('aria-label', said);
+    m.el.classList.toggle('why', !guess);
+    m.el.textContent = guess ? '?' : '?  ' + why;
+    placeMark(m);
+    if (S.app && S.app.requestDrawLive) S.app.requestDrawLive();
+  }
+  function unmark(key) {
+    const m = S.marks.get(key);
+    if (!m) return;
+    m.el.remove();
+    S.marks.delete(key);
+    if (!S.marks.size) D.ext.off('frame', placeMarks);
+  }
+  function unmarkAll() { for (const k of [...S.marks.keys()]) unmark(k); }
+  function placeMark(m) {
+    const app = S.app, cam = app && app.camera;
+    if (!cam || !cam.toScreen) return;
+    const e = m.e, p = cam.toScreen(e.x2 + 0.3 * e.L, e.cy);
+    const px = U.clamp(e.L * cam.zoom * 0.7, 13, 26);
+    m.el.style.left = p.x + 'px'; m.el.style.top = p.y + 'px';
+    m.el.style.fontSize = px + 'px';
+  }
+  function placeMarks() { for (const m of S.marks.values()) placeMark(m); }
+  /** a "?" tapped: Solve this ink, on what it was read as */
+  function ask(m) {
+    const app = S.app;
+    if (!app || !m.reading) return;
+    const items = m.reading.syms.flatMap(s => s.strokes.map(f => app.scene.get(f.id))).filter(Boolean);
+    const b = m.el.getBoundingClientRect ? m.el.getBoundingClientRect() : null;
+    solve(app, items, { reading: m.reading, sx: b ? b.left : undefined, sy: b ? b.bottom : undefined });
+  }
+
   /* Answers are added, changed and removed outside the undo history: they
      follow from the ink, like a calc block's answers follow from its text
      (see calc.js). The core is still told, so the board is repainted and
@@ -1258,7 +1421,7 @@
      file took away comes back when its strokes are back as they were —
      which is what makes undo and redo of a stroke carry its answer. */
   function follow(app) {
-    if (S.quiet || S.app !== app || !S.known.size) return;
+    if (S.quiet || S.app !== app || (!S.known.size && !S.marks.size)) return;
     const scene = app.scene;
     let more = false;
     for (const rec of S.known.values()) {
@@ -1306,6 +1469,8 @@
       if (!S.eqs.has(keyOf(it.eq))) rememberEq(it.eq.map(id => feature(scene.get(id))));
       more = true;
     }
+    // a "?" whose "=" went goes with it
+    for (const m of S.marks.values()) if (m.e.ids.some(id => !scene.get(id))) unmark(m.key);
     // a definition whose strokes went is read again too
     for (const d of S.defs.values()) {
       if (d.src.every(id => scene.get(id))) continue;
@@ -1361,7 +1526,9 @@
     const o = app.opts.inkmath;
     if (!o || !o.auto || !it || !it.pts) return;
     if (S.app !== app) reset(app);
-    const b = app.scene.bbox(it), pad = (it.size || 2) / 2;
+    // the scene's box is the ink's grown by half the nib and a pixel more
+    // (scene.js): take both off, or a short bar looks half as tall as wide
+    const b = app.scene.bbox(it), pad = (it.size || 2) / 2 + 1;
     const w = b.w - 2 * pad, h = b.h - 2 * pad;
     let touched = false;
     for (const e of S.eqs.values()) {
@@ -1369,12 +1536,13 @@
       queue('eq:' + e.key, { kind: 'eq', ids: e.ids });
       touched = true;
     }
-    if (w > 2 && h < 0.45 * w) {
+    const z = (app.camera && app.camera.zoom) || 1;
+    if (w * z > MIN_BAR_PX && h < 0.6 * w) {
       const f = feature(it);
-      if (flatish(f)) {
+      if (flatish(f, z)) {
         const prev = S.lastFlat;
         S.lastFlat = { f, t: Date.now() };
-        if (prev && Date.now() - prev.t < 5000 && app.scene.get(prev.f.id) && pairs(prev.f, f)) {
+        if (prev && Date.now() - prev.t < 5000 && app.scene.get(prev.f.id) && pairs(prev.f, f) && !stemmed(app, prev.f, f)) {
           const e = rememberEq([prev.f, f].sort((p, q) => p.cy - q.cy));
           queue('eq:' + e.key, { kind: 'eq', ids: e.ids });
           S.lastFlat = null;
@@ -1498,7 +1666,7 @@
   function solve(app, items, opts = {}) {
     closePop();
     const strokes = items.filter(isInk).map(feature);
-    const reading = read(strokes);
+    const reading = opts.reading || read(strokes);
     const original = shown(reading);
     const field = el('input', {
       class: 'inkmath-field', type: 'text', spellcheck: 'false', autocomplete: 'off', autocapitalize: 'off',
@@ -1670,7 +1838,8 @@
         ui.setGroup(
           ui.setToggle('Solve as I write', 'Write a sum with the pen, end it with =, and pause: the answer appears beside it. x = 5 on a line above sets x', !!o.auto, v => set('auto', v)),
           ui.setRow('Decimal places', 'Auto follows the calculator’s number settings', ui.setSeg([['auto', 'Auto'], [0, '0'], [1, '1'], [2, '2'], [3, '3'], [4, '4']], o.places, v => { set('places', v); rework(app); })),
-          ui.setRow('Answer colour', '', ui.setSeg(['accent', 'green', 'orange', 'red', 'purple'].map(c => [c, sw(c, c)]), o.color, v => { set('color', v); recolour(app, v); }))),
+          ui.setRow('Answer colour', '', ui.setSeg(['accent', 'green', 'orange', 'red', 'purple'].map(c => [c, sw(c, c)]), o.color, v => { set('color', v); recolour(app, v); })),
+          ui.setToggle('Show why it didn’t answer', 'A note beside each = it found but left alone, saying why. For when it misses one', !!o.explain, v => { set('explain', v); explainAll(app); })),
         ui.setGroup(
           ui.setRow('Your handwriting', n ? `${n} symbol${n > 1 ? 's' : ''} taught with Teach` : 'Nothing taught yet: Teach in Solve this ink remembers a symbol it misread',
             ui.setButton('Forget', () => { forget(); if (app.toast) app.toast('Forgot the symbols you taught'); if (ui.showSettings) ui.showSettings('inkmath'); }))),
@@ -1678,6 +1847,14 @@
       ];
     }
   });
+
+  /** "Show why" switched: every "=" seen is read again, to put up or take down its note */
+  function explainAll(app) {
+    if (S.app !== app) return;
+    for (const e of S.eqs.values()) queue('eq:' + e.key, { kind: 'eq', ids: e.ids });
+    if (!app.opts.inkmath.explain) for (const m of [...S.marks.values()]) if (!m.guess) unmark(m.key);
+    flush(app).catch(() => {});
+  }
 
   /** every answer in the new colour (a setting, not an edit: no undo step) */
   function recolour(app, c) {
