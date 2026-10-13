@@ -1,9 +1,11 @@
 /* ── press.js ── the long-press menu and the selection action bar ─────
    What a pen or a finger gets in place of a right button and a keyboard.
-   Holding still on the board opens a menu at that spot; whatever is
+   Holding still on the board arms a ring at that spot: lift, and a menu
+   opens there; drag on instead, and it draws a selection. Whatever is
    selected gets a bar of actions just above it. The gestures themselves
    — when a hold is a hold, what a tap or a double-tap does — are worked
-   out in app.js (armHold, onHold, onTap) and taps.js (Hold); this file
+   out in app.js (armHold, onHold, dragFromHold, onTap) and taps.js
+   (Hold); this file
    is what they open.
 
    ── For features: D.ext.pressActions ───────────────────────────────
@@ -40,16 +42,19 @@
 
    ── Options and settings ─────────────────────────────────────────────
 
-   app.opts.press = { hold, pen, delay, bar }, saved with the prefs:
-   long-press on for fingers, and for the pen too; the hold in ms; and
-   when the action bar shows — 'touch' (after a pen or finger pressed:
-   the mouse and keyboard keep the style panel to themselves), 'always'
-   or 'off'. Settings → Touch and hold sets them.                       */
+   app.opts.press = { hold, pen, delay, bar, drag, lastSelect }, saved
+   with the prefs: long-press on for fingers, and for the pen too; the
+   hold in ms; when the action bar shows — 'touch' (after a pen or finger
+   pressed: the mouse and keyboard keep the style panel to themselves),
+   'always' or 'off'; what a hold-and-drag draws — 'tool' (whichever of
+   the select tool's box and lasso was picked last, which App.setTool
+   keeps in lastSelect), 'box' or 'lasso'. Settings → Touch and hold sets
+   all but lastSelect.                                                  */
 (function (D) {
   'use strict';
   const U = D.util, el = U.el;
 
-  D.ext.opts.press = { hold: true, pen: true, delay: 500, bar: 'touch' };
+  D.ext.opts.press = { hold: true, pen: true, delay: 500, bar: 'touch', drag: 'tool', lastSelect: 'select' };
 
   const svg = d => `<svg viewBox="0 0 24 24">${d.split('|').map(p => `<path d="${p}"/>`).join('')}</svg>`;
   const iconOf = s => !s ? '' : /^\s*</.test(s) ? s : svg(s);
@@ -124,7 +129,9 @@
       this.label = null;         // { edge, el } while a connector label is being typed
 
       this.ringEl = el('div', { class: 'press-ring', 'aria-hidden': 'true',
-        html: '<svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="28"/><circle class="arc" cx="32" cy="32" r="28" pathLength="100"/></svg>' });
+        html: '<svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="28"/><circle class="arc" cx="32" cy="32" r="28" pathLength="100"/>' +
+          // what a drag from the armed ring will draw (lock)
+          '<rect class="mode box" x="22" y="24" width="20" height="16" rx="1.5"/><path class="mode loop" d="M32 22.5c7 0 11 3.4 11 7.3S39 37 32 37s-11-3.3-11-7.2 4-7.3 11-7.3z M27 36.2c-1 2.6 0 4.6 2.3 5.6"/></svg>' });
       this.arc = this.ringEl.querySelector('.arc');
 
       this.barEl = el('div', { class: 'press-bar', role: 'toolbar', 'aria-label': 'Selection actions' });
@@ -145,6 +152,7 @@
     ring(h) {
       const r = this.ringEl, size = h.type === 'touch' ? 84 : 60;
       this.stopRing();
+      r.classList.remove('locked');
       r.style.width = r.style.height = size + 'px';
       r.style.transform = `translate(${h.x - size / 2}px,${h.y - size / 2}px)`;
       r.classList.add('on');
@@ -155,14 +163,28 @@
       ];
     }
 
-    unring() { this.stopRing(); this.ringEl.classList.remove('on'); }
+    unring() { this.stopRing(); this.ringEl.classList.remove('on', 'locked'); }
 
     stopRing() {
       for (const a of this.ringAnims || []) a.cancel();
       this.ringAnims = null;
     }
 
-    /* the hold has fired: one short pulse outward, then gone */
+    /* The hold has fired and is armed (App.onHold): the ring locks full,
+       in solid accent, with a little box or lasso in it for what a drag
+       will draw from here — and stays until the press lifts or drags. A
+       quick swell says "now", for a hand that is not looking at it. */
+    lock(h, mode) {
+      const r = this.ringEl;
+      if (!r.classList.contains('on')) this.ring(h);
+      this.stopRing();
+      r.dataset.mode = mode === 'lasso' ? 'lasso' : 'box';
+      r.classList.add('locked');
+      this.ringAnims = [r.firstChild.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.16)' }, { transform: 'scale(1)' }],
+        { duration: 220, easing: 'cubic-bezier(.22,1,.36,1)' })];
+    }
+
+    /* the menu has opened: one short pulse outward, then gone */
     pulse() {
       if (!this.ringEl.classList.contains('on')) return;
       this.stopRing();
@@ -437,15 +459,17 @@
       const app = ui.app, o = app.opts.press, save = () => app.savePrefs();
       return [
         ui.setGroup(
-          ui.setToggle('Hold for a menu', 'Hold a finger still on the board for paste, pictures and PDFs, undo, and what you can do with the thing under it',
+          ui.setToggle('Hold for a menu', 'Hold a finger still on the board, then lift, for paste, pictures and PDFs, undo, and what you can do with the thing under it',
             o.hold, v => { o.hold = v; save(); }),
           ui.setToggle('With the pen too', 'Hold the pen still where it first touched. A stroke held still at its end still snaps to a shape instead',
             o.pen, v => { o.pen = v; save(); }),
           ui.setRow('How long to hold', 'A ring fills up while you hold; move off before it closes to carry on as normal',
             ui.setSeg([[350, 'Short'], [500, 'Medium'], [800, 'Long']], o.delay, v => { o.delay = v; save(); })),
+          ui.setRow('Hold, then drag, to select', 'Once the ring locks, drag without lifting to draw a selection. Select tool follows whichever of box or lasso you last used it with',
+            ui.setSeg([['tool', 'Select tool'], ['box', 'Box'], ['lasso', 'Lasso']], o.drag, v => { o.drag = v; save(); })),
           ui.setRow('Action bar', 'Copy, cut, delete, arrange and edit, just above what is selected',
             ui.setSeg([['touch', 'Pen and touch'], ['always', 'Always'], ['off', 'Off']], o.bar, v => { o.bar = v; save(); app.requestDrawLive(); }))),
-        ui.setNote('Double-tap with the pen or a finger to edit text, notes and connector labels. With the select tool, tap with a finger to select, and drag what is selected with it. A right click, or the pen’s barrel button, opens the same menu as holding.')
+        ui.setNote('Double-tap with the pen or a finger to edit text, notes and connector labels. With the select tool, tap with a finger to select, and drag what is selected with it. A selection made by holding and dragging moves with the same pen: press inside it and drag. A right click, or the pen’s barrel button, opens the same menu as holding.')
       ];
     }
   });

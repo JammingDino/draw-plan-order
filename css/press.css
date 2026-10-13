@@ -15,6 +15,12 @@
   stroke-dasharray:100;stroke-dashoffset:100;
   transform:rotate(-90deg);transform-origin:50% 50%;
 }
+/* armed (press.js lock): full, solid, and showing what a drag would draw */
+.press-ring.locked svg{opacity:1}
+.press-ring.locked .arc{stroke-dashoffset:0}
+.press-ring.locked .track{stroke:var(--accent);fill:color-mix(in srgb,var(--accent) 16%,transparent)}
+.press-ring .mode{display:none;fill:none;stroke:var(--accent);stroke-width:2.6;stroke-linecap:round;stroke-dasharray:3.5 3}
+.press-ring.locked[data-mode="box"] .box,.press-ring.locked[data-mode="lasso"] .loop{display:inline}
 
 /* ── the long-press menu ────────────────────────────────────────────── */
 .press-menu{

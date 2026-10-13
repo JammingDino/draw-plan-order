@@ -75,6 +75,7 @@
         abort: () => { if (this.press) this.press.unring(); },
         fire: h => this.onHold(h)
       });
+      this.armed = null;        // a hold that has fired and not yet lifted or dragged (onHold)
       this.tap = null;          // the contact that may yet turn out to be a tap
       this.lastTap = null;      // the tap before it, for a double-tap
       this.press = null;        // the menu and the action bar, once the UI is up
@@ -415,7 +416,12 @@
     /* ── tools ────────────────────────────────────────────────────── */
     setTool(name) {
       if (this.tool && this.tool.cancel) this.tool.cancel();
+      this.disarm();
       if (this.press) this.press.closeMenu();
+      /* Box or lasso, as last picked: what a hold-and-drag draws with
+         under any other tool, unless Settings → Touch and hold says. */
+      const po = this.opts.press;
+      if (po && SELECTING.has(name) && po.lastSelect !== name) { po.lastSelect = name; this.savePrefs(); }
       this.toolName = name;
       this.tool = this.tools[name];
       if (name !== 'select' && name !== 'lasso') this.select([]);
@@ -522,6 +528,7 @@
          below, once it is known what it is driving. Likewise a tap: one
          contact, down and up again without going anywhere. */
       this.hold.cancel();
+      this.disarm();
       if (this.tap) this.tap.multi = true;
       this.tap = this.pointers.size === 1 ? {
         id: e.pointerId, type: e.pointerType, button: e.button, x: e.clientX, y: e.clientY, t0: now,
@@ -558,6 +565,16 @@
       const grab = touchPans && tool === this.tools.pan && !middle && !right && !this.spaceDown && selecting && this.onSelection(e);
       if (grab) tool = this.tool;
 
+      /* A selection made with some other tool out — held and dragged
+         round, or picked from the long-press menu — can be moved with the
+         same pen or finger that made it: a press anywhere inside its box
+         takes hold of it (or of a handle, to resize), as the select tool
+         would. Outside it, the pen draws and lets go of it, just below,
+         and a finger pans. */
+      const carry = !selecting && !middle && !right && !this.spaceDown && !eraserButton &&
+        (tool === this.tool ? this.toolName !== 'eraser' : touchPans) && this.selection.length > 0 && this.inSelection(e);
+      if (carry) tool = this.tools.select;
+
       /* A long-press can select something with a drawing tool still out.
          That selection is for the menu and the action bar: putting the
          tool to the board again lets go of it, as clicking away would. */
@@ -565,7 +582,7 @@
       if (tool !== this.tools.pan && this.press) this.press.hideBar();
 
       this.active = tool;
-      this.activeName = tool === this.tool ? this.toolName : (tool === this.tools.pan ? 'pan' : 'eraser');
+      this.activeName = carry ? 'select' : tool === this.tool ? this.toolName : (tool === this.tools.pan ? 'pan' : 'eraser');
       if (this.tap) this.tap.panned = touchPans && tool === this.tools.pan;
       const ev = this.mkEv(e);
       this.pointer = ev;
@@ -586,7 +603,8 @@
           if (this.tap) this.tap.panned = true;
           tool.down(ev);
         }
-      } else tool.down(ev);
+      } else if (carry) tool.grab(ev);
+      else tool.down(ev);
       this.armHold(e);
       this.requestDrawLive();
       e.preventDefault?.();
@@ -616,6 +634,15 @@
       const w = this.camera.toWorld(e.clientX, e.clientY);
       const hit = this.scene.hitTest(w.x, w.y, this.hitPx(e.pointerType) / this.camera.zoom);
       return !!hit && this.selection.includes(hit);
+    }
+
+    /** is this press inside the selection's box, or near enough to take one of its handles? */
+    inSelection(e) {
+      const b = this.selectionBounds();
+      if (!b) return false;
+      const a = this.camera.toScreen(b.x, b.y), c = this.camera.toScreen(b.x2, b.y2);
+      const pad = this.hitPx(e.pointerType) + this.handlePad(e.pointerType);
+      return e.clientX >= a.x - pad && e.clientX <= c.x + pad && e.clientY >= a.y - pad && e.clientY <= c.y + pad;
     }
 
     /**
@@ -663,7 +690,19 @@
       this.hold.start(e, delay);
     }
 
-    /** a long-press has fired: drop what the press had started, and open the menu */
+    /**
+     * A long-press has fired: drop what the press had started, and arm.
+     *
+     * Armed is a fork. Drag on from here, without lifting, and it is a
+     * selection — a box or a lasso from where the press landed
+     * (dragFromHold). Lift without dragging and it is the menu. Hold on
+     * a little longer without doing either and the menu opens anyway, for
+     * someone waiting for it with the pen still down; a drag after that
+     * still turns into a selection, and takes the menu away. So a quick
+     * hold-and-drag never flashes the menu up under the pen, and a hold
+     * on its own never feels as if nothing happened: the ring locks (and
+     * shows which of box or lasso a drag would draw) the moment it arms.
+     */
     onHold(h) {
       if (h.id !== this.downId || !this.pointers.has(h.id)) return;
       /* Every tool's cancel leaves no trace — no dot of ink, no empty text
@@ -677,7 +716,48 @@
         if (panned && this.holdCam) { this.camera.load(this.holdCam); this.requestPan(); }
       }
       if (this.tap && this.tap.id === h.id) this.tap.held = true;
-      this.openPress(h.x, h.y, h.type);
+      const a = this.armed = {
+        id: h.id, type: h.type, x: h.x, y: h.y, mode: this.holdDragMode(),
+        slop: DRAG_SLOP[h.type] || DRAG_SLOP.pen, menu: false, menuT: 0
+      };
+      a.menuT = setTimeout(() => {
+        if (this.armed !== a || a.menu) return;
+        a.menu = true;
+        this.openPress(a.x, a.y, a.type);
+      }, MENU_WAIT);
+      if (this.press) this.press.lock(h, a.mode);
+    }
+
+    /** what a drag from a hold draws: 'marquee' or 'lasso' (Settings → Touch and hold) */
+    holdDragMode() {
+      const o = this.opts.press || {};
+      const pick = o.drag === 'box' ? 'select' : o.drag === 'lasso' ? 'lasso'
+        : SELECTING.has(this.toolName) ? this.toolName : o.lastSelect;
+      return pick === 'lasso' ? 'lasso' : 'marquee';
+    }
+
+    /* The armed press has moved off: a selection, from where it was held.
+       The select tool draws the box or the lasso whatever tool is out, so
+       the rules are the ones it always has — a drag over a page gathers
+       up what is written on it rather than the page, for one. */
+    dragFromHold(a) {
+      clearTimeout(a.menuT);
+      this.armed = null;
+      if (this.press) { this.press.closeMenu(); this.press.unring(); }
+      const tool = a.mode === 'lasso' ? this.tools.lasso : this.tools.select;
+      const w = this.camera.toWorld(a.x, a.y);
+      tool.areaFrom({ x: w.x, y: w.y, sx: a.x, sy: a.y });
+      this.active = tool;
+      this.activeName = a.mode === 'lasso' ? 'lasso' : 'select';
+    }
+
+    /** forget an armed hold that will now come to nothing (another contact, a new tool) */
+    disarm() {
+      const a = this.armed;
+      if (!a) return;
+      this.armed = null;
+      clearTimeout(a.menuT);
+      if (!a.menu && this.press) this.press.unring();
     }
 
     /**
@@ -726,6 +806,15 @@
       const ev = this.mkEv(e, samples);
       this.pointer = ev;
 
+      /* armed: inside the slop it waits; past it a selection begins, and
+         this same move is its first step */
+      const armed = this.armed;
+      if (armed && e.pointerId === armed.id) {
+        const dx = e.clientX - armed.x, dy = e.clientY - armed.y;
+        if (dx * dx + dy * dy <= armed.slop * armed.slop) return;
+        this.dragFromHold(armed);
+      }
+
       if (this.active && e.pointerId === this.downId) {
         this.active.move(ev);
         /* The select tool starts moving things after a few pixels — inside
@@ -761,6 +850,13 @@
       this.hold.end(e);
       this.pointers.delete(e.pointerId);
       if (this.gesture && this.pointers.size < 2) { this.gesture = null; this.saveView(); }
+      /* armed, and lifted without dragging: the menu, unless it is up already */
+      const armed = this.armed;
+      if (armed && e.pointerId === armed.id) {
+        const open = !armed.menu && !cancelled;
+        this.disarm();
+        if (open) this.openPress(armed.x, armed.y, armed.type);
+      }
       const tap = this.endTap(e, cancelled);
       if (!this.active || e.pointerId !== this.downId) { if (tap) this.onTap(tap); return; }
       const ev = this.mkEv(e);
@@ -1838,6 +1934,8 @@
   const DOUBLE_SLOP = { touch: 28, pen: 12 };             // how far apart the two may land
   const DOUBLE_GUARD = 450;      // the browser's dblclick for a pair already handled
   const GRAB_GRACE = 300;        // longer to hold, for the menu, on what the select tool can drag
+  const DRAG_SLOP = { touch: 16, pen: 10 };              // CSS px from the press, once armed, that is a drag
+  const MENU_WAIT = 350;         // armed and still this long: the menu opens without waiting for the lift
   const PEN_NEAR_MS = 1000;      // a finger held this soon after the pen was about is a palm
   const PALM_PX = 70;            // and so is a contact this wide (fingertips are 20–45)
 
