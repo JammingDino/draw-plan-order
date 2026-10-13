@@ -5,6 +5,7 @@
 (function (D) {
   'use strict';
   const U = D.util, FH = D.freehand;
+  const XT = D.ext.items;      // item types registered by feature files (ext.js)
 
   /* Decoded pictures, by asset id (or, for a picture still carried inline,
      its data URL): { img, ready }. Emptied when the board changes. */
@@ -314,7 +315,12 @@
       const ids = new Set(items.map(i => i.id));
       for (const e of scene.items) {
         if (e.type === 'edge' && !ids.has(e.id) && ((e.from.id && ids.has(e.from.id)) || (e.to.id && ids.has(e.to.id)))) return false;
+        // an arrow or a dimension attached to something moving bends with it, like a connector
+        if (e._ends && e.type !== 'edge' && !ids.has(e.id) && D.refsOf(e).some(r => ids.has(r.id))) return false;
       }
+      /* and one of the moving items still attached to something left
+         behind is drawn where that keeps it, not shifted with the rest */
+      for (const it of items) if (D.refsOf(it).some(r => !ids.has(r.id))) return false;
       if (app.opts.general.snapGrid && items.some(i => i.type !== 'stroke' && i.type !== 'edge')) return false;
 
       const PAD = 0.25;
@@ -573,6 +579,7 @@
         case 'edge': this.drawEdge(ctx, it); break;
         case 'image': this.drawImage(ctx, it); break;
         case 'pdfpage': this.drawPdfPage(ctx, it); break;
+        default: { const x = XT[it.type]; if (x) x.draw(ctx, it, this); }
       }
       ctx.restore();
     }
@@ -609,6 +616,12 @@
       const { kind } = it;
       let { x, y, w, h } = it;
       if (kind === 'line' || kind === 'arrow') { p.moveTo(x, y); p.lineTo(x + w, y + h); return p; }
+      if (kind === 'moment') {
+        const A = D.arcOf(it);
+        // canvas angles run clockwise on screen; the arc's run anticlockwise
+        p.ellipse(A.cx, A.cy, A.rx, A.ry, 0, -A.a0, -(A.a0 + A.sweep), A.sweep > 0);
+        return p;
+      }
       if (w < 0) { x += w; w = -w; }
       if (h < 0) { y += h; h = -h; }
       if (kind === 'ellipse') p.ellipse(x + w / 2, y + h / 2, Math.abs(w / 2), Math.abs(h / 2), 0, 0, 6.2832);
@@ -621,29 +634,38 @@
     strokeStyleFor(ctx, it) {
       ctx.lineWidth = it.size;
       ctx.strokeStyle = U.color(it.color);
-      ctx.setLineDash(it.dash ? (it.dash === 1 ? [it.size * 3, it.size * 2.2] : [0.1, it.size * 2.2]) : []);
-      ctx.lineCap = it.dash === 2 ? 'round' : 'round';
+      ctx.setLineDash(dashFor(it.dash, it.size));
+      ctx.lineCap = 'round';
     }
 
     drawShape(ctx, it) {
+      if (D.isLine(it) || it.kind === 'moment') return this.drawLine(ctx, it);
       const p = this.shapePath(it);
       if (it.fill && it.fill !== 'none') { ctx.fillStyle = U.color(it.fill); ctx.fill(p); }
       this.strokeStyleFor(ctx, it);
       ctx.stroke(p);
       ctx.setLineDash([]);
-      if (it.kind === 'arrow') this.arrowHead(ctx, it.x, it.y, it.x + it.w, it.y + it.h, it.size, it.color);
-      if (it.kind === 'line' && it.arrowStart) this.arrowHead(ctx, it.x + it.w, it.y + it.h, it.x, it.y, it.size, it.color);
     }
 
-    arrowHead(ctx, fx, fy, tx, ty, size, color) {
-      const a = Math.atan2(ty - fy, tx - fx);
-      const len = Math.max(9, size * 3.4), spread = 0.42;
+    /* A line, arrow, curve, polyline or moment arrow: the shaft, cut back
+       where a head covers its end (a round cap poking through the point
+       of a filled head is what made arrows look blunt), then the heads.
+       The geometry is shared with the SVG export (lineParts), so the two
+       always agree. */
+    drawLine(ctx, it) {
+      const L = lineParts(this.app.scene, it);
+      if (!L) return;
+      this.strokeStyleFor(ctx, it);
       ctx.beginPath();
-      ctx.moveTo(tx, ty);
-      ctx.lineTo(tx - Math.cos(a - spread) * len, ty - Math.sin(a - spread) * len);
-      ctx.lineTo(tx - Math.cos(a + spread) * len, ty - Math.sin(a + spread) * len);
-      ctx.closePath();
-      ctx.fillStyle = U.color(color); ctx.fill();
+      traceShaft(ctx, L);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      paintHeads(ctx, L.heads, U.color(it.color), it.size);
+    }
+
+    /** one arrowhead of the default kind, as connectors draw them */
+    arrowHead(ctx, fx, fy, tx, ty, size, color) {
+      paintHeads(ctx, [headGeom('filled', tx, ty, Math.atan2(ty - fy, tx - fx), size, 1)], U.color(color), size);
     }
 
     /* The text being typed into is shown by the editor's textarea, which
@@ -709,7 +731,7 @@
       const pts = this.app.scene.edgePath(it);
       if (pts.length < 4) return;
       ctx.lineWidth = it.size; ctx.strokeStyle = U.color(it.color);
-      ctx.setLineDash(it.dash ? [it.size * 3, it.size * 2.4] : []);
+      ctx.setLineDash(it.dash === 1 ? [it.size * 3, it.size * 2.4] : dashFor(it.dash, it.size));
       ctx.beginPath();
       ctx.moveTo(pts[0], pts[1]);
       if (it.style === 'elbow') {
@@ -850,11 +872,35 @@
     liveWorld() { const ctx = this.lctx; this.worldTransform(ctx); return ctx; }
     liveScreen() { const ctx = this.lctx; ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); return ctx; }
 
+    /* Handles grow under a finger or a pen (app.coarse): an 8px square is
+       a mouse's target, not a nib's. */
+    handleSize() { return this.app.coarse ? 13 : 8; }
+
+    /**
+     * The handles of a single line or arrow, in screen space: one at each
+     * end, one on each corner of a polyline, and the bend handle in the
+     * middle of a plain or curved line. Lines are edited by these instead
+     * of a box's eight, which could only stretch them.
+     */
+    lineHandles(it) {
+      const cam = this.app.camera, scene = this.app.scene;
+      const pts = scene.linePath(it), n = pts.length;
+      const s = p => cam.toScreen(p.x, p.y);
+      const out = [
+        { k: 'p0', ...s({ x: pts[0], y: pts[1] }), bound: !!it.bind1 },
+        { k: 'p1', ...s({ x: pts[n - 2], y: pts[n - 1] }), bound: !!it.bind2 }
+      ];
+      if (it.via) for (let i = 0; i < it.via.length; i += 2) out.push({ k: 'v' + i / 2, ...s({ x: it.via[i], y: it.via[i + 1] }) });
+      else out.push({ k: 'bend', ...s(D.pointAlong(pts, 0.5)) });
+      return out;
+    }
+
     /** selection outline + resize handles, drawn in screen space */
     drawSelection(sel, opts = {}) {
       if (!sel.length) return;
       const ctx = this.liveScreen(), cam = this.app.camera, scene = this.app.scene;
       const acc = this.tokens().accent;
+      if (sel.length === 1 && D.isLine(sel[0]) && opts.handles !== false) return this.drawLineSelection(ctx, sel[0], acc);
       ctx.save();
       ctx.strokeStyle = acc;
       ctx.lineWidth = 1;
@@ -879,7 +925,7 @@
       ctx.strokeRect(x, y, w, h);
 
       if (opts.handles !== false) {
-        const hs = 8;
+        const hs = this.handleSize();
         ctx.fillStyle = this.tokens().panel;
         for (const [hx, hy] of [[x, y], [x + w / 2, y], [x + w, y], [x + w, y + h / 2], [x + w, y + h], [x + w / 2, y + h], [x, y + h], [x, y + h / 2]]) {
           ctx.beginPath(); ctx.roundRect(hx - hs / 2, hy - hs / 2, hs, hs, 2); ctx.fill(); ctx.stroke();
@@ -889,9 +935,39 @@
       return { x, y, w, h };
     }
 
+    /* A selected line: its centreline traced faintly, a round handle at
+       each end (filled when that end is attached to something), a square
+       on each corner of a polyline and a diamond for bending. The box it
+       hands back carries the handles, for the select tool to find. */
+    drawLineSelection(ctx, it, acc) {
+      const cam = this.app.camera, scene = this.app.scene, hs = this.handleSize();
+      const pts = scene.linePath(it);
+      ctx.save();
+      ctx.strokeStyle = acc; ctx.lineWidth = 1; ctx.globalAlpha = .5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      for (let i = 0; i < pts.length; i += 2) { const p = cam.toScreen(pts[i], pts[i + 1]); if (i) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y); }
+      ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      const handles = this.lineHandles(it), panel = this.tokens().panel;
+      for (const h of handles) {
+        ctx.beginPath();
+        if (h.k === 'bend') { const r = hs * .62; ctx.moveTo(h.x, h.y - r); ctx.lineTo(h.x + r, h.y); ctx.lineTo(h.x, h.y + r); ctx.lineTo(h.x - r, h.y); ctx.closePath(); }
+        else if (h.k[0] === 'v') ctx.roundRect(h.x - hs / 2, h.y - hs / 2, hs, hs, 2);
+        else ctx.arc(h.x, h.y, hs * .58, 0, 6.284);
+        ctx.fillStyle = h.bound ? acc : panel;
+        ctx.fill(); ctx.stroke();
+      }
+      ctx.restore();
+      let b = null;
+      for (const h of handles) b = U.unionBox(b, U.box(h.x, h.y, h.x, h.y));
+      return { x: b.x, y: b.y, w: b.w, h: b.h, line: handles };
+    }
+
     /** the eight handle positions in screen space for a selection box */
     handleRects(box) {
-      const { x, y, w, h } = box, hs = 11;
+      if (box.line) return [];                 // a line has its own handles (lineHandles)
+      const { x, y, w, h } = box, hs = this.app.coarse ? 22 : 11;
       const pts = [
         ['nw', x, y], ['n', x + w / 2, y], ['ne', x + w, y], ['e', x + w, y + h / 2],
         ['se', x + w, y + h], ['s', x + w / 2, y + h], ['sw', x, y + h], ['w', x, y + h / 2]
@@ -999,16 +1075,29 @@
         return `<path d="${FH.svgPath(poly)}" fill="${U.color(it.color)}"${op}${blend}/>`;
       }
       case 'shape': {
+        const dash = svgDash(dashFor(it.dash, it.size));
+        const col = U.color(it.color);
+        if (D.isLine(it) || it.kind === 'moment') {
+          const L = lineParts(scene, it);
+          if (!L) return '';
+          return `<g${op}><path d="${svgShaft(L)}" fill="none" stroke="${col}" stroke-width="${it.size}" stroke-linejoin="round" stroke-linecap="round"${dash}/>` +
+            svgHeads(L.heads, col, it.size) + '</g>';
+        }
         const pts = scene.outlinePoints(it).map(v => U.round(v, 1));
         const d = 'M' + pts.filter((_, i) => i % 2 === 0).map((x, i) => `${x},${pts[i * 2 + 1]}`).join('L');
-        const dash = it.dash ? ` stroke-dasharray="${it.size * 3},${it.size * 2}"` : '';
         const fill = it.fill && it.fill !== 'none' ? U.color(it.fill) : 'none';
-        return `<path d="${d}" fill="${fill}" stroke="${U.color(it.color)}" stroke-width="${it.size}" stroke-linejoin="round" stroke-linecap="round"${dash}${op}/>`;
+        return `<path d="${d}" fill="${fill}" stroke="${col}" stroke-width="${it.size}" stroke-linejoin="round" stroke-linecap="round"${dash}${op}/>`;
       }
       case 'edge': {
-        const pts = scene.edgePath(it).map(v => U.round(v, 1));
+        const raw = scene.edgePath(it), pts = raw.map(v => U.round(v, 1)), n = raw.length;
         const d = 'M' + pts.filter((_, i) => i % 2 === 0).map((x, i) => `${x},${pts[i * 2 + 1]}`).join('L');
-        return `<path d="${d}" fill="none" stroke="${U.color(it.color)}" stroke-width="${it.size}"${op}/>`;
+        const dash = svgDash(it.dash === 1 ? [it.size * 3, it.size * 2.4] : dashFor(it.dash, it.size));
+        // the heads the canvas draws, which the export used to leave off
+        const heads = [];
+        if (n >= 4 && it.arrowEnd) heads.push(headGeom('filled', raw[n - 2], raw[n - 1], Math.atan2(raw[n - 1] - raw[n - 3], raw[n - 2] - raw[n - 4]), it.size, 1));
+        if (n >= 4 && it.arrowStart) heads.push(headGeom('filled', raw[0], raw[1], Math.atan2(raw[1] - raw[3], raw[0] - raw[2]), it.size, 1));
+        return `<g${op}><path d="${d}" fill="none" stroke="${U.color(it.color)}" stroke-width="${it.size}" stroke-linecap="round"${dash}/>` +
+          svgHeads(heads, U.color(it.color), it.size) + '</g>';
       }
       case 'note':
         return `<g${op}><rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" rx="6" fill="${U.color(it.color)}"/>` +
@@ -1029,9 +1118,175 @@
           ? `<image x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" href="${href}" preserveAspectRatio="none"${op}/>`
           : `<rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" fill="${r.tokens().dark ? '#191b1f' : '#fff'}" stroke="#0003"/>`;
       }
+      default: {
+        const x = XT[it.type];
+        // its opacity is applied here, as drawItem applies it on canvas
+        const out = x && x.svg ? x.svg(it, r) : '';
+        return out && op ? `<g${op}>${out}</g>` : out || '';
+      }
     }
     return '';
   }
+
+  /* ── line styles and arrowheads ───────────────────────────────────
+     Shared by the canvas and the SVG export, so a drawing exports as it
+     looks. Patterns and heads are in world units and scale with the
+     stroke, as drafting conventions put them: a centre line's dash and
+     dot, a hidden line's short dashes. Round caps lengthen every dash by
+     a stroke width, so the gaps are set wider than they look. */
+  function dashFor(dash, size) {
+    const s = Math.max(size || 2, 1.5);
+    switch (dash) {
+      case 1: return [s * 3, s * 2.2];                          // dashed
+      case 2: return [0.1, s * 2.2];                            // dotted
+      case 3: return [s * 7, s * 2.6, 0.1, s * 2.6];            // centre line: long dash, dot
+      case 4: return [s * 1.6, s * 2.2];                        // hidden line: short dashes
+      default: return [];
+    }
+  }
+  const svgDash = da => da.length ? ` stroke-dasharray="${da.map(v => U.round(v, 2)).join(',')}"` : '';
+
+  /**
+   * One arrowhead, as primitives in world units: `fill` polygons, `line`
+   * polylines stroked at the shaft's width (times `weight`), and `dot`s —
+   * plus `back`, how far the shaft should stop short of the tip to stay
+   * inside the head. (tx, ty) is the tip, `ang` the way the head points.
+   */
+  function headGeom(style, tx, ty, ang, size, scale, spread) {
+    const len = D.headLen(size, scale), c = Math.cos(ang), s = Math.sin(ang);
+    const at = (back, side) => [tx - c * back - s * side, ty - s * back + c * side];
+    switch (style) {
+      case 'filled': {
+        const w = len * Math.tan(spread || 0.4);
+        return { fill: [[tx, ty, ...at(len, w), ...at(len, -w)]], back: len * 0.6 };
+      }
+      case 'open': {
+        const w = len * Math.tan(spread ? spread * 1.1 : 0.45);
+        return { line: [[...at(len, w), tx, ty, ...at(len, -w)]], back: 0 };
+      }
+      case 'half': {
+        const w = len * Math.tan(0.45);
+        return { fill: [[tx, ty, ...at(len, w), ...at(len * 0.8, 0)]], back: len * 0.3 };
+      }
+      case 'tick': {
+        // the architect's slash: 45° across the end, a little heavier than the line
+        const r = len * 0.42, k = Math.SQRT1_2;
+        return { line: [[tx - (c - s) * k * r, ty - (s + c) * k * r, tx + (c - s) * k * r, ty + (s + c) * k * r]], weight: 1.5, back: 0 };
+      }
+      case 'dot': return { dot: [[tx, ty, Math.max(2.5, (size || 2) * 1.5) * (scale || 1)]], back: 0 };
+      default: return null;
+    }
+  }
+
+  function paintHeads(ctx, heads, col, size) {
+    ctx.fillStyle = col; ctx.strokeStyle = col;
+    for (const h of heads) {
+      if (!h) continue;
+      if (h.fill) for (const p of h.fill) {
+        ctx.beginPath(); ctx.moveTo(p[0], p[1]);
+        for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
+        ctx.closePath(); ctx.fill();
+      }
+      if (h.line) for (const p of h.line) {
+        ctx.lineWidth = size * (h.weight || 1); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(p[0], p[1]);
+        for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
+        ctx.stroke();
+      }
+      if (h.dot) for (const [x, y, r] of h.dot) { ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill(); }
+    }
+  }
+
+  function svgHeads(heads, col, size) {
+    let out = '';
+    const P = p => p.map(v => U.round(v, 2));
+    for (const h of heads) {
+      if (!h) continue;
+      if (h.fill) for (const p of h.fill) out += `<path d="M${P(p).join(' ')}Z" fill="${col}"/>`;
+      if (h.line) for (const p of h.line) out += `<path d="M${P(p).join(' ')}" fill="none" stroke="${col}" stroke-width="${U.round(size * (h.weight || 1), 2)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+      if (h.dot) for (const [x, y, r] of h.dot) out += `<circle cx="${U.round(x, 2)}" cy="${U.round(y, 2)}" r="${U.round(r, 2)}" fill="${col}"/>`;
+    }
+    return out;
+  }
+
+  /**
+   * A line-like shape resolved for painting: { pts | quad | arc, heads }.
+   * `pts` is a polyline, `quad` a curve [a, c, b], `arc` a moment's arc,
+   * each already cut back at an end that has a head over it. Null if there
+   * is nothing to draw.
+   */
+  function lineParts(scene, it) {
+    const [h1, h2] = D.headsOf(it);
+    if (it.kind === 'moment') {
+      const A = D.arcOf(it);
+      if (!(A.rx > 0 && A.ry > 0) || !A.sweep) return null;
+      const r = (A.rx + A.ry) / 2, dir = Math.sign(A.sweep);
+      const len = D.headLen(it.size, it.headScale);
+      /* each head points along the chord it covers rather than along the
+         tangent at its tip, which is what makes it sit on a tight arc */
+      const head = (style, t, out) => {
+        if (style === 'none') return { g: null, cut: 0 };
+        const tip = D.arcPoint(A, t), from = D.arcPoint(A, t - out * Math.min(len / r, Math.abs(A.sweep) / 2));
+        const g = headGeom(style, tip.x, tip.y, Math.atan2(tip.y - from.y, tip.x - from.x), it.size, it.headScale);
+        return { g, cut: g ? Math.min(g.back / r, Math.abs(A.sweep) / 3) : 0 };
+      };
+      const e = head(h2, A.a0 + A.sweep, dir), s = head(h1, A.a0, -dir);
+      return { arc: { ...A, a0: A.a0 + s.cut * dir, sweep: A.sweep - (s.cut + e.cut) * dir }, heads: [s.g, e.g] };
+    }
+    const [a, b] = scene.lineEnds(it);
+    if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) < 1e-9 && !it.via) return null;
+    const c = !it.via && D.curveCtrl(a, b, it.curve);
+    // the way each head points: along the last stretch of the line
+    let from0, from1;
+    if (it.via && it.via.length >= 2) { from0 = { x: it.via[0], y: it.via[1] }; from1 = { x: it.via[it.via.length - 2], y: it.via[it.via.length - 1] }; }
+    else if (c) { from0 = c; from1 = c; }
+    else { from0 = b; from1 = a; }
+    const g1 = h1 !== 'none' ? headGeom(h1, a.x, a.y, Math.atan2(a.y - from0.y, a.x - from0.x), it.size, it.headScale) : null;
+    const g2 = h2 !== 'none' ? headGeom(h2, b.x, b.y, Math.atan2(b.y - from1.y, b.x - from1.x), it.size, it.headScale) : null;
+    // the shaft stops short under a head, but never by more than half its first or last stretch
+    const cut = (p, q, d) => {
+      const l = U.dist(p.x, p.y, q.x, q.y);
+      if (!d || !l) return p;
+      const f = Math.min(d, l / 2) / l;
+      return { x: p.x + (q.x - p.x) * f, y: p.y + (q.y - p.y) * f };
+    };
+    const p0 = cut(a, from0, g1 && g1.back), p1 = cut(b, from1, g2 && g2.back);
+    if (c) return { quad: [p0, c, p1], heads: [g1, g2] };
+    const pts = [p0.x, p0.y];
+    if (it.via) pts.push(...it.via);
+    pts.push(p1.x, p1.y);
+    return { pts, heads: [g1, g2] };
+  }
+
+  function traceShaft(ctx, L) {
+    if (L.arc) { const A = L.arc; ctx.ellipse(A.cx, A.cy, A.rx, A.ry, 0, -A.a0, -(A.a0 + A.sweep), A.sweep > 0); return; }
+    if (L.quad) { const [a, c, b] = L.quad; ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(c.x, c.y, b.x, b.y); return; }
+    const p = L.pts;
+    ctx.moveTo(p[0], p[1]);
+    for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
+  }
+
+  function svgShaft(L) {
+    const r = v => U.round(v, 2);
+    if (L.arc) {
+      const A = L.arc, p = D.arcPoint(A, A.a0), q = D.arcPoint(A, A.a0 + A.sweep);
+      // an anticlockwise arc on screen is SVG's negative sweep
+      const large = Math.abs(A.sweep) > Math.PI ? 1 : 0, sweepFlag = A.sweep > 0 ? 0 : 1;
+      return `M${r(p.x)},${r(p.y)} A${r(A.rx)},${r(A.ry)} 0 ${large} ${sweepFlag} ${r(q.x)},${r(q.y)}`;
+    }
+    if (L.quad) { const [a, c, b] = L.quad; return `M${r(a.x)},${r(a.y)} Q${r(c.x)},${r(c.y)} ${r(b.x)},${r(b.y)}`; }
+    const p = L.pts;
+    let d = `M${r(p[0])},${r(p[1])}`;
+    for (let i = 2; i < p.length; i += 2) d += `L${r(p[i])},${r(p[i + 1])}`;
+    return d;
+  }
+
+  D.dashFor = dashFor;
+  D.svgDash = svgDash;
+  D.headGeom = headGeom;
+  D.paintHeads = paintHeads;
+  D.svgHeads = svgHeads;
+  D.lineParts = lineParts;
 
   /** OffscreenCanvas has no toDataURL, so copy through a normal one */
   function bitmapToDataUrl(bmp) {

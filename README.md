@@ -3,6 +3,13 @@
 An endless canvas for pen, keyboard and decision trees. Plain HTML/CSS/JS —
 no build step, no dependencies, no account. Everything lives on your machine.
 
+It is built for working through engineering problems with a pen: a
+calculator that understands units, phasors, matrices and calculus, typed
+worksheets on the board, handwritten sums that answer themselves when you
+write `=`, and drawing tools with real arrowheads, dimensions, a drawing
+scale and snapping. Every part of it works with only a stylus or a finger
+— press and hold anywhere for a menu.
+
 ## Running it
 
 Double-click **`start.cmd`**. It serves the folder on <http://localhost:5273>
@@ -68,19 +75,78 @@ saved work — handy for trying something out.
 | **Flip the Surface Pen** and rub | Erases, whatever tool you had selected. Let go and you are back on your previous tool. A ring shows the eraser's size, and appears as soon as the blunt end is in range — before you touch the glass — so you can see what you are about to take off. |
 | Draw a near-straight line | It is quietly straightened, and snapped to 0/45/90° if it is close. |
 | Erase over a PDF, image, sticky or node | Only your ink comes off. Those are hit-tested by their whole area, so an eraser stroke *across* one would otherwise delete the lot — remove them deliberately, with the select tool and <kbd>Delete</kbd>. |
-| With the select tool, **drag** across a PDF page or picture | Selects the notes and ink written on it, rather than dragging the page out from under them. **Press and hold** (about a third of a second) to pick up the page itself, or tap it to select it — once selected, it drags straight away. |
+| With the select tool, **drag** across a PDF page or picture | Selects the notes and ink written on it, rather than dragging the page out from under them. **Press and hold** (about a third of a second) to pick up the page itself, or tap it to select it — once selected, it drags straight away. Keep holding, still, and the long-press menu follows. |
 | **Finger** on the canvas | Always pans and pinch-zooms, whatever tool is selected — so you can sketch, shove the page along, and sketch some more without putting the pen down. Your palm can rest anywhere, and a mouse or pen still draws normally. Turn it off under ☰ → Settings if you would rather draw with a finger. |
+| **Hold the pen or a finger still** where it landed, for half a second, and lift | A menu opens there: paste, paste here, a picture or PDF, select all, undo and redo. On something, that thing is selected — whatever tool you have out — and the menu is what you can do with it. A ring fills while you hold, then locks; move off before it locks and you carry on as normal, with nothing drawn. Keep holding past the lock and the menu opens without waiting for the lift. Holding still at the *end* of a stroke is the shape snap above, never the menu, and a finger soon after the pen was near the glass is taken for your palm. A right click, or the pen's barrel button, opens the same menu. |
+| **Hold still, then drag** without lifting | Once the ring locks, dragging draws a selection from where you held — a box or a lasso, shown by the little icon in the ring — whatever tool you have out. Let go and what it enclosed is selected, by the select tool's rules (across a PDF page, the ink on it rather than the page), with the action bar above it. |
+| Pen down **inside a selection** made with another tool out | Drags it, as one undo step, or resizes it from a handle — so a selection made by holding, or from the menu, moves with the same pen. Down outside it lets go and draws as normal; a finger outside it pans. |
+| Anything **selected** | A bar of big buttons sits just above it — copy, cut, duplicate, delete, front, back, group, edit — and follows it as you pan and zoom. It appears once a pen or finger has touched the screen; the mouse keeps to the style panel. |
+| **Double-tap** with the pen or a finger | Edits text, notes, nodes and connector labels, as a double-click does. A connector's label is typed in a field on the line itself. The two dots the pen's taps drew are taken back. |
+| With the select tool, **tap with a finger** | Selects what it lands on, and a finger on the selection drags or resizes it. Anywhere else a finger still pans, and a tap on bare board lets go. |
 
 Both of the "clever" behaviours can be switched off in the style panel under
-the pen tool.
+the pen tool. The long-press menu — for fingers, for the pen, and how long
+the hold is — whether holding and dragging draws a box or a lasso, and when
+the action bar shows are under ☰ → Settings → **Touch and hold**. Hold and
+drag follows the select tool by default: whichever of rectangle and lasso
+you last picked for it. Features add their own entries to the menu and the bar
+through `D.ext.pressActions`; the comment at the top of `js/press.js` says
+what they are handed.
 
 ## Tools
 
 Pen (pressure-sensitive, tapered), highlighter, eraser (whole-stroke or
-pixel), rectangle/ellipse/diamond/triangle/line/arrow, text boxes, sticky
-notes, flow-chart nodes (process, decision, start/end, data), connectors that
-stay attached as you move things, laser pointer, lasso and marquee select,
-images by paste or drag-and-drop.
+pixel), rectangle/ellipse/diamond/triangle, lines and arrows (straight,
+bent, polyline, force and moment arrows), text boxes, sticky notes,
+flow-chart nodes (process, decision, start/end, data), connectors that
+stay attached as you move things, dimensions, a measuring tool, laser
+pointer, lasso and marquee select, images by paste or drag-and-drop.
+
+### Engineering drawing
+
+Built for free-body diagrams, circuit sketches, mechanisms and marked-up
+drawings, and for a pen alone — nothing needs a key held down.
+
+- **Arrows and lines.** Each end takes its own head — none, open,
+  filled, half, tick or dot — sized from the stroke, with S/M/L/XL to
+  override. Line styles include **centre** (dash-dot) and **hidden**
+  lines. Select a line and drag the diamond in its middle to **bend**
+  it; drag either end to move it. The shapes flyout also has a
+  **polyline** (lift the pen at each corner, tap the last point again
+  or press Enter to finish), a heavy **force** arrow and a circular
+  **moment** arrow (press at the centre, lift where the head goes;
+  anticlockwise or clockwise in the panel).
+- **Snapping.** Ends, corners, midpoints, centres, quadrant points,
+  intersections and the edges of things, then 15° steps, then the
+  grid — with a marker and a word saying what it caught. An arrow end
+  that snaps onto something **stays attached** and follows it when it
+  moves; drag the arrow alone and it lets go. The panel switches each
+  kind of snap, and has *Square / circle*, *From the centre* and *Only
+  15° steps* for what Shift and Alt do on a keyboard.
+- **Readouts and exact sizes.** Length and angle (and Δx/Δy, or W × H)
+  ride beside the pen while you draw. Select a line for **Length** and
+  **Angle** fields, anything else for **W, H, X, Y** — big fields with −
+  and + either side (hold to keep going), that also take sums and units:
+  `1200/4`, `2.5 m`. Angles run anticlockwise from east and Y counts up
+  the page, as on paper.
+- **Drawing scale.** Each board has its own units (mm, cm, m, in, ft),
+  "1 board unit = …", a 1 : N ratio and the decimals shown — in the
+  measure and dimension panels, saved with the board and undone like an
+  edit. To scale a PDF or picture, draw a line over a length you know
+  (or measure it), and type its real length under **Calibrate**.
+- **Dimensions** (the measure flyout). Drag between two points, lift,
+  then tap where the dimension line goes — horizontal, vertical or
+  aligned by how you dragged. Tap a line to dimension it, or a circle
+  for its diameter (or radius); angles go corner, arm, other arm.
+  Dimensions on snapped points follow the drawing as it changes;
+  dragging one on its own moves its line clear. The text can be
+  overridden, with `<>` standing for the value.
+- **Measure** (`M`). Distance, angle, path length or area, read out on
+  screen and in the panel and gone when you move on — unless you press
+  **Pin to board**.
+
+Long-press anywhere for *Measure from here*; on a line, *Dimension this*
+and *Set drawing scale…*.
 
 ### PDFs
 
@@ -114,16 +180,134 @@ with an elbow connector, and put straight into text-edit mode — so a whole
 tree is Tab, type, Tab, type. Connectors re-route themselves whenever a node
 moves; double-click a connector to label it (*yes* / *no*).
 
+### Calculator and calc blocks
+
+The calculator button in the top bar (<kbd>Ctrl</kbd>+<kbd>K</kbd>) opens a
+floating keypad, built for a pen with no keyboard: 44px keys in tabs
+(Basic, Functions, Calculus, Matrix, Units, Constants), the answer shown
+while you type, a history you can tap to reuse, and the variables you have
+set as chips. Variables and `ans` last as long as the board is open. Drag
+it by its title, or fold the keypad away and type.
+
+It speaks the maths of a second-year tutorial:
+
+| Type | Get |
+| --- | --- |
+| `F = 2 kN`, `L = 3 m`, `M = F*L` | `6 kN·m` — a moment, not `6 kJ` |
+| `10 kN / (20 mm * 50 mm)` · `3 in to mm` | `10 MPa` · `76.2 mm` |
+| `10 V / 4.7 kΩ` | `2.1277 mA` (prefixes chosen for you) |
+| `10∠30° + 5∠-45°` | `12.283∠6.8473°`, with `12.196 + 1.4645i` |
+| `inv([1,2;3,4])` · `[2,1;1,3] \ [3;5]` · `eigs(A)` | matrices, `A \ b`, eigenvalues |
+| `d/dx(x^2 sin(x))` · `diff(x^3, x = 2)` | `2x·sin(x) + x²·cos(x)` · `12` |
+| `int(exp(-x^2), x, -inf, inf)` · `lim(sin(x)/x, x = 0)` | `1.7725` · `1` |
+| `2x + 3 = 11` · `40 kN/m * x = 2 kN` | `x = 4` · `x = 50 mm` |
+| `roots(x^3 - 6x^2 + 11x - 6)` · `taylor(sin(x), x, 0, 7)` | `x = 1, 2, 3` · the series |
+| `linreg(xs, ys)` · `mean`, `std` · `g`, `c`, `ε0`, `R`, `kB` … | fits, statistics, constants with units |
+
+**Settings → Calculator** sets degrees or radians, the number format (auto,
+engineering `4.7k`, scientific, fixed), significant figures, and exact
+answers (`1/3`, `3π/4`, `√3/2`). Calculus always works in radians. `g` is
+gravity, so grams are written `gram` or `kg`; Planck's constant is `hP`.
+
+A **calc block** (<kbd>B</kbd>, or *Insert block* from the calculator) is a
+worksheet on the board: each line is worked out and its answer set
+right-aligned, and variables carry down the lines. Double-click it, or
+double-tap it with the pen, to edit; the keypad types into it while it is
+open. *Insert block* brings along the lines that define the variables it
+uses, so the block works out on its own.
+
+The engine is [math.js](https://mathjs.org) (Apache-2.0), vendored under
+`vendor/mathjs` and loaded the first time it is needed, never at start-up.
+A block keeps its answers with it, so a board full of them opens and draws
+without loading the engine at all; they are worked out again when you edit
+the block or change the settings they were made under. `D.math` (in
+`js/math.js`) and `D.calc` (in `js/calc.js`) are documented at the top of
+each file, for anything else that wants an answer worked out.
+
+### Handwritten maths
+
+Write a sum with the pen, finish it with **=**, and lift the pen for a
+moment: the board reads the line and writes the answer beside the `=`,
+in a handwriting face and the accent colour. `12 + 30 =` gets `42`;
+stacked fractions, exponents written raised and small, roots with a
+roof over what they hold, brackets, decimals and implicit
+multiplication (`3x²`, `2(3 + 4)`) are understood. A line such as
+`x = 2` defines `x` for the lines below it — `3x² + 2 =` gets `14` —
+and when you rub out the `2` and write a `3`, the answers that use `x`
+change to match.
+
+The answer follows its ink. Rub out part of the sum, or write more of
+it, and it is worked out again when you pause; rub out the `=` and it
+goes; move the line and it moves too. It is not an edit of its own:
+undo the stroke that finished the `=` and the answer disappears with
+it, redo it and the answer comes back. Erasing or moving an answer
+yourself is an ordinary edit, undone like one.
+
+To check a reading, select the ink (lasso or marquee) and long-press
+it, or use the selection's action bar: **Solve this ink** shows what the
+strokes were read as, in a field to correct with one tap, with the
+answer, and **Insert result**, **Open in calculator** and **Teach**.
+Teach makes each symbol you corrected in place a template of your own,
+kept on this device (at most twelve per symbol), so the next one you
+write that way is read right. Double-tap an answer for the same panel.
+**Settings → Handwritten maths** turns solving as you write off, sets
+the decimal places and the answer colour, and forgets what you taught.
+
+It keeps out of the way. Nothing is read until the pen rests; a line
+that uses a letter nothing defines, or does not work out, is left
+alone without a word; and the pen's own behaviours — hold to snap a
+shape, scribble to erase — are untouched. A sum of numbers it found
+but could not read with confidence gets a faint **?** beside its `=`
+instead of an answer: tap it, and Solve this ink opens on its best
+guess, so a misreading is one correction away. **Show why it didn't
+answer**, in the same Settings section, puts a short note by every `=`
+it found and left alone — nothing before it, no operator, a letter
+nothing defines, not sure of the reading — for when it misses one.
+The marks are not part of the board: never saved, never undone.
+
+How it reads, in `js/inkmath.js`: each symbol is matched as a cloud of
+32 points against templates (the $P recogniser, Vatavu et al. 2012), so
+the order, direction and number of strokes do not matter — a 5 in one
+stroke or two, a + either way round. The templates are not shipped as
+data: about fifty glyph outlines for `0–9 + − × ÷ = ( ) . ^ √` and
+`x y z a b c n t θ π` are bent into slanted, squeezed and wobbled
+copies the first time something is read. Dots, dashes, `=`, `+`, `x`,
+`1` and `/`, which look alike once scaled to a box, are settled by
+rules; fraction bars, roofs, exponents and the difference between `x`
+and `×` by where things sit on the line. Measured against a second,
+independently drawn hand with jitter, slant, uneven pen speed and
+shuffled strokes (`test/inkmath.test.mjs`), it reads **99.3%** of
+single symbols and **97.9%** of whole lines exactly and confidently;
+the weakest case is a slash leaning only a little more than a 1.
+Everything runs offline, in under ten milliseconds a line.
+
+A real pen is harder than any synthetic hand, and the thresholds are
+set from one: a Surface board of lecture notes (5,500 strokes, kept
+out of the repository). There, the second bar of an `=` is usually
+bowed or hooked where the pen lifts, so bars are judged as dashes, not
+ruled lines, and by their size on the screen rather than on the board;
+a stroke reaching from one bar to the other (an F, an E) rules a pair
+out. A line whose letters nothing defines is read again as a sum of
+numbers — digits, operators, brackets — so a 2 half taken for a z is a
+2; a bracket with no partner is the bowed 1 it nearly always is; and
+a loose match with a close runner-up is not trusted, which is where
+the **?** comes in. Sums put together from that hand's own digits and
+`=` signs are answered about half the time and offered with a **?**
+most of the rest, against one in twelve before; the notes themselves —
+`y² = 4ax`, `c = 9`, `z = x² + y² = 1` — get no answers at all.
+
 ## Keyboard
 
 `V` select · `G` lasso · `P` pen · `H` highlighter · `E` eraser · `R` rectangle ·
 `O` ellipse · `L` line · `A` arrow · `D` diamond · `T` text · `K` sticky ·
-`N` node · `C` connector · `Q` laser · `Space` pan
+`N` node · `C` connector · `M` measure (hold its button for dimensions) ·
+`Q` laser · `Space` pan · `Enter` finishes a polyline or a measured path
 
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
 `Ctrl+G` group · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+0` reset zoom · `Shift+1` zoom to fit · `Ctrl+'` cycle grid ·
-`Ctrl+M` boards · `Alt`+drag duplicates · `Shift` constrains
+`Ctrl+M` boards · `Alt`+drag duplicates · `Shift` constrains (15° steps
+for lines; square or circle for shapes) · `Alt` draws from the centre
 
 ## Boards and files
 
@@ -150,6 +334,7 @@ toast. Hiding the tab also forces a full save.
 | File | Role |
 | --- | --- |
 | `js/util.js` | Geometry, hit-testing maths, semantic `ink`/`paper` colours |
+| `js/ext.js` | The extension registry, `D.ext`: how features plug into the core |
 | `js/freehand.js` | Pressure → stroke outline (one filled polygon per stroke) |
 | `js/recognize.js` | Shape recognition and scribble detection |
 | `js/scene.js` | Document model, undo/redo, bounding boxes, edge routing |
@@ -163,6 +348,16 @@ toast. Hiding the tab also forces a full save.
 | `js/app.js` | Input plumbing, selection, files, decision-tree helpers |
 | `js/perf.js` | Frame counter, off unless asked for |
 | `js/desktop.js` | What the desktop shell adds: folders, links, updates |
+| `js/math.js`, `js/calc.js` | The maths engine and the calculator (one `css/` file each, as below) |
+| `js/cad.js` | Engineering drawing: dimensions, measuring, scale, snapping |
+| `js/press.js` | The long-press menu and the selection action bar |
+| `js/inkmath.js` | Handwritten maths, recognised and answered |
+
+The last four rows are features: each registers with `D.ext` and touches
+no core file, so they can be worked on side by side. They load after
+`ui.js` and before `app.js`, which builds the app as it loads, and each
+has a stylesheet of its own (`css/calc.css`, `css/cad.css`,
+`css/press.css`, `css/inkmath.css`).
 
 Two stacked canvases keep it quick: `#base` holds the committed scene and is
 only redrawn when something changes, `#live` holds the stroke currently under
@@ -211,9 +406,39 @@ the stroke under the pen goes to its own canvas.
 
 ### Adding a tool
 
-Write a class with `down(ev) move(ev) up(ev) cancel() paint(r)` in
-`js/tools.js`, register it in `App.tools`, add a rail entry in `UI.buildRail`
-and a `panelX()` for its options. Nothing else needs to know about it.
+A tool is an object with `down(ev) move(ev) up(ev) cancel() paint(r)`.
+The built-in ones are classes in `js/tools.js`; anything new is better
+written in a feature file of its own and registered with `D.ext`
+(`js/ext.js`), which plugs it into the core without editing any of it:
+
+```js
+D.ext.opts.stamp = { color: 'ink', size: 24 };           // saved with the prefs
+D.ext.tools.push({
+  name: 'stamp',
+  create: app => new StampTool(app),                      // lands in app.tools.stamp
+  rail: { icon: 'M5 19h14|M12 5v10', key: 'j', title: 'Stamp · J', after: 'note' },
+  panel: ui => ui.add(ui.group('Colour', ui.swatches(ui.palette(), ui.app.opts.stamp.color,
+    c => ui.app.opts.stamp.color = c)))
+});
+```
+
+The rail button, the shortcut and the style panel follow from that. A
+tool that makes a new kind of thing registers the type too —
+`D.ext.items.stamp = { bbox, draw, … }` — and the scene, the spatial
+index, hit-testing, moving, resizing, painting, SVG export, the eraser's
+rules, double-click/F2 and the style panel all consult it wherever they
+would otherwise not know the type. Only `bbox` and `draw` are required;
+the rest have defaults that treat it like a sticky note.
+
+The same registry takes top-bar and zoom-bar buttons (`D.ext.buttons`),
+long-press actions (`D.ext.pressActions`), Settings sections
+(`D.ext.settings`), and listeners for what the app is doing —
+`D.ext.on('stroke' | 'change' | 'select' | 'tool' | 'board' | 'key' |
+'frame' | 'ready', fn)`. The comment at the top of `js/ext.js` is the
+contract: every handler, its arguments and its default, and where each
+event is emitted. With nothing registered the core does exactly what it
+did before, and the lookups sit only in the branches a built-in type
+falls through to.
 
 Icons live in one `ICON` map at the top of `js/ui.js` — 24×24 stroked SVG
 paths, `|` separating subpaths. `python tools/make-icons.py` regenerates the

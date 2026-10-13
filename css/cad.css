@@ -1,0 +1,52 @@
+/* ── cad.css ── engineering drawing ───────────────────────────────────
+   The controls the drawing tools add to the style panel (js/ui.js,
+   js/cad.js). Sized for a pen and a fingertip first: the numeric fields
+   and their steppers are 40px tall, the icon segments 34px.           */
+
+/* a segmented control of pictures rather than words: line styles, ends */
+.seg.icons{flex-wrap:wrap}
+.seg.icons button{display:grid;place-items:center;padding:0;min-width:0;height:34px}
+.seg.icons button svg{width:22px;height:22px}
+.seg.icons button.on{color:var(--accent)}
+
+/* a number to set exactly: [−][ 250.0 mm ][+] */
+.num{display:flex;flex-direction:column;gap:5px;min-width:0}
+.num-lbl{font-size:11.5px;color:var(--muted)}
+.num-row{display:flex;align-items:stretch;gap:4px;height:40px}
+.num-step{
+  flex:none;width:36px;border-radius:9px;background:var(--accent-soft);color:var(--text);
+  font:500 20px/1 inherit;display:grid;place-items:center;touch-action:none;user-select:none;
+  transition:background .12s var(--ease),transform .12s var(--ease);
+}
+.num-step:hover{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+.num-step:active{transform:scale(.94);background:var(--accent);color:#fff}
+.num-box{
+  flex:1;min-width:0;display:flex;align-items:center;gap:4px;padding:0 8px;cursor:text;
+  border:1px solid var(--stroke);border-radius:9px;background:var(--panel-solid);
+}
+.num-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.num-in{
+  flex:1;min-width:0;width:100%;border:0;outline:0;background:none;color:var(--text);
+  font:600 15px/1 inherit;font-variant-numeric:tabular-nums;text-align:right;padding:0;
+}
+.num-unit{flex:none;font-size:12px;color:var(--muted)}
+/* two narrow fields side by side: W and H, X and Y */
+.num-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.num-pair .num-step{width:26px;font-size:17px}
+.num-pair .num-box{padding:0 5px}
+.num-pair .num-in{font-size:14px}
+.num-pair .num-unit{display:none}
+
+.txt-in{
+  height:38px;border:1px solid var(--stroke);border-radius:9px;background:var(--panel-solid);
+  color:var(--text);font:14px inherit;padding:0 10px;outline:0;min-width:0;width:100%;
+}
+.txt-in:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+
+.cad-note{margin:0;font-size:11.5px;line-height:1.5;color:var(--muted)}
+.cad-result{display:flex;flex-direction:column;gap:3px;font-variant-numeric:tabular-nums}
+.cad-result b{font-size:18px;font-weight:650;color:var(--text)}
+.cad-result span{font-size:12px;color:var(--muted)}
+.cad-row{display:flex;gap:6px}
+.cad-row .btn{flex:1;justify-content:center}
+#style .btn{min-height:36px}

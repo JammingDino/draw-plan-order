@@ -1,0 +1,63 @@
+/* ── inkmath.css ── handwritten maths, read and answered ──────────────
+   The "Solve this ink" popover, and the swatches in its settings. The
+   answers themselves are painted on the canvas (js/inkmath.js). Colours
+   come from the tokens in app.css, so both themes follow; everything to
+   press is at least 44px, for a pen or a finger.                       */
+
+.inkmath-pop{
+  position:fixed;z-index:40;width:320px;max-width:calc(100vw - 16px);padding:6px 12px 12px;
+  display:flex;flex-direction:column;gap:8px;
+  background:var(--panel-solid);border:1px solid var(--stroke);border-radius:16px;box-shadow:var(--shadow);
+  animation:inkmath-in .18s var(--ease);
+}
+@keyframes inkmath-in{from{opacity:0;transform:translateY(-6px) scale(.97)}}
+
+.inkmath-head{display:flex;align-items:center;gap:4px;min-height:44px;margin-right:-6px}
+.inkmath-head span{flex:1;font-weight:650;font-size:13.5px}
+.inkmath-head .icon{width:44px;height:44px}
+.inkmath-head svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+
+/* what the ink was read as: tap it, put it right */
+.inkmath-field{
+  height:48px;padding:0 12px;border:1.5px solid var(--stroke);border-radius:12px;outline:0;
+  background:var(--paper);color:var(--text);
+  font:500 21px/1.2 "Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
+  font-variant-numeric:tabular-nums;letter-spacing:.02em;
+  -webkit-user-select:text;user-select:text;
+}
+.inkmath-field:focus{border-color:var(--accent)}
+
+/* the answer, in the hand it is written on the board in */
+.inkmath-out{
+  min-height:38px;padding:0 4px;display:flex;align-items:center;
+  font:22px/1.2 "Segoe Print","Ink Free","Bradley Hand","Segoe Script",cursive;color:var(--accent);
+  overflow-wrap:anywhere;
+}
+.inkmath-out.none{font:13px/1.4 inherit;color:var(--muted)}
+
+.inkmath-acts{display:flex;flex-wrap:wrap;gap:6px}
+.inkmath-acts .btn{min-height:44px;flex:1 1 auto;padding:0 12px;border-radius:11px}
+.inkmath-acts .btn:disabled{opacity:.4;pointer-events:none}
+.inkmath-note{margin:0;font-size:12px;line-height:1.45;color:var(--muted)}
+
+/* the style panel, for a selected answer */
+.inkmath-expr{font-variant-numeric:tabular-nums;color:var(--text);overflow-wrap:anywhere;line-height:1.5}
+
+/* answer colours in Settings */
+.inkmath-sw{display:inline-block;width:16px;height:16px;border-radius:50%;vertical-align:middle;box-shadow:inset 0 0 0 1px #0002}
+
+/* A "?" beside an "=" that was seen but not read with confidence: faint,
+   so it never competes with the ink, and a 40px target round a small
+   mark, so a pen or a finger finds it. With "Show why it didn't answer"
+   on, it says why, in words. Placed by js/inkmath.js, in #overlay. */
+.inkmath-ask{
+  position:absolute;pointer-events:auto;transform:translate(-4px,-50%);
+  min-width:40px;min-height:40px;padding:0 6px;border:0;background:none;
+  display:flex;align-items:center;justify-content:flex-start;
+  font:600 16px/1 "Segoe Print","Ink Free","Bradley Hand","Segoe Script",cursive;
+  color:var(--accent);opacity:.5;cursor:pointer;white-space:nowrap;
+  animation:inkmath-ask-in .3s var(--ease);
+}
+.inkmath-ask:hover,.inkmath-ask:focus-visible{opacity:.95;outline:0}
+.inkmath-ask.why{font:500 12px/1.2 "Segoe UI",system-ui,sans-serif;color:var(--muted);opacity:.85}
+@keyframes inkmath-ask-in{from{opacity:0}}

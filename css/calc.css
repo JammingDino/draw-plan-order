@@ -1,0 +1,134 @@
+/* ── calc.css ── the calculator panel and calc blocks ─────────────────
+   Built from the tokens in app.css, so both themes come for free. Every
+   control is at least 44px: the panel is meant for a pen or a finger on
+   a tablet with the keyboard folded away. */
+
+/* ── the panel ─────────────────────────────────────────────────────── */
+.calc-panel{
+  z-index:8;width:344px;padding:6px 10px 10px;
+  display:flex;flex-direction:column;gap:6px;
+  max-height:calc(100vh - 16px);
+  animation:pop .16s var(--ease);
+}
+.calc-head{
+  display:flex;align-items:center;gap:4px;min-height:48px;
+  cursor:grab;touch-action:none;margin:0 -4px;
+}
+.calc-head.grabbing{cursor:grabbing}
+.calc-title{flex:1;min-width:0;font-weight:650;font-size:13.5px;padding-left:6px;white-space:nowrap}
+.calc-head .icon{width:44px;height:44px}
+.calc-angle{padding:0}
+.calc-angle button{min-width:44px;height:44px;padding:0 6px;font-size:11.5px;font-weight:650;letter-spacing:.04em}
+.calc-chip{
+  min-width:44px;height:44px;border-radius:10px;font-size:12.5px;font-weight:650;color:var(--muted);
+  transition:background .16s var(--ease),color .16s var(--ease);
+}
+.calc-chip.on{background:var(--accent);color:#fff}
+
+/* answers so far */
+.calc-hist{
+  flex:0 1 auto;min-height:0;max-height:150px;overflow-y:auto;scrollbar-width:thin;
+  display:flex;flex-direction:column;gap:2px;margin:0 -4px;padding:0 4px;
+}
+.calc-empty{font-size:12px;color:var(--muted);padding:6px 4px 8px}
+.calc-entry{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:4px;border-radius:10px}
+.calc-entry:nth-child(odd){background:color-mix(in srgb,var(--accent-soft) 40%,transparent)}
+.calc-q,.calc-a{min-height:44px;padding:4px 8px;border-radius:10px;text-align:left;font-variant-numeric:tabular-nums}
+.calc-q{color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.calc-a{
+  text-align:right;font-size:15.5px;font-weight:650;color:var(--accent);
+  display:flex;flex-direction:column;align-items:flex-end;justify-content:center;max-width:220px;overflow-wrap:anywhere;
+}
+.calc-a small{font-size:11.5px;font-weight:500;color:var(--muted)}
+.calc-q:hover,.calc-a:hover{background:var(--accent-soft)}
+.calc-mat{display:inline-grid;gap:1px 12px;padding:2px 8px;border-left:2px solid currentColor;border-right:2px solid currentColor;border-radius:4px;text-align:right}
+
+/* the line being typed */
+.calc-line{
+  display:flex;align-items:center;gap:2px;padding:2px 2px 2px 10px;
+  border:1.5px solid var(--stroke);border-radius:12px;background:var(--paper);
+}
+.calc-line:focus-within{border-color:var(--accent)}
+.calc-panel.into-block .calc-line{opacity:.55}
+.calc-input{
+  flex:1;min-width:0;height:44px;border:0;outline:0;background:none;color:var(--text);
+  font:500 20px/1.2 "Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
+  font-variant-numeric:tabular-nums;-webkit-user-select:text;user-select:text;
+}
+.calc-input::placeholder{color:var(--muted);font-size:15px;font-weight:400}
+.calc-line .icon{width:44px;height:44px}
+.calc-preview{min-height:22px;padding:0 6px;font-size:15px;color:var(--muted);text-align:right;overflow-wrap:anywhere}
+.calc-preview.ok{color:var(--accent);font-weight:650;font-size:17px}
+.calc-preview .eq{color:var(--muted);font-weight:500}
+.calc-preview small{display:block;font-size:11.5px;font-weight:500;color:var(--muted)}
+.calc-preview.tip{font-size:12px}
+.calc-preview.err{color:#e5484d;font-size:12.5px}
+.calc-into{display:none;font-size:12px;color:var(--accent);text-align:center;font-weight:600}
+.calc-panel.into-block .calc-into{display:block}
+
+.calc-body{display:flex;flex-direction:column;gap:6px;min-height:0}
+.calc-panel.folded .calc-body{display:none}
+.calc-panel.folded .calc-hist{max-height:96px}
+
+/* the variables you have set, to tap in */
+.calc-vars{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.calc-var{
+  flex:none;min-width:44px;height:44px;padding:0 12px;border-radius:22px;
+  background:var(--accent-soft);color:var(--text);font-weight:600;font-size:14px;
+}
+.calc-var:hover{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+
+.calc-tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:2px;background:var(--accent-soft);border-radius:12px;padding:3px}
+.calc-tab{height:44px;border-radius:9px;font-size:12px;font-weight:600;color:var(--muted);transition:.14s var(--ease)}
+.calc-tab.on{background:var(--panel-solid);color:var(--text);box-shadow:0 1px 3px #0002}
+
+/* the keypad: four columns for the tab, one for the keys every tab has */
+.calc-pad{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+.calc-key{
+  height:46px;min-width:44px;border-radius:11px;padding:0 2px;
+  background:color-mix(in srgb,var(--accent-soft) 55%,transparent);
+  border:1px solid var(--stroke);color:var(--text);
+  font-size:15px;font-weight:550;white-space:nowrap;overflow:hidden;
+  transition:background .1s var(--ease),transform .1s var(--ease);
+  touch-action:manipulation;
+}
+.calc-key:hover{background:var(--accent-soft)}
+.calc-key:active{transform:scale(.94);background:color-mix(in srgb,var(--accent) 25%,transparent)}
+.calc-key.num{background:var(--panel-solid);font-size:18px;font-weight:600}
+.calc-key.op{font-size:20px;color:var(--accent)}
+.calc-key.fn{color:var(--muted)}
+.calc-key.fn svg{width:20px;height:20px;vertical-align:middle}
+.calc-key.eq{background:var(--accent);border-color:var(--accent);color:#fff;font-size:22px}
+.calc-key.eq:active{background:var(--accent);filter:brightness(1.1)}
+.calc-key.blank{background:none;border:0}
+.calc-key sub{font-size:.7em}
+
+.calc-foot{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.calc-foot .btn{min-height:44px;justify-content:center}
+
+/* short windows: less history, the keypad keeps its size */
+@media (max-height:760px){ .calc-hist{max-height:92px} }
+@media (max-width:480px){ .calc-panel{width:calc(100vw - 16px)} }
+
+/* ── a calc block being edited ─────────────────────────────────────── */
+/* No padding, no border, no background: the textarea's lines sit exactly
+   where the painter puts them (calc.js layout), so finishing an edit
+   changes nothing on screen. */
+.calc-edit{
+  position:absolute;pointer-events:auto;outline:0;border:0;background:transparent;resize:none;
+  padding:0;margin:0;overflow:hidden;white-space:pre;transform-origin:0 0;
+  color:var(--text);caret-color:var(--accent);-webkit-user-select:text;user-select:text;
+}
+.calc-bar{
+  position:absolute;pointer-events:auto;display:flex;align-items:center;gap:6px;
+  max-width:min(560px,calc(100vw - 16px));padding:4px 4px 4px 12px;
+  background:var(--panel-solid);border:1px solid var(--stroke);border-radius:12px;box-shadow:var(--shadow);
+  animation:pop .14s var(--ease);
+}
+.calc-bar-msg{flex:1;min-width:120px;font-size:12px;color:var(--muted);line-height:1.35}
+.calc-bar-msg.err{color:#e5484d}
+.calc-bar .btn{min-height:44px}
+
+/* the block's own style panel */
+.calc-actions{display:flex;flex-wrap:wrap;gap:4px}
+.calc-actions .btn{flex:1 1 auto;justify-content:center;min-height:44px;padding:0 8px}

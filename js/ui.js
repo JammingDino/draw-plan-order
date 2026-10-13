@@ -3,7 +3,12 @@
   'use strict';
   const U = D.util, el = U.el, $ = U.$;
 
-  const svg = d => `<svg viewBox="0 0 24 24">${d.split('|').map(p => `<path d="${p}"/>`).join('')}</svg>`;
+  /* `heavy` draws the paths a little bolder: the force arrow is told apart
+     from the plain one by its weight, as it is on paper */
+  const svg = (d, heavy) => `<svg viewBox="0 0 24 24"${heavy ? ' style="stroke-width:2.6"' : ''}>${d.split('|').map(p => `<path d="${p}"/>`).join('')}</svg>`;
+  /* A feature's icon (ext.js) may be finished markup or, like ICON below,
+     just the path data. */
+  const iconOf = s => !s ? '' : /^\s*</.test(s) ? s : svg(s);
 
   const ICON = {
     select: svg('M5.5 3.2l13 7.6-5.9 1.7-2.6 5.6z'),
@@ -16,6 +21,9 @@
     ellipse: svg('M12 5c4.4 0 8 3.1 8 7s-3.6 7-8 7-8-3.1-8-7 3.6-7 8-7z'),
     line: svg('M5 19L19 5'),
     arrow: svg('M5 19L19 5|M13 5h6v6'),
+    polyline: svg('M4 18l5-9 6 6 5-10|M16.5 5h3.5v3.5'),
+    force: svg('M4 20L17 7|M11 6.4h7.6V14|M4 20l1.2-1.2', 'force'),
+    moment: svg('M17.6 15.4A7 7 0 1 1 18.4 9|M19.4 4.4l-.6 5-4.8-1.2'),
     diamond: svg('M12 3l9 9-9 9-9-9z'),
     triangle: svg('M12 4l8 15H4z'),
     text: svg('M5 6V4h14v2|M12 4v16|M9 20h6'),
@@ -70,17 +78,22 @@
         {
           id: 'select', icon: ICON.select, key: 'V', title: 'Select · V (hold for lasso)', flyout: [
             ['select', ICON.select, 'Rectangle select · V'], ['lasso', ICON.lasso, 'Lasso select · G']
-          ], get: () => app.toolName === 'lasso' ? 'lasso' : 'select', set: k => app.setTool(k), self: true
+          ], get: () => app.toolName === 'lasso' ? 'lasso' : 'select', set: k => app.setTool(k), self: true,
+          /* coming back from another tool, the mode last picked rather
+             than always the rectangle — hold-then-drag follows it too */
+          resume: () => (app.opts.press && app.opts.press.lastSelect) || 'select'
         },
         { id: 'pen', icon: ICON.pen, key: 'P', title: 'Pen · P' },
         { id: 'highlighter', icon: ICON.highlighter, key: 'H', title: 'Highlighter · H' },
         { id: 'eraser', icon: ICON.eraser, key: 'E', title: 'Eraser · E (or flip the pen)' },
         { div: true },
         {
-          id: 'shape', icon: ICON.shape, key: 'R', title: 'Shapes · R', flyout: [
+          id: 'shape', icon: ICON.shape, key: 'R', title: 'Shapes and arrows · R', flyout: [
             ['rect', ICON.rect, 'Rectangle · R'], ['ellipse', ICON.ellipse, 'Ellipse · O'],
+            ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle'],
             ['line', ICON.line, 'Line · L'], ['arrow', ICON.arrow, 'Arrow · A'],
-            ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle']
+            ['polyline', ICON.polyline, 'Polyline — tap the last point to finish'],
+            ['force', ICON.force, 'Force arrow'], ['moment', ICON.moment, 'Moment arrow']
           ], get: () => app.opts.shape.kind, set: k => { app.opts.shape.kind = k; }
         },
         { id: 'text', icon: ICON.text, key: 'T', title: 'Text · T' },
@@ -96,13 +109,26 @@
         { id: 'laser', icon: ICON.laser, key: 'Q', title: 'Laser pointer · Q' },
         { id: 'pan', icon: ICON.hand, key: ' ', title: 'Pan · hold Space' }
       ];
+      /* Registered tools (ext.js) go after the entry they name, or else at
+         the end of the making tools, before the laser/pan group. */
+      for (const t of D.ext.tools) {
+        if (!t.rail) continue;
+        const d = { ...t.rail, id: t.name, icon: iconOf(t.rail.icon), title: t.rail.title || t.name };
+        let at = t.rail.after ? defs.findIndex(x => x.id === t.rail.after) + 1 : 0;
+        if (at <= 0) at = defs.findIndex(x => x.id === 'laser') - 1;    // the divider before it
+        defs.splice(at, 0, d);
+      }
       this.railButtons = {};
+      this.railAlso = {};
       for (const d of defs) {
+        // a rail entry that stands for several tools stays lit for all of them
+        if (d.also) for (const a of d.also) this.railAlso[a] = d.id;
         if (d.div) { this.rail.append(el('div', { class: 'divider' })); continue; }
         const b = el('button', { class: 'icon tool', title: d.title, html: d.icon + (d.flyout ? '<i class="badge"></i>' : '') });
         b.addEventListener('click', () => {
-          if (app.tool === app.tools[d.id] && d.flyout) this.openFlyout(b, d);
-          else app.setTool(d.id);
+          const on = d.self ? d.get() === app.toolName : app.tool === app.tools[d.id];
+          if (on && d.flyout) this.openFlyout(b, d);
+          else app.setTool(d.resume ? d.resume() : d.id);
         });
         b.addEventListener('contextmenu', e => { e.preventDefault(); if (d.flyout) this.openFlyout(b, d); });
         let hold;
@@ -171,6 +197,17 @@
       const t = $('#board-title');
       t.addEventListener('input', () => { app.board.name = t.value; app.markDirty(); });
       t.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') t.blur(); });
+      this.extButtons('top', 'icon', b => $('#btn-theme').before(b));
+    }
+
+    /** the buttons features registered for one bar (ext.js) */
+    extButtons(where, cls, put) {
+      for (const x of D.ext.buttons) {
+        if (x.where !== where) continue;
+        const b = el('button', { class: cls, id: x.id, title: x.title || '', html: iconOf(x.icon) });
+        b.onclick = () => x.onClick(this.app);
+        put(b);
+      }
     }
 
     buildViewBar() {
@@ -180,6 +217,7 @@
       $('#btn-zoom-reset').onclick = () => { c.zoomTo(1, innerWidth / 2, innerHeight / 2); app.requestDraw(); this.refresh(); };
       $('#btn-fit').onclick = () => app.zoomToFit();
       $('#btn-grid').onclick = () => app.cycleGrid();
+      this.extButtons('view', 'icon sm', b => $('#viewbar').append(b));
     }
 
     /* ── folding the chrome away ─────────────────────────────────── */
@@ -260,7 +298,8 @@
     /* ── contextual style panel ──────────────────────────────────── */
     refresh() {
       const app = this.app;
-      const active = app.toolName === 'lasso' ? 'select' : app.toolName;
+      const name = app.toolName === 'lasso' ? 'select' : app.toolName;
+      const active = this.railAlso[name] || name;
       for (const id in this.railButtons) this.railButtons[id].classList.toggle('on', active === id);
       $('#btn-undo').disabled = !app.scene.undoStack.length;
       $('#btn-redo').disabled = !app.scene.redoStack.length;
@@ -285,7 +324,10 @@
         case 'note': return this.panelNote();
         case 'node': return this.panelNode();
         case 'connector': return this.panelEdge();
-        default: return this.panelGeneral();
+        default: {
+          const x = D.ext.tools.find(t => t.name === tool);
+          return x && x.panel ? x.panel(this) : this.panelGeneral();
+        }
       }
     }
 
@@ -365,6 +407,124 @@
       return el('label', { class: 'check' }, i, label);
     }
 
+    /** seg(), with an icon in each button rather than a word: options are [value, svg, title] */
+    iconSeg(options, current, onpick) {
+      const wrap = el('div', { class: 'seg icons' });
+      for (const [v, icon, title] of options) {
+        const b = el('button', { class: current === v ? 'on' : '', title: title || String(v), 'aria-label': title || String(v), html: icon });
+        b.onclick = () => { onpick(v); this.picked(); this.buildPanel(); this.app.requestDraw(); };
+        wrap.append(b);
+      }
+      return wrap;
+    }
+
+    /** an arrowhead style as a little picture: the head at the right, or at the left when `start` */
+    headIcon(style, start) {
+      const shaft = { none: 21, open: 21, filled: 15, half: 17, tick: 20, dot: 16 }[style] || 21;
+      const head = {
+        open: '<path d="M15 7l6 5-6 5"/>',
+        filled: '<path d="M21 12l-7-4.6v9.2z" fill="currentColor"/>',
+        half: '<path d="M21 12l-7-4.6V12z" fill="currentColor"/>',
+        tick: '<path d="M16.5 15.5l7-7" style="stroke-width:2.2"/>',
+        dot: '<circle cx="19" cy="12" r="2.8" fill="currentColor"/>'
+      }[style] || '';
+      const body = `<path d="M3 12h${shaft - 3}"/>${head}`;
+      return `<svg viewBox="0 0 24 24">${start ? `<g transform="matrix(-1 0 0 1 24 0)">${body}</g>` : body}</svg>`;
+    }
+
+    /** a line style as a little picture: solid, dashed, dotted, centre, hidden */
+    dashIcon(dash) {
+      const da = { 1: '5 3.2', 2: '0.1 3.4', 3: '7 2.6 0.1 2.6', 4: '2.6 2.8' }[dash];
+      return `<svg viewBox="0 0 24 24"><path d="M2 12h20" style="stroke-width:2.2"${da ? ` stroke-dasharray="${da}"` : ''}/></svg>`;
+    }
+
+    /** a line of explanation under a control */
+    hintText(text) { return el('p', { class: 'cad-note' }, text); }
+
+    /** a one-line text field that applies on Enter or when it loses focus */
+    textField(value, placeholder, onchange, id) {
+      const i = el('input', { type: 'text', class: 'txt-in', value: value || '', placeholder: placeholder || '', id: id ? 'f-' + id : null, spellcheck: 'false' });
+      i.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') i.blur(); if (e.key === 'Escape') { i.value = value || ''; i.blur(); } });
+      i.onchange = () => onchange(i.value);
+      return i;
+    }
+
+    /** put the caret in a field of the style panel, once it has been built */
+    focusField(id) {
+      setTimeout(() => {
+        const f = document.getElementById('f-' + id);
+        if (f) { f.focus(); if (f.select) f.select(); }
+      }, 30);
+    }
+
+    /**
+     * A number to set exactly: a large field with a − and a + either side,
+     * built for a pen. The steppers repeat while held (and speed up), and
+     * a hold is one undo step however long it runs. The field takes
+     * arithmetic and units ("1200/4", "2.5 m") when cad.js is loaded.
+     *
+     * o: { unit, prec, step, min, max, wrap, id,
+     *      apply(v) — change the board: runs inside one step, after the
+     *                 items in o.items have been touched; or
+     *      set(v)   — just be told }
+     */
+    num(label, value, o = {}) {
+      const app = this.app, prec = o.prec ?? 2;
+      const show = v => String(+(+v).toFixed(prec));
+      let cur = value, open = false;
+      const inp = el('input', {
+        type: 'text', inputmode: 'decimal', class: 'num-in', value: show(value), id: o.id ? 'f-' + o.id : null,
+        'aria-label': label, autocomplete: 'off', spellcheck: 'false'
+      });
+      const touch = () => {
+        if (!o.apply) return;
+        if (!open) { app.scene.begin(o.label || 'exact size'); open = true; }
+        for (const it of o.items || []) app.scene.touch(it);
+      };
+      const set = v => {
+        if (!isFinite(v)) { inp.value = show(cur); return; }
+        if (o.wrap) v = ((v % o.wrap) + o.wrap) % o.wrap;
+        if (o.min != null) v = Math.max(o.min, v);
+        if (o.max != null) v = Math.min(o.max, v);
+        cur = v; inp.value = show(v);
+        if (o.apply) { touch(); o.apply(v); app.requestDraw(); }
+        if (o.set) o.set(v);
+      };
+      const end = () => { if (!open) return; open = false; app.scene.commit(); app.afterEdit(); };
+      inp.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Enter') inp.blur();
+        else if (e.key === 'Escape') { inp.value = show(cur); inp.blur(); }
+        else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); set(+(cur + (e.key === 'ArrowUp' ? 1 : -1) * (o.step || 1)).toFixed(10)); end(); }
+      });
+      inp.addEventListener('focus', () => inp.select());
+      inp.onchange = () => {
+        const v = D.cad ? D.cad.parse(inp.value, o.unit) : parseFloat(inp.value);
+        if (isFinite(v) && Math.abs(v - cur) > 1e-12) { set(v); end(); } else inp.value = show(cur);
+      };
+      const stepper = (sign, glyph) => {
+        const b = el('button', { class: 'num-step', title: sign > 0 ? 'More (hold to keep going)' : 'Less (hold to keep going)', 'aria-label': sign > 0 ? 'More' : 'Less' }, glyph);
+        let wait, rep, n = 0;
+        const tick = () => { n++; set(+(cur + sign * (o.step || 1) * (n > 14 ? 10 : 1)).toFixed(10)); };
+        const stop = () => { clearTimeout(wait); clearInterval(rep); if (n) { n = 0; end(); } };
+        b.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          try { b.setPointerCapture(e.pointerId); } catch (_) { }
+          tick();
+          wait = setTimeout(() => { rep = setInterval(tick, 70); }, 420);
+        });
+        b.addEventListener('pointerup', stop);
+        b.addEventListener('pointercancel', stop);
+        b.addEventListener('lostpointercapture', stop);
+        return b;
+      };
+      return el('div', { class: 'num' },
+        el('span', { class: 'num-lbl' }, label),
+        el('div', { class: 'num-row' }, stepper(-1, '−'),
+          el('label', { class: 'num-box' }, inp, o.unit ? el('span', { class: 'num-unit' }, o.unit) : null),
+          stepper(1, '+')));
+    }
+
     panelInk(kind, colors, sizeList) {
       const o = this.app.opts[kind];
       this.add(
@@ -390,16 +550,49 @@
     }
 
     panelShape() {
-      const o = this.app.opts.shape;
+      const app = this.app, o = app.opts.shape, cad = app.opts.cad;
+      const lineish = ['line', 'arrow', 'force', 'polyline'].includes(o.kind), open = lineish || o.kind === 'moment';
+      const pick = v => { if (app.tools.shape.poly) app.tools.shape.cancel(); o.kind = v; this.refresh(); };
+      const heads = lineish && o.heads ? (o.heads[o.kind] || ['none', 'none']) : null;
+      const setHead = (i, v) => { const h = heads.slice(); h[i] = v; o.heads[o.kind] = h; };
       this.add(
-        this.group('Shape', this.seg([['rect', '▭'], ['ellipse', '◯'], ['diamond', '◇'], ['triangle', '△'], ['line', '╱'], ['arrow', '↗']], o.kind, v => { o.kind = v; this.refresh(); })),
+        this.group('Shape',
+          this.iconSeg([['rect', ICON.rect, 'Rectangle'], ['ellipse', ICON.ellipse, 'Ellipse'], ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle']], o.kind, pick),
+          this.iconSeg([['line', ICON.line, 'Line'], ['arrow', ICON.arrow, 'Arrow'], ['polyline', ICON.polyline, 'Polyline'], ['force', ICON.force, 'Force arrow'], ['moment', ICON.moment, 'Moment arrow']], o.kind, pick)),
+        app.tools.shape.poly ? this.group('', el('button', { class: 'btn primary', onclick: () => app.tools.shape.finishPoly() }, 'Finish the line')) : null,
         this.group('Stroke', this.swatches(this.palette(), o.color, c => o.color = c)),
-        this.group('Fill', this.swatches(FILL, o.fill, c => o.fill = c, false)),
+        !open ? this.group('Fill', this.swatches(FILL, o.fill, c => o.fill = c, false)) : null,
         this.group('Weight', this.sizes([1.5, 3, 5, 8], o.size, s => o.size = s, o.color)),
-        this.group('Line', this.seg([[0, 'Solid'], [1, 'Dashed'], [2, 'Dotted']], o.dash, v => o.dash = v)),
+        this.group('Line', this.lineStyles(o.dash, v => o.dash = v)),
+        heads ? this.endsGroup(heads, setHead) : null,
+        open ? this.group('Head size', this.seg([[0.7, 'S'], [1, 'M'], [1.4, 'L'], [2, 'XL']], o.headScale || 1, v => o.headScale = v)) : null,
+        o.kind === 'moment' ? this.group('Turns', this.seg([[true, '↺ Anticlockwise'], [false, '↻ Clockwise']], o.ccw !== false, v => o.ccw = v)) : null,
+        !open && cad ? this.group('Draw',
+          this.check('Square / circle', !!cad.square, v => { cad.square = v; }),
+          this.check('From the centre', !!cad.centre, v => { cad.centre = v; })) : null,
+        lineish && cad ? this.group('Angles', this.check('Only 15° steps', !!cad.ortho, v => { cad.ortho = v; })) : null,
         this.slider('Opacity', o.alpha, 0.1, 1, 0.05, v => o.alpha = v, v => Math.round(v * 100) + '%'),
-        o.kind === 'rect' ? this.slider('Corners', o.radius, 0, 40, 1, v => o.radius = v) : null
+        o.kind === 'rect' ? this.slider('Corners', o.radius, 0, 40, 1, v => o.radius = v) : null,
+        D.cad ? D.cad.snapGroup(this) : null,
+        o.kind === 'polyline' ? this.hintText('Lift the pen at each corner. Tap the last point again — or press Enter — to finish.') : null
       );
+    }
+
+    /** the five line styles, drafting's included */
+    lineStyles(current, onpick) {
+      return this.iconSeg([[0, this.dashIcon(0), 'Solid'], [1, this.dashIcon(1), 'Dashed'], [2, this.dashIcon(2), 'Dotted'],
+        [3, this.dashIcon(3), 'Centre line (dash-dot)'], [4, this.dashIcon(4), 'Hidden line']], current || 0, onpick);
+    }
+
+    /** a head style for each end of a line */
+    endsGroup(heads, onpick) {
+      const styles = ['none', 'open', 'filled', 'half', 'tick', 'dot'];
+      const names = { none: 'No head', open: 'Open', filled: 'Filled', half: 'Half', tick: 'Tick', dot: 'Dot' };
+      return this.group('Ends',
+        el('div', { class: 'rowlbl' }, el('span', {}, 'Start')),
+        this.iconSeg(styles.map(s => [s, this.headIcon(s, true), names[s]]), heads[0], v => onpick(0, v)),
+        el('div', { class: 'rowlbl' }, el('span', {}, 'End')),
+        this.iconSeg(styles.map(s => [s, this.headIcon(s), names[s]]), heads[1], v => onpick(1, v)));
     }
 
     panelText() {
@@ -460,37 +653,130 @@
       );
     }
 
+    /** restyle `items` as one undo step, then show the result */
+    apply(items, fn) {
+      const app = this.app;
+      app.scene.begin('style');
+      for (const it of items) { app.scene.touch(it); fn(it); }
+      app.scene.commit();
+      app.requestDraw(); app.markDirty(); this.buildPanel();
+    }
+
     panelForSelection(sel) {
       const app = this.app;
       const first = sel[0];
       const has = t => sel.some(i => i.type === t);
-      const apply = fn => {
-        app.scene.begin('style');
-        for (const it of sel) { app.scene.touch(it); fn(it); }
-        app.scene.commit();
-        app.requestDraw(); app.markDirty(); this.buildPanel();
-      };
+      const apply = fn => this.apply(sel, fn);
 
-      const grouped = sel.some(i => i.group);
+      /* a registered type with a panel of its own, when it is all that is
+         selected: its controls, then the usual Arrange row */
+      const xt = D.ext.items[first.type];
+      if (xt && xt.panel && sel.every(i => i.type === first.type)) {
+        xt.panel(this, sel);
+        this.add(this.arrangeGroup(sel));
+        return;
+      }
+
       const colorNow = first.type === 'note' ? first.color : (first.color || '#000');
       this.add(
         this.group(sel.length > 1 ? sel.length + ' items' : labelOf(first),
           this.swatches(has('note') ? NOTE : this.palette(), colorNow, c => apply(it => { it.color = c; it._path = null; }))),
-        (has('shape') || has('node')) ? this.group('Fill', this.swatches(FILL, first.fill, c => apply(it => { if ('fill' in it) it.fill = c; }), true)) : null,
+        (sel.some(i => i.type === 'shape' && !D.isOpenShape(i)) || has('node')) ? this.group('Fill', this.swatches(FILL, first.fill, c => apply(it => { if ('fill' in it) it.fill = c; }), true)) : null,
         this.group('Weight', this.sizes([1.5, 3, 5, 8, 14], first.size, s => apply(it => { it.size = s; it._path = null; it._b = null; }), first.color)),
         this.slider('Opacity', first.alpha ?? 1, 0.1, 1, 0.05, v => apply(it => it.alpha = v), v => Math.round(v * 100) + '%'),
         (has('text') || has('note') || has('node')) ? this.group('Text size',
           this.seg([[13, 'S'], [17, 'M'], [24, 'L'], [34, 'XL']], first.textSize || first.size,
             v => apply(it => { if (it.type === 'node') it.textSize = v; else it.size = v; it._lines = null; it._b = null; }))) : null,
         has('edge') ? this.group('Route', this.seg([['elbow', 'Elbow'], ['line', 'Direct'], ['curve', 'Curve']], first.style, v => apply(it => { if (it.type === 'edge') { it.style = v; it._b = null; } }))) : null,
-        this.group('Arrange', el('div', { class: 'actions' },
-          iconBtn(ICON.front, 'Bring to front · ]', () => app.arrange('front')),
-          iconBtn(ICON.back, 'Send to back · [', () => app.arrange('back')),
-          iconBtn(ICON.dup, 'Duplicate · Ctrl+D', () => app.duplicate()),
-          grouped ? iconBtn(ICON.ungroup, 'Ungroup · Ctrl+Shift+G', () => app.toggleGroup())
-                  : iconBtn(ICON.group, 'Group · Ctrl+G', () => app.toggleGroup()),
-          iconBtn(ICON.trash, 'Delete · Del', () => app.deleteSelection(), 'danger')))
+        ...this.lineGroups(sel),
+        this.measureGroup(sel),
+        this.calibrateFor(sel),
+        this.arrangeGroup(sel)
       );
+    }
+
+    /* Line style for shapes and connectors; ends, head size and the bend
+       for lines and arrows; the turn of a moment arrow. */
+    lineGroups(sel) {
+      const shapes = sel.filter(i => i.type === 'shape' || i.type === 'edge');
+      if (!shapes.length) return [];
+      const lines = sel.filter(D.isLine), opens = sel.filter(D.isOpenShape), apply = fn => this.apply(sel, fn);
+      const out = [this.group('Line', this.lineStyles(shapes[0].dash, v => apply(it => { if (it.type === 'shape' || it.type === 'edge') it.dash = v; })))];
+      if (lines.length) {
+        const heads = D.headsOf(lines[0]);
+        out.push(this.endsGroup(heads, (i, v) => apply(it => { if (D.isLine(it)) { const h = D.headsOf(it); h[i] = v; it.head1 = h[0]; it.head2 = h[1]; delete it.arrowStart; } })));
+      }
+      if (opens.length) out.push(this.group('Head size', this.seg([[0.7, 'S'], [1, 'M'], [1.4, 'L'], [2, 'XL']], opens[0].headScale || 1,
+        v => apply(it => { if (D.isOpenShape(it)) it.headScale = v; }))));
+      const m = sel.length === 1 && sel[0].kind === 'moment' && sel[0];
+      if (m) out.push(this.group('Turns', this.seg([[true, '↺ Anticlockwise'], [false, '↻ Clockwise']], (m.sweep ?? 270) > 0,
+        v => apply(it => { const s = it.sweep ?? 270; if ((s > 0) !== v) { it.a0 = (it.a0 || 0) + s; it.sweep = -s; } }))));
+      if (lines.some(l => l.curve)) out.push(this.group('', el('button', { class: 'btn', onclick: () => apply(it => { delete it.curve; }) }, 'Straighten')));
+      return out;
+    }
+
+    /**
+     * Exact sizes for one selected thing, in the board's units (cad.js):
+     * a line's length and angle; a moment's radius and sweep; anything
+     * else's width, height and the position of its centre. Y counts up
+     * the page and angles anticlockwise from east, as on paper.
+     */
+    measureGroup(sel) {
+      if (sel.length !== 1 || !D.cad) return null;
+      const it = sel[0], app = this.app, scene = app.scene, C = D.cad;
+      const S = C.scaleOf(scene), k = S.k, unit = S.unit, prec = S.prec, items = [it];
+      const len = (label, v, apply, extra) => this.num(label, v * k, { unit, prec, step: C.stepFor(v * k), min: 0, items, apply: x => apply(x / k), ...extra });
+      if (D.isLine(it)) {
+        if (it.via) return this.group('Size', this.hintText('Total length ' + C.fmtLen(scene, U.pathLength(scene.linePath(it)))));
+        const [a, b] = scene.lineEnds(it);
+        const L = Math.hypot(b.x - a.x, b.y - a.y), ang = C.angleOf(b.x - a.x, b.y - a.y);
+        // the start stays put; the end lets go of anything it was attached to
+        const put = (l, deg) => {
+          const r = deg * Math.PI / 180;
+          it.x = a.x; it.y = a.y; it.w = Math.cos(r) * l; it.h = -Math.sin(r) * l;
+          delete it.bind2;
+        };
+        return this.group('Size',
+          len('Length', L, l => put(l, C.angleOf(it.w, it.h)), { id: 'cad-len', min: 1e-6 }),
+          this.num('Angle', ang, { unit: '°', prec: 2, step: 1, wrap: 360, items, id: 'cad-ang', apply: d => put(Math.hypot(it.w, it.h), d) }));
+      }
+      if (it.type === 'shape' && it.kind === 'moment') {
+        const cx = it.x + it.w / 2, cy = it.y + it.h / 2;
+        return this.group('Size',
+          len('Radius', Math.abs(it.w) / 2, r => { it.x = cx - r; it.y = cy - r; it.w = it.h = 2 * r; }, { min: 1e-6 }),
+          this.num('Sweep', Math.abs(it.sweep ?? 270), { unit: '°', prec: 1, step: 5, min: 10, max: 359, items,
+            apply: d => { const s = it.sweep ?? 270; const end = (it.a0 || 0) + s; it.sweep = Math.sign(s) * d; it.a0 = end - it.sweep; } }));
+      }
+      if (!['shape', 'note', 'node', 'image'].includes(it.type)) return null;
+      const g = D.geomBox(scene, it);
+      const cx = g.x + g.w / 2, cy = g.y + g.h / 2;
+      const norm = () => { if (it.w < 0) { it.x += it.w; it.w = -it.w; } if (it.h < 0) { it.y += it.h; it.h = -it.h; } };
+      return this.group('Size and position',
+        el('div', { class: 'num-pair' },
+          len('W', g.w, w => { norm(); it.w = Math.max(w, 1e-6); }, { min: 1e-6 }),
+          len('H', g.h, h => { norm(); it.h = Math.max(h, 1e-6); }, { min: 1e-6 })),
+        el('div', { class: 'num-pair' },
+          this.num('X', cx * k, { unit, prec, step: C.stepFor(Math.max(g.w, g.h) * k), items, apply: x => { norm(); it.x = x / k - it.w / 2; } }),
+          this.num('Y ↑', -cy * k, { unit, prec, step: C.stepFor(Math.max(g.w, g.h) * k), items, apply: y => { norm(); it.y = -y / k - it.h / 2; } })));
+    }
+
+    /** "this line is really …", to set the drawing scale from */
+    calibrateFor(sel) {
+      if (sel.length !== 1 || !D.cad || !D.isLine(sel[0]) || sel[0].via || sel[0].curve) return null;
+      const [a, b] = this.app.scene.lineEnds(sel[0]);
+      return D.cad.calibrateGroup(this, Math.hypot(b.x - a.x, b.y - a.y));
+    }
+
+    /** front, back, duplicate, group and delete, for whatever is selected */
+    arrangeGroup(sel) {
+      const app = this.app, grouped = sel.some(i => i.group);
+      return this.group('Arrange', el('div', { class: 'actions' },
+        iconBtn(ICON.front, 'Bring to front · ]', () => app.arrange('front')),
+        iconBtn(ICON.back, 'Send to back · [', () => app.arrange('back')),
+        iconBtn(ICON.dup, 'Duplicate · Ctrl+D', () => app.duplicate()),
+        grouped ? iconBtn(ICON.ungroup, 'Ungroup · Ctrl+Shift+G', () => app.toggleGroup())
+                : iconBtn(ICON.group, 'Group · Ctrl+G', () => app.toggleGroup()),
+        iconBtn(ICON.trash, 'Delete · Del', () => app.deleteSelection(), 'danger')));
     }
 
     /* ── boards sheet ────────────────────────────────────────────── */
@@ -778,7 +1064,7 @@
       $('#settings-sub').textContent = s.sub;
       const body = $('#settings-body');
       body.textContent = '';
-      body.append(...s.build().filter(Boolean));
+      body.append(...[].concat(s.build() || []).filter(Boolean));
       body.scrollTop = 0;
       try { localStorage.setItem('dpo:settings-tab', id); } catch (_) { }
     }
@@ -792,6 +1078,12 @@
         { id: 'pen', title: 'Pen and touch', sub: 'What the pen, your fingers and the tools do', icon: ICON.pen, build: () => this.setInput() },
         { id: 'export', title: 'Export', sub: 'How PNG and SVG exports come out', icon: icon('M12 4v11|M7.5 10.5L12 15l4.5-4.5|M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3'), build: () => this.setExport() },
         X.on ? { id: 'updates', title: 'Updates', sub: 'New versions, from GitHub', icon: icon('M20 11a8 8 0 1 0-2.3 5.7|M20 5v6h-6'), build: () => this.setUpdates(this._cfg) } : null,
+        // what features add (ext.js), ahead of Help, which stays last
+        ...D.ext.settings.map(x => ({
+          id: x.id, title: x.title, sub: x.sub || '',
+          icon: iconOf(x.icon || 'M4 7h9|M17 7h3|M4 17h3|M11 17h9|M15 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4z|M9 15a2 2 0 1 0 0 4 2 2 0 0 0 0-4z'),
+          build: () => x.render(this)
+        })),
         { id: 'help', title: 'Help', sub: 'Shortcuts, and where to ask for things', icon: icon('M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17z|M9.6 9.4a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.1-2.4 3.6|M12 17.2v.1'), build: () => this.setHelp() }
       ].filter(Boolean);
     }
@@ -959,7 +1251,9 @@
   }
 
   function labelOf(it) {
-    return { stroke: 'Ink', shape: 'Shape', text: 'Text', note: 'Sticky note', node: 'Node', edge: 'Connector', image: 'Image' }[it.type] || 'Item';
+    const x = D.ext.items[it.type];
+    return { stroke: 'Ink', shape: 'Shape', text: 'Text', note: 'Sticky note', node: 'Node', edge: 'Connector', image: 'Image' }[it.type] ||
+      (x && x.label) || 'Item';
   }
 
   function when(ts) {
@@ -972,4 +1266,5 @@
 
   D.UI = UI;
   D.ICON = ICON;
+  D.svgIcon = svg;
 })(window.DPO);
