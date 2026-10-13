@@ -425,6 +425,7 @@
         return [{ ch: mid < (ys[0] + ys[ys.length - 2]) / 2 ? '(' : ')', d: SURE }];
       }
     }
+    if (n === 2 && strokes[0].eqBar && strokes[1].eqBar) return [{ ch: '=', d: SURE }];
     if (n === 2 && strokes.every(s => s.straight)) {
       const [a, b] = strokes;
       if (a.ang < 24 && b.ang < 24) return [{ ch: '=', d: SURE }];
@@ -495,6 +496,7 @@
      against the closest few. A quarter of the work, and the same answer
      in every case the tests try. */
   const SHORTLIST = 24;
+  const UNKNOWN = 9;
   function cloudMatch(strokes, box, H) {
     const c = cloud(strokes.map(s => s.xy));
     const rough = [];
@@ -513,6 +515,8 @@
       if (d < bound) bound = d;
     }
     const out = [...best].map(([ch, d]) => ({ ch, d: d + sizePenalty(ch, box, H) })).sort((a, b) => a.d - b.d);
+    // a shape no template comes near in proportion (a long wavy line): an unknown, never an empty answer
+    if (!out.length) out.push({ ch: '?', d: UNKNOWN });
     out.cloud = c;
     return out;
   }
@@ -543,11 +547,11 @@
 
     if (depth < MAX_DEPTH) {
       // fraction bars, the longest first so an outer bar takes its inner ones with it
-      const bars = rest.filter(s => s.straight && s.ang < 14 && s.w > 0.45 * H).sort((a, b) => b.w - a.w);
+      const bars = rest.filter(s => !s.eqBar && s.straight && s.ang < 14 && s.w > 0.45 * H).sort((a, b) => b.w - a.w);
       for (const bar of bars) {
         if (!rest.includes(bar)) continue;
         const pad = 0.12 * bar.w;
-        const inRange = s => s !== bar && s.cx > bar.x - pad && s.cx < bar.x2 + pad;
+        const inRange = s => s !== bar && !s.eqBar && s.cx > bar.x - pad && s.cx < bar.x2 + pad;
         const like = s => s.straight && s.ang < 20 && s.w > 0.5 * bar.w && s.w < 2 * bar.w;      // the other half of an "="
         // clearly over or under it: the bar of a + beside it sits level with it
         const above = rest.filter(s => inRange(s) && s.cy < bar.cy - 0.15 * H && s.y2 < bar.cy + 0.25 * H && bar.cy - s.y2 < 1.3 * H);
@@ -565,7 +569,8 @@
         if (!rest.includes(s)) continue;
         const roof = rootRoof(s);
         if (!roof) continue;
-        const under = rest.filter(o => o !== s && o.cx > roof.x && o.cx < s.x2 + 0.2 * H && o.cy > roof.y && o.y < s.y2);
+        if (s.eqBar) continue;
+        const under = rest.filter(o => o !== s && !o.eqBar && o.cx > roof.x && o.cx < s.x2 + 0.2 * H && o.cy > roof.y && o.y < s.y2);
         if (!under.length) continue;
         const taken = new Set([s, ...under]);
         rest = rest.filter(o => !taken.has(o));
@@ -610,7 +615,7 @@
       more = false;
       const box = boxOf([...got]);
       for (const s of pool) {
-        if (got.has(s) || s === bar) continue;
+        if (got.has(s) || s === bar || s.eqBar) continue;
         if ((dir < 0 ? s.cy < bar.cy - 0.15 * H : s.cy > bar.cy + 0.15 * H) && s.x < box.x2 + 0.25 * H && s.x2 > box.x - 0.25 * H &&
           s.y < box.y2 + 0.2 * H && s.y2 > box.y - 0.6 * H && (dir < 0 ? s.y2 < bar.cy + 0.25 * H : s.y > bar.cy - 0.25 * H)) {
           got.add(s); more = true;
@@ -651,6 +656,13 @@
    * slanted 1 of "12" leaning into the 2.
    */
   function group(strokes, H) {
+    // the "=" the line was found by is one already, whatever its bars look like
+    const eq = strokes.filter(s => s.eqBar);
+    if (eq.length) {
+      const out = group(strokes.filter(s => !s.eqBar), H);
+      out.push(eq);
+      return out;
+    }
     const n = strokes.length, parent = strokes.map((_, i) => i);
     const find = i => parent[i] === i ? i : (parent[i] = find(parent[i]));
     const dots = strokes.map(s => isDot(s, H));
@@ -819,8 +831,10 @@
    * out. `expr` is the line before a trailing "="; a line with an "="
    * in it gives `lhs` and `rhs` as well.
    */
-  function read(items) {
-    const strokes = items.map(s => s.xy ? s : feature(s)).filter(s => s.xy.length >= 2);
+  function read(items, eqIds) {
+    const eqs = eqIds && eqIds.length === 2 ? new Set(eqIds) : null;
+    let strokes = items.map(s => s.xy ? s : feature(s)).filter(s => s.xy.length >= 2);
+    if (eqs) strokes = strokes.map(s => eqs.has(s.id) ? Object.assign({}, s, { eqBar: true }) : s.eqBar ? Object.assign({}, s, { eqBar: false }) : s);
     const empty = { ok: false, conf: 0, expr: '', lhs: '', rhs: '', eq: null, syms: [], map: [], H: 1, base: 0, box: null };
     if (!strokes.length) return empty;
     const { nodes, H } = readNodes(strokes);
@@ -1041,12 +1055,13 @@
     }
     const eqf = bars.map(feature);
     const { left, right } = gather(app, e);
-    if (!left.length) { dropDef(e.key, changed); unanswer(app, e.key); return; }
+    if (!left.length) { e.why = 'alone'; e.reading = null; dropDef(e.key, changed); unanswer(app, e.key); return; }
 
     if (right.length) {
       // "x = 5": a definition, if that is how it reads
       unanswer(app, e.key);
-      const r = read([...left, ...eqf, ...right]);
+      const r = read([...left, ...eqf, ...right], e.ids);
+      e.reading = r; e.why = 'right';
       if (r.ok && r.eq === 'mid' && NAME.test(r.lhs) && r.rhs) {
         const was = S.defs.get(e.key);
         const def = { key: e.key, name: r.lhs, rhs: r.rhs, src: [...left, ...eqf, ...right].map(f => f.id), cy: e.cy, x: e.x };
@@ -1057,11 +1072,16 @@
     }
 
     dropDef(e.key, changed);
-    const r = read([...left, ...eqf]);
-    if (!r.ok || r.eq !== 'end' || !worthAnswering(r.expr)) { unanswer(app, e.key); return; }
+    const r = read([...left, ...eqf], e.ids);
+    e.reading = r;
+    if (!r.ok || r.eq !== 'end' || !worthAnswering(r.expr)) {
+      e.why = r.worst > ACCEPT ? 'unsure' : r.eq !== 'end' ? 'no-end' : !worthAnswering(r.expr) ? 'not-a-sum' : 'shape';
+      unanswer(app, e.key); return;
+    }
     const uses = namesIn(r.expr);
     const out = work1(app, r.expr, uses, e.cy, around(U.box(e.x, e.cy, e.x2, e.cy), e.L));
-    if (!out) { unanswer(app, e.key); return; }
+    if (!out) { e.why = 'eval'; unanswer(app, e.key); return; }
+    e.why = 'answered';
     answer(app, e, eqf, left, r, out, uses);
   }
 
@@ -1138,7 +1158,7 @@
       const e = rememberEq([a, b]);
       const { left, right } = gather(app, e);
       if (!left.length || !right.length) continue;
-      const r = read([...left, a, b, ...right]);
+      const r = read([...left, a, b, ...right], e.ids);
       if (r.ok && r.eq === 'mid' && NAME.test(r.lhs) && r.rhs) {
         S.defs.set(key, { key, name: r.lhs, rhs: r.rhs, src: [...left, a, b, ...right].map(f => f.id), cy: e.cy, x: e.x });
         found++;
@@ -1691,6 +1711,6 @@
     read, classify: (strokes, H) => classify(strokes.map(s => s.xy ? s : feature(s)), H), feature, namesIn,
     teach, forget, learned: () => learned().length, flush, solve, reset,
     get state() { return S; },
-    GLYPHS, LABELS, _cloud: cloud, _spline: spline
+    GLYPHS, LABELS, _cloud: cloud, _spline: spline, _gather: gather, _eq: rememberEq, _pairs: pairs
   };
 })(window.DPO);
