@@ -78,7 +78,10 @@
         {
           id: 'select', icon: ICON.select, key: 'V', title: 'Select · V (hold for lasso)', flyout: [
             ['select', ICON.select, 'Rectangle select · V'], ['lasso', ICON.lasso, 'Lasso select · G']
-          ], get: () => app.toolName === 'lasso' ? 'lasso' : 'select', set: k => app.setTool(k), self: true
+          ], get: () => app.toolName === 'lasso' ? 'lasso' : 'select', set: k => app.setTool(k), self: true,
+          /* coming back from another tool, the mode last picked rather
+             than always the rectangle — hold-then-drag follows it too */
+          resume: () => (app.opts.press && app.opts.press.lastSelect) || 'select'
         },
         { id: 'pen', icon: ICON.pen, key: 'P', title: 'Pen · P' },
         { id: 'highlighter', icon: ICON.highlighter, key: 'H', title: 'Highlighter · H' },
@@ -123,8 +126,9 @@
         if (d.div) { this.rail.append(el('div', { class: 'divider' })); continue; }
         const b = el('button', { class: 'icon tool', title: d.title, html: d.icon + (d.flyout ? '<i class="badge"></i>' : '') });
         b.addEventListener('click', () => {
-          if (app.tool === app.tools[d.id] && d.flyout) this.openFlyout(b, d);
-          else app.setTool(d.id);
+          const on = d.self ? d.get() === app.toolName : app.tool === app.tools[d.id];
+          if (on && d.flyout) this.openFlyout(b, d);
+          else app.setTool(d.resume ? d.resume() : d.id);
         });
         b.addEventListener('contextmenu', e => { e.preventDefault(); if (d.flyout) this.openFlyout(b, d); });
         let hold;

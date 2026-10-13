@@ -416,7 +416,7 @@
       if (D.math.loaded) { recalc(it); this.results = null; }
       this.item = null; this.ta = null; this.line = -1;
       D.ext.off('frame', this.onFrame);
-      removeEventListener('pointerdown', this.onOutside, true);
+      if (typeof removeEventListener === 'function') removeEventListener('pointerdown', this.onOutside, true);
       ta.remove(); this.bar.remove(); this.bar = this.msg = null;
       it._lines = null; it._b = null;
       if (!it.text.trim() && this.isNew) {
