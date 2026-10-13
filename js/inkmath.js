@@ -43,8 +43,13 @@
 
    ── For tests and features ───────────────────────────────────────────
 
-   D.inkmath.read(strokes) → reading     strokes: items with pts [x,y,p,…]
-     { ok, conf, expr, lhs, rhs, eq: 'end'|'mid'|null, syms, map, H, base }
+   D.inkmath.read(strokes, eqIds?, allow?) → reading     strokes: items with pts [x,y,p,…]
+     { ok, shaped, close, conf, worst, expr, lhs, rhs, eq: 'end'|'mid'|null, syms, map, H, base }
+     eqIds: the two strokes known to be the "=" (read as one, whatever
+     their shape); allow: ch → bool, the symbols the line may hold
+   D.inkmath.state.eqs   each "=" found keeps .why ('answered', 'unsure',
+     'eval', 'shape', 'not-a-sum', 'no-end', 'alone', 'right') and .reading
+   D.inkmath.state.marks the "?" (and "Show why" notes) on the page now
    D.inkmath.classify(strokes, H?) → [{ ch, d }] best first
    D.inkmath.flush(app) → Promise        run waiting work now, not after the pause
    D.inkmath.solve(app, strokes, opts?)  the "Solve this ink" popover       */
@@ -101,6 +106,8 @@
     ['+', [[0, 0.5, 1, 0.5], [0.5, 0, 0.5, 1]]],
     ['x', [[0, 0, 1, 1], [1, 0, 0, 1]]],
     ['x', [[0.05, 0, 0.42, 0.18, 0.5, 0.5, 0.42, 0.82, 0.05, 1], [0.95, 0, 0.58, 0.18, 0.5, 0.5, 0.58, 0.82, 0.95, 1]]],
+    // the round school x: two bowls back to back, ɔ then c, touching in the middle
+    ['x', [arc(0.02, 0.5, 0.46, 0.5, -75, 75, 10), arc(0.98, 0.5, 0.46, 0.5, 105, 255, 10)]],
     ['(', PAREN], ['(', PAREN2],
     [')', mirror(PAREN, 0.4)], [')', mirror(PAREN2, 0.4)],
     ['^', [[0, 1, 0.5, 0, 0.5, 0, 1, 1]]],
@@ -531,6 +538,8 @@
   const SMALL = new Set(['x', 'z', 'a', 'c', 'n', 'π']);
   function sizePenalty(ch, box, H) {
     const r = box.h / H;
+    // read as a sum of numbers, an x is a times sign, and may be any size
+    if (ch === 'x' && ALLOW && !ALLOW('y')) return 0;
     if (SMALL.has(ch) && r > 1.05) return (r - 1.05) * 1.2;
     if ((ch === '(' || ch === ')') && r < 0.8) return (0.8 - r) * 3;
     return 0;
@@ -587,7 +596,14 @@
       const box = boxOf(g);
       let alts = classify(g, H);
       if (ALLOW) {
-        const kept = alts.filter(a => ALLOW(a.ch));
+        /* Read as numbers, a symbol takes its best digit or operator — but
+           one that was plainly a letter (a y, far nearer a y than the 0
+           it would have to be) keeps the distance between them as doubt,
+           so "y² =" in someone's notes never comes out as "0² = 0". */
+        const free = alts[0];
+        let kept = alts.filter(a => ALLOW(a.ch));
+        if (kept.length && !ALLOW(free.ch) && kept[0].d - free.d > 0.15)
+          kept = kept.map(a => ({ ch: a.ch, d: a.d + 3 * (a.d - free.d) }));
         kept.cloud = alts.cloud;
         alts = kept.length ? kept : Object.assign([{ ch: '?', d: UNKNOWN }], { cloud: alts.cloud });
       }
@@ -809,7 +825,7 @@
         emit(n.body.nodes, syms, out);
         out.push([')', -1]);
       } else {
-        out.push([ch, syms.push({ ch, strokes: n.strokes, cloud: n.cloud, d: n.d }) - 1]);
+        out.push([ch, syms.push({ ch, strokes: n.strokes, cloud: n.cloud, d: n.d, alts: n.alts }) - 1]);
       }
       if (n.sup) {
         out.push(['^', -1]);
@@ -850,8 +866,9 @@
   }
 
   /* ══ reading ═════════════════════════════════════════════════════════ */
-  const ACCEPT = 1.25;          // the worst a symbol may match by for the line to be trusted
-  const GUESS = 2.0;            // …and for a "?" that offers its best guess instead
+  const ACCEPT = 1.4;           // the worst a symbol may match by for the line to be trusted
+  const GUESS = 2.0;
+  const MARGIN_FROM = 0.95, MARGIN = 0.1;   // a match this loose needs its runner-up this far behind            // …and for a "?" that offers its best guess instead
 
   /**
    * Read a line of ink. Strokes are scene items (pts [x,y,p,…]) or
@@ -889,6 +906,10 @@
     else if (eqAt.length === 1) { eq = 'mid'; lhs = text.slice(0, eqAt[0]); rhs = text.slice(eqAt[0] + 1); }
     let worst = 0;
     for (const s of syms) if (s.d != null && s.d > worst) worst = s.d;
+    /* A loose match with a close second is a coin toss, however good the
+       line looks: on a real hand, a 2 read as an 8 by a hair was the
+       commonest wrong answer. Such a line is not trusted (it gets a "?"). */
+    const close = syms.some(s => s.d != null && s.d > MARGIN_FROM && s.alts && s.alts.some(a => a.ch !== s.ch && !(a.ch === 'x' && s.ch === '×') && a.d - s.d < MARGIN));
     const conf = U.clamp(1 - worst / (ACCEPT * 1.6), 0, 1);
     const body = eq === 'mid' ? rhs : expr;
     const shaped = body.length > 0 && eqAt.length <= 1 && balanced(body) && !/^[+×·/÷^]|[+−×·/÷^]$/.test(body) && !/[+−×·/÷^]{2}/.test(body.replace(/[×·]−/g, '×'));
@@ -899,7 +920,7 @@
     // fraction, the digits over and under the bar will do
     const inner = nodes.filter(n => n.kind === 'frac').flatMap(n => n.num.nodes.concat(n.den.nodes)).filter(n => n.kind === 'sym' && DIGIT.test(n.ch));
     const size = median((digits.length ? digits : inner).map(n => n.box.h)) || null;
-    return { ok: worst <= ACCEPT && shaped, shaped, conf, worst, expr, lhs, rhs, eq, syms, map, H, base, size, box: boxOf(strokes), text };
+    return { ok: worst <= ACCEPT && shaped && !close, close, shaped, conf, worst, expr, lhs, rhs, eq, syms, map, H, base, size, box: boxOf(strokes), text };
   }
   function balanced(s) {
     let d = 0;
@@ -1159,6 +1180,12 @@
     if (r.eq !== 'end' || !worthAnswering(r.expr)) {
       note(e, r.eq !== 'end' ? 'no-end' : 'not-a-sum', r);
       unanswer(app, e.key); return;
+    }
+    /* "y² =" begins half the lines in a page of notes, and a written y
+       is near enough a 0 to the matcher. One digit raised to a power,
+       and nothing else, is answered only when that digit is clear. */
+    if (/^[0-9]\^/.test(r.expr) && !/[+−×·÷/√]/.test(r.expr) && r.syms[0] && r.syms[0].d > 0.6) {
+      note(e, 'unsure', r); unanswer(app, e.key); return;
     }
     const uses = namesIn(r.expr);
     const out = r.shaped ? work1(app, r.expr, uses, e.cy, around(U.box(e.x, e.cy, e.x2, e.cy), e.L)) : null;
