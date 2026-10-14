@@ -116,3 +116,23 @@ test('a named part turned along a drag still lands on its ends: the label does n
   assert.ok(near(pa.x, 560) && near(pa.y, 252.85), `a at ${pa.x}, ${pa.y}`);
   assert.ok(near(pb.x, 560) && near(pb.y, 520), `b at ${pb.x}, ${pb.y}`);
 });
+
+test('junction dots: where three conductors meet, and nowhere a wire only turns or joins one other', () => {
+  const scene = new D.Scene();
+  const wire = (x, y, x2, y2, o = {}) => scene.add(D.make.shape({ kind: 'line', x, y, w: x2 - x, h: y2 - y, wire: true, head1: 'none', head2: 'none', ...o }));
+  const a = wire(0, 0, 100, 0);           // a run
+  const b = wire(100, 0, 200, 0);         // carried on, end to end: no dot
+  assert.equal(D.wires.dotsOf(scene, a).length + D.wires.dotsOf(scene, b).length, 0);
+  const t = wire(50, 0, 50, 80);          // a T onto the middle of a
+  assert.deepEqual([...D.wires.dotsOf(scene, t)].map(p => [p.x, p.y]), [[50, 0]]);
+  const c = wire(100, 0, 100, -60);       // a third wire where a and b meet
+  assert.equal(D.wires.dotsOf(scene, c).length, 1);
+  assert.equal(D.wires.dotsOf(scene, a).length, 1, 'a has the dot at its far end too');
+  // two wires on a part's terminal: its lead makes three
+  const r = scene.add(S.make(app, 'resistor', { x: 400, y: 300 }));
+  const pa = scene.snapPoints(r).find(p => p.k === 'a');
+  const w1 = wire(pa.x - 50, pa.y, pa.x, pa.y), w2 = wire(pa.x, pa.y + 60, pa.x, pa.y);
+  assert.equal(D.wires.dotsOf(scene, w1).length, 1);
+  scene.remove(w2);
+  assert.equal(D.wires.dotsOf(scene, w1).length, 0, 'one wire on a terminal is just a connection');
+});

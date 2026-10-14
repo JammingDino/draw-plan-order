@@ -315,7 +315,7 @@
       }, 0));
 
       this.msg = el('span', { class: 'calc-bar-msg' });
-      this.graphB = el('button', { class: 'btn', type: 'button', hidden: true, onclick: () => this.graphLine(), html: '📈 Graph' });
+      this.graphB = el('button', { class: 'btn', type: 'button', hidden: true, onclick: () => this.graphLine(), html: U.GRAPH_ICON + 'Graph' });
       this.bar = el('div', { class: 'calc-bar' }, this.msg, this.graphB,
         D.inkmath ? el('button', { class: 'btn', type: 'button', title: 'Write lines with the pen', html: svg('M4 20l4.5-1.2L20 7.3a2 2 0 0 0 0-2.8l-.5-.5a2 2 0 0 0-2.8 0L5.2 15.5z|M14.5 6.5l3 3') + 'Write',
           onclick: () => D.inkmath.writePad(app, { title: 'Write lines for the calc block', multi: true, near: this.bar, use: text => {
@@ -602,6 +602,8 @@
         inputmode: 'none', 'aria-label': 'Expression', placeholder: 'Type or tap a sum'
       });
       this.input.addEventListener('input', () => this.changed());
+      // a pen on the line writes on the app's pad, not in Windows' handwriting panel
+      U.penField(this.input, () => this.write());
       this.input.addEventListener('keydown', e => this.key(e));
       this.input.addEventListener('paste', e => e.stopPropagation());
       for (const ev of ['keyup', 'click']) this.input.addEventListener(ev, () => this.preview());
@@ -895,6 +897,7 @@
         if (hint) this.out.append(el('small', {}, hint));
       } else if (hint) this.say(hint, 'tip');
       else if (this.offerGraph(src)) return;
+      else if (r.error && /\bx\b/.test(r.error) && D.graph && D.graph.graphable(src, session(this.app).scope, { bare: true })) this.say(r.error + ' — set x = …, or write y = … to graph it', 'tip');
       else if (r.error && r.error !== 'The expression is not finished') this.say(r.error, 'tip');
       else this.say('');
     }
@@ -983,7 +986,8 @@
       this.out.textContent = '';
       this.out.className = 'calc-preview tip';
       this.out.append(el('span', {}, 'A function of x: '),
-        el('button', { class: 'btn primary calc-graph', type: 'button', onclick: () => this.plot() }, '📈 Graph y = ' + fn));
+        el('button', { class: 'btn primary calc-graph', type: 'button', onclick: () => this.plot(), html: U.GRAPH_ICON + '<span></span>' }));
+      this.out.lastChild.lastChild.textContent = 'Graph y = ' + fn;
       return true;
     }
 
@@ -993,7 +997,7 @@
       if (!src) { app.toast('Type a function of x first, like sin(x) or x^2 − 3'); return; }
       if (!D.graph) return;
       if (!/(^|[^A-Za-z_])x([^A-Za-z_(]|$)/.test(src)) app.toast('No x in that: it plots as a flat line');
-      D.graph.add(app, this.clearSpot(), { fns: [(D.graph.graphable(src) || src).replace(/^\s*y\s*=\s*/, '')] }, { edit: false });
+      D.graph.add(app, this.clearSpot(), { fns: [(D.graph.graphable(src, null, { bare: true }) || src).replace(/^\s*y\s*=\s*/, '')] }, { edit: false });
     }
 
     insertBlock() {

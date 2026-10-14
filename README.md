@@ -170,7 +170,9 @@ supports and a pulley — and **Wire**.
   from its + end.
 - **Wire** (or <kbd>W</kbd>): drag from a terminal to a terminal for a
   square-cornered wire, attached at both ends, whose corner moves as the
-  parts do.
+  parts do. Where three or more conductors meet — a wire ending on the
+  middle of another, or two wires on one terminal — a junction dot is
+  drawn, as a wiring diagram has it.
 - Parts are **named as they are placed** — R1, R2, C1, V1, k1 — and a
   double-tap edits the label (`R1 = 4.7 kΩ`), by keys or by pen; it
   stays upright however the part is turned. *Change to* in the panel
@@ -314,12 +316,14 @@ readable) or is set by hand; the whole edit is one undo step. Its panel
 zooms x in and out and fits y again. A graph moves, resizes, turns and
 exports to SVG and PDF like anything else.
 
-**Prompted, and by pen.** Anything you enter that is a function of x
-offers to graph itself: write `y = x² − 3` (or `x² − 3 =`) with the pen
-and a **📈 Graph** chip appears beside it; type `x^2/4 − 3` in the
-calculator and it offers *Graph y = …* where it would have said x is
-undefined; a calc-block line like that puts a *Graph* button on the
-editing bar. In the graph editor, the pen button by each function (and
+**Prompted, and by pen.** A curve you ask for offers to graph itself:
+write `y = x² − 3` with the pen and a **Graph** chip appears beside it;
+type `y = x^2/4 − 3` in the calculator and it offers *Graph y = …*; a
+calc-block line like that puts a *Graph* button on the editing bar. A
+bare `12x =` is a sum, not a curve: it is answered from an `x = …`
+above, never offered as a graph. A pen tapped on a text field — the
+calculator's line, a graph's function, a label, a page's name — opens
+the app's own write pad rather than Windows' handwriting panel. In the graph editor, the pen button by each function (and
 *Write one*) opens a pad to write it on — it is read as you write, into a
 field to put right with a tap — the calculator's keypad types into the
 function last tapped, and the x range has one-tap presets (±1, ±10,

@@ -86,6 +86,8 @@
 .calc-pad{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
 .calc-key{
   height:46px;min-width:44px;border-radius:11px;padding:0 2px;
+  /* centred by the box, not the line: digits have no descenders, so a line box puts them high */
+  display:flex;align-items:center;justify-content:center;line-height:1;
   background:color-mix(in srgb,var(--accent-soft) 55%,transparent);
   border:1px solid var(--stroke);color:var(--text);
   font-size:15px;font-weight:550;white-space:nowrap;overflow:hidden;
@@ -94,7 +96,7 @@
 }
 .calc-key:hover{background:var(--accent-soft)}
 .calc-key:active{transform:scale(.94);background:color-mix(in srgb,var(--accent) 25%,transparent)}
-.calc-key.num{background:var(--panel-solid);font-size:18px;font-weight:600}
+.calc-key.num{background:var(--panel-solid);font-size:18px;font-weight:600;font-variant-numeric:lining-nums tabular-nums;padding-top:2px}
 .calc-key.op{font-size:20px;color:var(--accent)}
 .calc-key.fn{color:var(--muted)}
 .calc-key.fn svg{width:20px;height:20px;vertical-align:middle}

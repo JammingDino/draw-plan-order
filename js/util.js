@@ -292,4 +292,22 @@ window.DPO = window.DPO || {};
   };
   U.$ = s => document.querySelector(s);
 
+  /**
+   * A text field a pen may land on: a pen tap opens `write()` — the app's
+   * own pad, which reads the maths — instead of focusing the field, where
+   * Windows would put up its handwriting panel over the app. A mouse, a
+   * finger and the keyboard type into it as ever.
+   */
+  U.penField = (f, write) => {
+    f.classList.add('pen-field');
+    f.addEventListener('pointerdown', e => {
+      if (e.pointerType !== 'pen') return;
+      e.preventDefault(); e.stopPropagation();
+      write();
+    });
+    return f;
+  };
+  /** the little graph picture, for buttons that offer a graph */
+  U.GRAPH_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 4v16h16"/><path d="M6.5 15c2-6 3.5-8 5.5-8s3 4 4.5 4 2-2 2.5-3"/></svg>';
+
 })(window.DPO);

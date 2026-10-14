@@ -355,6 +355,8 @@
   /** strokes the person says are `ch`: a template of their own from now on */
   function teach(strokes, ch, b = batch()) {
     learned();
+    // the board's lines read again once a run of teaching is over, not once a sample
+    if (!rereadSoon) rereadSoon = setTimeout(() => { rereadSoon = 0; rereadAll(); }, 0);
     const c = cloud(strokes.map(s => s.xy));
     const t = { ch, c, mine: true, b, s: sketch(strokes) };
     LEARNED.push(t);
@@ -367,6 +369,15 @@
     return t;
   }
   function forget() { LEARNED = []; saveLearned(); TEMPLATES = null; }
+  let rereadSoon = 0;
+  /** every "=" on the board read again: what was taught may change what they say */
+  function rereadAll() {
+    const app = S.app;
+    if (!app) return;
+    for (const e of S.eqs.values()) queue('eq:' + e.key, { kind: 'eq', ids: e.ids });
+    arm(app);
+  }
+
   /** take back the last thing taught (one batch); gives what went */
   function undoTeach() {
     learned();
@@ -1244,7 +1255,14 @@
       // "x = 5": a definition, if that is how it reads
       unanswer(app, e.key);
       unmark(e.key);
-      const r = read([...left, ...eqf, ...right], e.ids);
+      let r = read([...left, ...eqf, ...right], e.ids);
+      /* "x = 12" not read with confidence as a whole is read again as what
+         a definition is — a letter, "=", a number — so a loose 1 or a
+         rounded x does not leave every line below without its x. */
+      if (!(r.ok && r.eq === 'mid' && NAME.test(r.lhs))) {
+        const d = read([...left, ...eqf, ...right], e.ids, ch => DIGIT.test(ch) || LETTER.test(ch) || ch === '=' || ch === '.' || ch === '−');
+        if (d.eq === 'mid' && NAME.test(d.lhs) && /^−?[0-9]+(\.[0-9]+)?$/.test(d.rhs) && d.worst <= GUESS) r = Object.assign(d, { ok: true });
+      }
       e.reading = r; e.why = 'right';
       // "y = x² − 3": not a number to keep, a curve to offer
       if (r.ok && r.eq === 'mid' && r.lhs === 'y' && offerGraph(e, r.rhs, right)) { dropDef(e.key, changed); return; }
@@ -1258,6 +1276,7 @@
     }
 
     dropDef(e.key, changed);
+    if (corrected(app, e.key)) { unmark(e.key); e.why = 'answered'; return; }
     const ink = [...left, ...eqf];
     let r = read(ink, e.ids);
     /* A letter nothing defines cannot be answered, so a reading that has
@@ -1285,8 +1304,6 @@
     const out = r.shaped ? work1(app, r.expr, uses, e.cy, around(U.box(e.x, e.cy, e.x2, e.cy), e.L)) : null;
     if (!r.ok || !out) {
       unanswer(app, e.key);
-      // "x² − 3 =" with no x defined above: a function of x, to graph rather than answer
-      if (!out && r.ok && uses.includes('x') && offerGraph(e, r.expr, null)) return;
       /* Not sure enough to write an answer, but it is a sum that works
          out, of numbers alone: a faint "?" by the "=" says it was seen,
          and a tap puts the best guess in Solve this ink. Lines with
@@ -1307,7 +1324,7 @@
   function offerGraph(e, fn, right) {
     const scope = scopeAbove(e.cy);
     if (scope.has('x') || !D.graph || !D.math.loaded) return false;
-    const g = D.graph.graphable(fn);
+    const g = D.graph.graphable('y = ' + fn);          // it was written as y = …
     if (!g) return false;
     e.graph = g;
     e.gx = right && right.length ? Math.max(...right.map(f => f.x2)) : null;
@@ -1451,7 +1468,14 @@
     const id = S.byEq.get(key);
     const it = id && app.scene.get(id);
     if (!it) return;
+    // put right by hand (Solve this ink): the person's, kept until its ink goes
+    if (it.fixed && why !== 'line') return;
     quietRemove(app, it, why);
+  }
+  /** is the answer on this "=" one the person corrected? */
+  function corrected(app, key) {
+    const id = S.byEq.get(key), it = id && app.scene.get(id);
+    return !!(it && it.fixed);
   }
 
   /* ── why it did not answer ───────────────────────────────────────────
@@ -1498,7 +1522,8 @@
     m.el.setAttribute('aria-label', said);
     m.el.classList.toggle('why', !guess && why !== 'graph');
     m.el.classList.toggle('graph', why === 'graph');
-    m.el.textContent = why === 'graph' ? '📈 Graph' : guess ? '?' : '?  ' + why;
+    if (why === 'graph') m.el.innerHTML = U.GRAPH_ICON + '<span>Graph</span>';
+    else m.el.textContent = guess ? '?' : '?  ' + why;
     placeMark(m);
     if (S.app && S.app.requestDrawLive) S.app.requestDrawLive();
   }
@@ -2088,6 +2113,7 @@
       if (text && opts.use) opts.use(text);
     };
     field.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && !opts.multi) { e.preventDefault(); useB.onclick(); } });
+    U.penField(field, () => { pad.classList.add('nudge'); setTimeout(() => pad.classList.remove('nudge'), 500); });
     writer = {
       el: box, timer: 0,
       away: ev => { if (!box.contains(ev.target)) closeWriter(); },
@@ -2381,7 +2407,7 @@
     }
     scene.begin('answer'); scene.add(it); scene.commit();
     know(it);
-    if (eqIds) rememberEq(eqSym.strokes);
+    if (eqIds) { rememberEq(eqSym.strokes); unmark(keyOf(eqIds)); }
     app.afterEdit();
     return it;
   }

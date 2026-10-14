@@ -42,3 +42,5 @@
 .graph-acts .graph-add{flex:1 1 auto}
 .graph-presets{display:flex;flex-wrap:wrap;gap:4px}
 .graph-presets .btn{flex:1 1 auto;min-height:36px;padding:0 8px;font-size:12.5px;border-radius:9px;justify-content:center}
+
+.graph-pop .btn svg,.calc-graph svg,.calc-bar .btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px;margin-right:5px}

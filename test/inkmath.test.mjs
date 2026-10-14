@@ -797,22 +797,53 @@ test('readLines: several lines of writing, read top to bottom; a fraction stays 
   assert.deepEqual([...lines.map(l => l.text)], ['x = 2', '3x^2+1', '1/2+3']);
 });
 
-test('a handwritten function of x gets a Graph chip, and the chip puts a graph beside it', async () => {
+test('"y = x² − 3" gets a Graph chip that puts a graph beside it; "12x =" under "x = 12" gets 144, not a graph', async () => {
   const app = board();
-  draw(app, inkOf(['x', { sup: ['2'] }, '−', '3', '='], 91));
+  draw(app, inkOf(['y', '=', 'x', { sup: ['2'] }, '−', '3'], 3));
   await IM.flush(app);
-  assert.equal(answers(app).length, 0, 'no number for it');
   const marks = [...IM.state.marks.values()];
   assert.equal(marks.length, 1);
   assert.equal(marks[0].why, 'graph');
   assert.equal(marks[0].e.graph, 'x^2−3');
-  marks[0].el.listeners = marks[0].el.listeners || null;
-  // tapping it: the same path a click takes
-  const before = app.scene.items.length;
   IM._ask(marks[0]);
   const g = app.scene.items.find(i => i.type === 'graph');
-  assert.ok(g, 'a graph on the board'); assert.equal(app.scene.items.length, before + 1);
+  assert.ok(g, 'a graph on the board');
   assert.deepEqual([...g.fns], ['x^2−3']);
+
+  const b = board();
+  draw(b, write(['x', '=', '1', '2'], { r: rng(8), size: 40, base: 100 }));
+  draw(b, write(['1', '2', 'x', '='], { r: rng(9), size: 40, base: 200 }));
+  await IM.flush(b);
+  assert.deepEqual([...answers(b).map(a => a.text)], ['144']);
+  assert.equal([...IM.state.marks.values()].filter(m => m.why === 'graph').length, 0, 'no graph offered');
+});
+
+test('a bare sum in x with no x above is left alone, not offered as a graph', async () => {
+  const app = board();
+  draw(app, inkOf(['x', { sup: ['2'] }, '−', '3', '='], 91));
+  await IM.flush(app);
+  assert.equal(answers(app).length, 0);
+  assert.equal([...IM.state.marks.values()].filter(m => m.why === 'graph').length, 0);
+});
+
+test('an answer put right by hand is kept, and nothing is marked over it', async () => {
+  const app = board();
+  app.opts.inkmath.explain = true;
+  const ink = inkOf(['8', '+', '1', '='], 31);
+  draw(app, ink);
+  await IM.flush(app);
+  const p = IM.solve(app, ink, {});
+  await D.math.ready();
+  p.field.value = '8+7'; p.work(); p.insert();
+  assert.equal(answers(app)[0].text, '15');
+  // the line read again, as any stroke near it would make it be
+  for (const e of [...IM.state.eqs.values()]) IM._eq(e.ids.map(id => IM.feature(app.scene.get(id))));
+  app.afterEdit();
+  await IM.flush(app);
+  assert.equal(answers(app).length, 1, 'still there');
+  assert.equal(answers(app)[0].text, '15');
+  assert.equal(IM.state.marks.size, 0, 'no note beside it');
+  app.opts.inkmath.explain = false;
 });
 
 test('the write pad reads what is written into its field, and Use hands it over', () => {

@@ -233,6 +233,7 @@
     const app = ui.app;
     const f = el('input', { class: 'frames-name', type: 'text', spellcheck: 'false', placeholder: nameOf(app.scene, it), 'aria-label': 'Page name' });
     f.value = it.name || '';
+    if (D.inkmath) U.penField(f, () => D.inkmath.writePad(app, { title: 'Name the page', start: f.value, near: f, use: t => ui.apply([it], x => { x.name = t.trim(); }) }));
     f.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') f.blur(); });
     f.addEventListener('change', () => ui.apply([it], x => { x.name = f.value.trim(); }));
     return f;

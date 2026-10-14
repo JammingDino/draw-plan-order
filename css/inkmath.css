@@ -130,3 +130,9 @@
 .inkmath-ask.graph{font:600 13px/1 "Segoe UI",system-ui,sans-serif;opacity:.9;padding:0 10px;border-radius:20px;
   background:var(--accent-soft);color:var(--accent);min-height:32px}
 .inkmath-ask.graph:hover{opacity:1;background:var(--accent);color:#fff}
+
+.inkmath-ask.graph{gap:6px}
+.inkmath-ask.graph svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* a pen tapped on the text instead of the pad: the pad says "here" */
+.inkmath-pad.nudge{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
