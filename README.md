@@ -154,16 +154,27 @@ and *Set drawing scale…*.
 
 ### Circuit and mechanics symbols
 
-The symbol tool (<kbd>S</kbd>) has a picker of resistors (zigzag and
-IEC), capacitors, inductors, diodes, DC, AC and current sources, a
-battery, a switch, ground, a junction dot and an op-amp; and pin and
-roller supports, a fixed wall, springs, dampers, a mass and a pulley.
-Tap to place one — the tool stays out for the next. Every terminal is a
-snap point: draw a line, arrow or polyline from one terminal to another
-and it stays attached, following the parts as they move or turn, so a
-circuit is parts and then wires. A selected symbol takes a label
-(`R1 = 4.7 kΩ`) that stays upright however the part is turned, and can
-be changed for another part in place.
+The symbol tool (<kbd>S</kbd>) is built to be quicker than drawing the
+parts by hand. While it is out, a strip along the bottom holds the parts
+— resistor, capacitor, inductor, DC and AC sources, diode, switch,
+ground, op-amp, junction; *Mech* swaps in springs, dampers, a mass,
+supports and a pulley — and **Wire**.
+
+- **Drag to lay a part.** Drag from one point to another and a
+  two-terminal part spans exactly that: its leads stretch, its body
+  stays its proper size, and it lies along the drag (square to the page
+  when the drag nearly is). Ends snap to terminals first, so parts chain
+  end to end — a source dragged upwards, a resistor dragged on from its
+  top, a capacitor dragged down. A tap drops a part at its usual size; a
+  ground or a support tapped on a terminal hangs from it. Drag a source
+  from its + end.
+- **Wire** (or <kbd>W</kbd>): drag from a terminal to a terminal for a
+  square-cornered wire, attached at both ends, whose corner moves as the
+  parts do.
+- Parts are **named as they are placed** — R1, R2, C1, V1, k1 — and a
+  double-tap edits the label (`R1 = 4.7 kΩ`), by keys or by pen; it
+  stays upright however the part is turned. *Change to* in the panel
+  swaps a part for another in place, keeping its span.
 
 ### Turning and lining things up
 
