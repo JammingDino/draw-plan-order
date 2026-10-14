@@ -777,6 +777,17 @@
         for (const h of app.renderer.handleRects(app.selBox)) {
           const pad = this.handlePad(ev);
           if (ev.sx >= h.x - pad && ev.sx <= h.x + h.w + pad && ev.sy >= h.y - pad && ev.sy <= h.y + h.h + pad) {
+            if (h.k === 'turn') {
+              const b = app.selectionBounds();
+              this.mode = 'turn';
+              this.pivot = U.boxCenter(b);
+              this.turn0 = Math.atan2(ev.y - this.pivot.y, ev.x - this.pivot.x);
+              this.turned = 0;
+              scene.begin('turn');
+              for (const it of app.selection) scene.touch(it);
+              this.snapshot = app.selection.map(it => D.clone(it));
+              return true;
+            }
             this.mode = 'resize'; this.handle = h.k;
             this.origBox = app.selectionBounds();
             scene.begin('resize');
@@ -932,6 +943,26 @@
         });
         app.requestDraw();
       }
+      else if (this.mode === 'turn') {
+        /* Turned from where the handle was taken, re-applied from the
+           snapshot each move. It settles on 15° steps when it comes near
+           one — always with Shift — so square is easy to find. */
+        let a = Math.atan2(ev.y - this.pivot.y, ev.x - this.pivot.x) - this.turn0;
+        a = Math.atan2(Math.sin(a), Math.cos(a));
+        const step = Math.PI / 12, near = Math.round(a / step) * step;
+        if (ev.shift || Math.abs(a - near) < 0.06) a = near;
+        this.turned = a;
+        const moving = new Set(app.selection.map(i => i.id));
+        app.selection.forEach((it, i) => {
+          const src = this.snapshot[i];
+          for (const k in src) if (k[0] !== '_') it[k] = D.clone(src)[k];
+          for (const k in it) if (k[0] !== '_' && !(k in src)) delete it[k];
+          if (it.bind1 && !moving.has(it.bind1.id)) delete it.bind1;
+          if (it.bind2 && !moving.has(it.bind2.id)) delete it.bind2;
+          scene.rotateItem(it, this.pivot, a);
+        });
+        app.requestDraw();
+      }
       else if (this.mode === 'endpoint') {
         const e = app.selection[0];
         const host = scene.hitNode(ev.x, ev.y);
@@ -1042,6 +1073,12 @@
     }
 
     paint(r) {
+      if (this.mode === 'turn' && D.cad) {
+        // anticlockwise counts up, as every other angle on the board does
+        const deg = -this.turned * 180 / Math.PI;
+        D.cad.paintReadout(r, this.app.pointer, [(Math.round(deg * 10) / 10 || 0) + '°']);
+        return;
+      }
       if (this.mode === 'line') {
         const it = this.app.selection[0];
         if (!D.cad || !it || !this.lineMoved) return;

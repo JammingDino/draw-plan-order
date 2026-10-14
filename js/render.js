@@ -570,6 +570,13 @@
     drawItem(ctx, it) {
       ctx.save();
       ctx.globalAlpha = it.alpha ?? 1;
+      if (it.rot) {
+        const b = this.app && this.app.scene ? this.app.scene.bbox(it) : null;
+        if (b && b.local) {
+          const c = U.boxCenter(b.local);
+          ctx.translate(c.x, c.y); ctx.rotate(it.rot); ctx.translate(-c.x, -c.y);
+        }
+      }
       switch (it.type) {
         case 'stroke': this.drawStroke(ctx, it); break;
         case 'shape': this.drawShape(ctx, it); break;
@@ -930,6 +937,11 @@
         for (const [hx, hy] of [[x, y], [x + w / 2, y], [x + w, y], [x + w, y + h / 2], [x + w, y + h], [x + w / 2, y + h], [x, y + h], [x, y + h / 2]]) {
           ctx.beginPath(); ctx.roundRect(hx - hs / 2, hy - hs / 2, hs, hs, 2); ctx.fill(); ctx.stroke();
         }
+        // the turn handle: a ring on a stalk above the top edge
+        const t = this.turnHandle({ x, y, w, h });
+        ctx.beginPath(); ctx.moveTo(x + w / 2, y); ctx.lineTo(t.x, t.y + t.r); ctx.stroke();
+        ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(t.x, t.y, t.r * 0.5, -2.4, 1.2); ctx.stroke();
       }
       ctx.restore();
       return { x, y, w, h };
@@ -972,7 +984,15 @@
         ['nw', x, y], ['n', x + w / 2, y], ['ne', x + w, y], ['e', x + w, y + h / 2],
         ['se', x + w, y + h], ['s', x + w / 2, y + h], ['sw', x, y + h], ['w', x, y + h / 2]
       ];
-      return pts.map(([k, px, py]) => ({ k, x: px - hs / 2, y: py - hs / 2, w: hs, h: hs }));
+      const t = this.turnHandle(box), ts = Math.max(hs, t.r * 2 + 4);
+      return pts.map(([k, px, py]) => ({ k, x: px - hs / 2, y: py - hs / 2, w: hs, h: hs }))
+        .concat({ k: 'turn', x: t.x - ts / 2, y: t.y - ts / 2, w: ts, h: ts });
+    }
+
+    /** where the turn handle sits over a selection box (screen px) */
+    turnHandle(box) {
+      const coarse = this.app.coarse;
+      return { x: box.x + box.w / 2, y: box.y - (coarse ? 34 : 24), r: coarse ? 9 : 6 };
     }
 
     /* ── export ───────────────────────────────────────────────────── */
@@ -1037,7 +1057,13 @@
         out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(b.w)}" height="${Math.round(b.h)}" viewBox="${U.round(b.x)} ${U.round(b.y)} ${U.round(b.w)} ${U.round(b.h)}">`);
         if (!look.transparent)
           out.push(`<rect x="${U.round(b.x)}" y="${U.round(b.y)}" width="${U.round(b.w)}" height="${U.round(b.h)}" fill="${U.color('paper')}"/>`);
-        for (const it of scene.items) out.push(svgItem(this, scene, it, hrefs));
+        for (const it of scene.items) {
+          const s = svgItem(this, scene, it, hrefs), b = it.rot && s ? scene.bbox(it) : null;
+          if (b && b.local) {
+            const c = U.boxCenter(b.local);
+            out.push(`<g transform="rotate(${U.round(it.rot * 180 / Math.PI, 3)} ${U.round(c.x, 2)} ${U.round(c.y, 2)})">${s}</g>`);
+          } else out.push(s);
+        }
         out.push('</svg>');
         return out.join('\n');
       });
