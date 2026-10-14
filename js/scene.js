@@ -815,6 +815,7 @@
         default: {
           const x = XT[it.type];
           if (x && x.snaps === false) break;
+          if (x && x.snapPoints) { for (const p of x.snapPoints(it, this)) P(p.k, p.x, p.y, p.t || 'end'); break; }
           rect(geomBox(this, it));
         }
       }

@@ -1,0 +1,17 @@
+/* ── symbols.css ── the symbol picker ────────────────────────────────
+   The grid of circuit and mechanics symbols in the symbol tool's panel
+   (js/symbols.js). Each is a 44px target, for a pen or a finger.       */
+
+.symbol-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:4px}
+.symbol-pick{
+  min-height:44px;border:1.5px solid transparent;border-radius:10px;display:grid;place-items:center;
+  color:var(--text);background:var(--accent-soft);cursor:pointer;
+}
+.symbol-pick:hover{border-color:var(--stroke)}
+.symbol-pick.on{border-color:var(--accent);background:var(--panel-solid)}
+.symbol-pick svg{display:block;width:32px;height:32px}
+.symbol-label{
+  width:100%;height:40px;padding:0 10px;border:1.5px solid var(--stroke);border-radius:10px;outline:0;
+  background:var(--paper);color:var(--text);font:inherit;
+}
+.symbol-label:focus{border-color:var(--accent)}
