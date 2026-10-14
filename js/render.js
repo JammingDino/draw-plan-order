@@ -920,12 +920,17 @@
         const b = scene.bbox(it);
         box = U.unionBox(box, b);
         if (each) {
-          const a = cam.toScreen(b.x, b.y), c = cam.toScreen(b.x2, b.y2);
           ctx.setLineDash([4, 4]); ctx.globalAlpha = .55;
-          ctx.strokeRect(a.x - 2, a.y - 2, c.x - a.x + 4, c.y - a.y + 4);
+          if (b.local) this.turnedRect(ctx, b.local, it.rot, 2);       // a turned one, turned
+          else {
+            const a = cam.toScreen(b.x, b.y), c = cam.toScreen(b.x2, b.y2);
+            ctx.strokeRect(a.x - 2, a.y - 2, c.x - a.x + 4, c.y - a.y + 4);
+          }
           ctx.globalAlpha = 1; ctx.setLineDash([]);
         }
       }
+      const fr = this.app.selRot && this.app.selectionFrame ? this.app.selectionFrame() : null;
+      if (fr && fr.rot) { const out = this.drawTurnedFrame(ctx, fr, opts, acc); ctx.restore(); return out; }
       const a = cam.toScreen(box.x, box.y), c = cam.toScreen(box.x2, box.y2);
       const x = a.x - 5, y = a.y - 5, w = c.x - a.x + 10, h = c.y - a.y + 10;
       ctx.setLineDash([]);
@@ -945,6 +950,50 @@
       }
       ctx.restore();
       return { x, y, w, h };
+    }
+
+    /** a world box turned by `rot` about its middle, outlined on the screen layer, grown by `pad` px */
+    turnedRect(ctx, L, rot, pad) {
+      const cam = this.app.camera, z = cam.zoom, cx = L.x + L.w / 2, cy = L.y + L.h / 2;
+      const hw = L.w / 2 + pad / z, hh = L.h / 2 + pad / z;
+      const q = D.turnPoints([cx - hw, cy - hh, cx + hw, cy - hh, cx + hw, cy + hh, cx - hw, cy + hh], cx, cy, rot);
+      ctx.beginPath();
+      for (let i = 0; i < 8; i += 2) { const p = cam.toScreen(q[i], q[i + 1]); i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); }
+      ctx.closePath(); ctx.stroke();
+    }
+
+    /** where the handles of a turned frame sit, on the screen: { k, x, y } and the frame in screen px */
+    frameHandles(fr) {
+      const cam = this.app.camera, z = cam.zoom, c = cam.toScreen(fr.cx, fr.cy);
+      const w = fr.w * z + 10, h = fr.h * z + 10, cs = Math.cos(fr.rot), sn = Math.sin(fr.rot);
+      const at = (u, v) => ({ x: c.x + u * cs - v * sn, y: c.y + u * sn + v * cs });
+      const hw = w / 2, hh = h / 2;
+      const pts = [['nw', -hw, -hh], ['n', 0, -hh], ['ne', hw, -hh], ['e', hw, 0], ['se', hw, hh], ['s', 0, hh], ['sw', -hw, hh], ['w', -hw, 0]]
+        .map(([k, u, v]) => Object.assign({ k }, at(u, v)));
+      const t = this.turnHandle({ x: 0, y: 0, w: 0, h: 0 }), lift = -t.y;           // the stalk's length, as on a square box
+      return { c, w, h, rot: fr.rot, pts, turn: Object.assign(at(0, -hh - lift), { r: t.r }), stalk: at(0, -hh) };
+    }
+
+    drawTurnedFrame(ctx, fr, opts, acc) {
+      const F = this.frameHandles(fr), hs = this.handleSize();
+      const corners = [F.pts[0], F.pts[2], F.pts[4], F.pts[6]];
+      ctx.strokeStyle = acc; ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.beginPath(); corners.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
+      if (opts.handles !== false) {
+        ctx.fillStyle = this.tokens().panel;
+        for (const p of F.pts) {
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(F.rot);
+          ctx.beginPath(); ctx.roundRect(-hs / 2, -hs / 2, hs, hs, 2); ctx.fill(); ctx.stroke();
+          ctx.restore();
+        }
+        const t = F.turn;
+        ctx.beginPath(); ctx.moveTo(F.stalk.x, F.stalk.y); ctx.lineTo(t.x, t.y); ctx.stroke();
+        ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(t.x, t.y, t.r * 0.5, -2.4, 1.2); ctx.stroke();
+      }
+      const xs = corners.map(p => p.x), ys = corners.map(p => p.y);
+      const x = Math.min(...xs), y = Math.min(...ys);
+      return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y, frame: F };
     }
 
     /* A selected line: its centreline traced faintly, a round handle at
@@ -979,7 +1028,13 @@
     /** the eight handle positions in screen space for a selection box */
     handleRects(box) {
       if (box.line) return [];                 // a line has its own handles (lineHandles)
-      const { x, y, w, h } = box, hs = this.app.coarse ? 22 : 11;
+      const hs0 = this.app.coarse ? 22 : 11;
+      if (box.frame) {
+        const F = box.frame, ts = Math.max(hs0, F.turn.r * 2 + 4);
+        return F.pts.map(p => ({ k: p.k, x: p.x - hs0 / 2, y: p.y - hs0 / 2, w: hs0, h: hs0 }))
+          .concat({ k: 'turn', x: F.turn.x - ts / 2, y: F.turn.y - ts / 2, w: ts, h: ts });
+      }
+      const { x, y, w, h } = box, hs = hs0;
       const pts = [
         ['nw', x, y], ['n', x + w / 2, y], ['ne', x + w, y], ['e', x + w, y + h / 2],
         ['se', x + w, y + h], ['s', x + w / 2, y + h], ['sw', x, y + h], ['w', x, y + h / 2]

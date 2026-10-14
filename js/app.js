@@ -446,10 +446,51 @@
     }
 
     select(items, quiet) {
+      const was = this.selection;
       this.selection = items.filter(Boolean);
+      /* The selection box turns with what it holds: a turned box, or
+         several turned alike, are framed at their angle; anything else
+         starts square, and turns as it is turned (rotateSelection, the
+         turn handle). A marquee re-selecting as it grows keeps 0. */
+      const same = was && was.length === this.selection.length && was.every((it, i) => it === this.selection[i]);
+      if (!same) this.selRot = commonTurn(this.selection);
       this.requestDrawLive();
       if (!quiet && this.ui) this.ui.refresh();
       D.ext.emit('select', this, this.selection);
+    }
+
+    /**
+     * The selection's frame: the smallest box round it at the selection's
+     * angle (selRot), as { cx, cy, w, h, rot } in board units. Square, it
+     * is the bounds; turned, a turned box at the same angle gives its own
+     * box exactly, and anything else its outline.
+     */
+    selectionFrame() {
+      const rot = this.selRot || 0;
+      if (!rot) {
+        const b = this.selectionBounds();
+        return b ? { cx: b.x + b.w / 2, cy: b.y + b.h / 2, w: b.w, h: b.h, rot: 0 } : null;
+      }
+      const c = Math.cos(rot), s = Math.sin(rot), sc = this.scene;
+      let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
+      const take = (x, y, pad) => {
+        const u = x * c + y * s, v = -x * s + y * c;
+        if (u - pad < u0) u0 = u - pad; if (u + pad > u1) u1 = u + pad;
+        if (v - pad < v0) v0 = v - pad; if (v + pad > v1) v1 = v + pad;
+      };
+      for (const it of this.selection) {
+        const b = sc.bbox(it);
+        if (b.local && Math.abs(Math.atan2(Math.sin((it.rot || 0) - rot), Math.cos((it.rot || 0) - rot))) < 1e-6) {
+          const L = b.local, q = D.turnPoints([L.x, L.y, L.x2, L.y, L.x2, L.y2, L.x, L.y2], L.x + L.w / 2, L.y + L.h / 2, it.rot);
+          for (let i = 0; i < 8; i += 2) take(q[i], q[i + 1], 0);
+          continue;
+        }
+        const o = sc.outlinePoints(it), pad = (it.size || 2) / 2 + 1;
+        for (let i = 0; i < o.length; i += 2) take(o[i], o[i + 1], pad);
+      }
+      if (!isFinite(u0)) return null;
+      const cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
+      return { cx: cu * c - cv * s, cy: cu * s + cv * c, w: u1 - u0, h: v1 - v0, rot };
     }
 
     selectionBounds() {
@@ -1387,7 +1428,7 @@
     rotateSelection(deg) {
       const sel = this.selection;
       if (!sel.length) return;
-      const c = U.boxCenter(this.selectionBounds()), ids = new Set(sel.map(i => i.id));
+      const f = this.selectionFrame(), c = { x: f.cx, y: f.cy }, ids = new Set(sel.map(i => i.id));
       this.scene.begin('turn');
       for (const it of sel) {
         this.scene.touch(it);
@@ -1395,6 +1436,7 @@
         if (it.bind2 && !ids.has(it.bind2.id)) delete it.bind2;
         this.scene.rotateItem(it, c, deg * Math.PI / 180);
       }
+      this.selRot = turnOf((this.selRot || 0) + deg * Math.PI / 180);
       this.scene.commit();
       this.afterEdit();
     }
@@ -1961,6 +2003,18 @@
     if (e.pointerType === 'pen') return e.pressure > 0 ? e.pressure : 0.35;
     if (e.pointerType === 'touch') return e.pressure > 0 && e.pressure !== 0.5 ? e.pressure : 0.6;
     return 0.55;
+  }
+
+  /** an angle in (−π, π], 0 when it is a whisker off */
+  function turnOf(a) {
+    a = Math.atan2(Math.sin(a), Math.cos(a));
+    return Math.abs(a) < 1e-9 ? 0 : a;
+  }
+  /** the angle several things are all turned to, if they are boxes turned alike; else 0 */
+  function commonTurn(items) {
+    if (!items.length || !items.every(D.rotatesAsBox)) return 0;
+    const r = items[0].rot || 0;
+    return items.every(it => Math.abs(turnOf((it.rot || 0) - r)) < 1e-6) ? turnOf(r) : 0;
   }
 
   function download(blob, name) {
