@@ -742,3 +742,47 @@ test('Solve this ink: a symbol chip is taught by picking what it really is', asy
   assert.ok(IM.TEACHABLE.includes('/'), 'a slash can be taught, though only a rule reads one');
   IM.forget();
 });
+
+test('taking teaching back: the last thing taught, one sample, one symbol, or everything', () => {
+  IM.forget();
+  const r = rng(41);
+  const one = ch => IM.teach(pen(QUIRK[ch], { r, size: 40 }).map(IM.feature), ch);
+  one('1'); one('1'); one('9');
+  assert.equal(IM.learned(), 3);
+  const gone = IM.undoTeach();
+  assert.equal(gone.length, 1); assert.equal(gone[0].ch, '9', 'the last thing taught');
+  assert.equal(IM.samplesOf('1').length, 2);
+  // a Teach that put two symbols right is one step
+  const strokes = pen(QUIRK['z'], { r, size: 40 }).map(IM.feature);
+  const b = Date.now() + 1e6;
+  IM.teach(strokes, 'z', b); IM.teach(strokes, '2', b);
+  assert.equal(IM.undoTeach().length, 2, 'both, as they were taught together');
+  assert.ok(IM.forgetSample(IM.samplesOf('1')[0]));
+  assert.equal(IM.samplesOf('1').length, 1, 'one sample');
+  one('9');
+  assert.equal(IM.forgetSymbol('1'), 1, 'one symbol');
+  assert.equal(IM.samplesOf('9').length, 1, 'the others kept');
+  assert.ok(store.get('dpo:inkmath-learned').includes('"s":'), 'samples keep a sketch to be shown by');
+  IM.forget();
+  assert.equal(IM.learned(), 0, 'everything');
+});
+
+test('the trainer: Undo takes back the last sample and asks for it again; Start again needs two taps', () => {
+  IM.forget();
+  const app = board();
+  const t = IM.train(app, ['1', '9']);
+  const r = rng(13);
+  t.write(pen(QUIRK['1'], { r, size: 120, x: 40, y: 30 })); t.take();
+  t.write(pen(QUIRK['1'], { r, size: 120, x: 40, y: 30 })); t.take();
+  assert.equal(t.st.k, 2);
+  t.undo();
+  assert.equal(IM.learned(), 1); assert.equal(t.st.k, 1, 'asks for the second one again');
+  t.write(pen(QUIRK['1'], { r, size: 120, x: 40, y: 30 })); t.take();
+  t.write(pen(QUIRK['1'], { r, size: 120, x: 40, y: 30 })); t.take();
+  assert.equal(t.st.i, 1, 'on to the 9');
+  t.undo();
+  assert.equal(t.st.i, 0, 'back to the third 1'); assert.equal(t.st.k, 2);
+  t.reset();
+  assert.equal(IM.learned(), 0);
+  IM.closeTrainer();
+});
