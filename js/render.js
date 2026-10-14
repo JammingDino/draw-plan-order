@@ -1315,11 +1315,12 @@
       return { arc: { ...A, a0: A.a0 + s.cut * dir, sweep: A.sweep - (s.cut + e.cut) * dir }, heads: [s.g, e.g] };
     }
     const [a, b] = scene.lineEnds(it);
-    if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) < 1e-9 && !it.via) return null;
-    const c = !it.via && D.curveCtrl(a, b, it.curve);
+    const via = D.viaOf(it, a, b);
+    if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) < 1e-9 && !via) return null;
+    const c = !via && D.curveCtrl(a, b, it.curve);
     // the way each head points: along the last stretch of the line
     let from0, from1;
-    if (it.via && it.via.length >= 2) { from0 = { x: it.via[0], y: it.via[1] }; from1 = { x: it.via[it.via.length - 2], y: it.via[it.via.length - 1] }; }
+    if (via) { from0 = { x: via[0], y: via[1] }; from1 = { x: via[via.length - 2], y: via[via.length - 1] }; }
     else if (c) { from0 = c; from1 = c; }
     else { from0 = b; from1 = a; }
     const g1 = h1 !== 'none' ? headGeom(h1, a.x, a.y, Math.atan2(a.y - from0.y, a.x - from0.x), it.size, it.headScale) : null;
@@ -1334,7 +1335,7 @@
     const p0 = cut(a, from0, g1 && g1.back), p1 = cut(b, from1, g2 && g2.back);
     if (c) return { quad: [p0, c, p1], heads: [g1, g2] };
     const pts = [p0.x, p0.y];
-    if (it.via) pts.push(...it.via);
+    if (via) pts.push(...via);
     pts.push(p1.x, p1.y);
     return { pts, heads: [g1, g2] };
   }

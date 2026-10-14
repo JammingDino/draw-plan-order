@@ -17,6 +17,12 @@ into `master` (every push to `master` ships an update to installed copies).
 | Export to PDF, a sheet per page | #23 |
 | Graphs of y = f(x) through the maths engine | #24 |
 | Circuit and mechanics symbols, whose terminals wires attach to | #25 |
+| Pen smoothing (50% by default) | #27 |
+| Undo for training: last step, one sample, one symbol, everything | #28 |
+| The selection box turns with what it holds; resize along its own sides | #29 |
+| Imported PDF pages are pages: same scale, listed, exported page for page | #30 |
+| Prompts to graph functions of x (pen, calculator, calc blocks); a write pad; keypad into graphs; range presets; To calc block | #31 |
+| Symbols rebuilt: drag to lay a part, wire mode, a strip of parts, automatic names | #32 |
 
 ## Next
 
@@ -25,10 +31,6 @@ Roughly in order of how much each would help a student working with a pen.
 - **Search the board.** Find text in text boxes, notes, nodes, calc blocks,
   answers and the text layer of imported PDFs, and step through the hits.
   The current search only filters the list of boards.
-- **Annotated PDFs out, page for page.** When a board holds an imported
-  PDF and no pages, export each PDF page with what is written on it, at
-  the original page size, so a marked-up worksheet goes back as the same
-  document.
 - **Lock.** Pin a PDF page, a picture, a page or a background in place so
   that writing over it never moves or selects it.
 - **Crop pictures.** Pasted screenshots of lecture slides nearly always
@@ -49,6 +51,11 @@ Roughly in order of how much each would help a student working with a pen.
 
 ## Follow-ups to this release
 
+### Pen
+
+- Smoothing that learns: steady more for a hand that shakes more, from
+  how much the last few strokes wobbled.
+
 ### Handwriting
 
 - Carry what you taught between devices: export and import the samples
@@ -61,9 +68,9 @@ Roughly in order of how much each would help a student working with a pen.
 
 - Connectors attach to a turned node's unturned box. They should meet its
   turned outline.
-- Resizing a turned box with different x and y factors is approximate. It
-  should resize along the box's own axes.
 - Flip horizontally and vertically.
+- A selection of things turned to different angles is framed square; it
+  could keep the angle it was last turned to after being picked up again.
 
 ### Pages
 
@@ -84,14 +91,20 @@ Roughly in order of how much each would help a student working with a pen.
 - Trace the curve to read off a point; mark roots, turning points and
   intersections.
 - Parametric and polar curves, and points from a list (`linreg` data).
-- `plot(...)` in a calc block, and *Plot* in *Solve this ink*.
+- `plot(...)` in a calc block.
+- Drag inside a selected graph to pan it, and pinch to zoom it.
 
 ### Symbols
 
 - More parts: BJT and MOSFET transistors, LED, potentiometer, transformer,
   ammeter and voltmeter, logic gates; a hinge, a slider, and a beam with a
   distributed load.
-- A junction dot added where three wires meet; wires routed at right angles.
+- Recognise parts drawn by hand: a zigzag held still becomes a resistor,
+  two bars a capacitor, as shapes snap today.
+- Drop a part onto a wire to break the wire and put the part in it.
+- A junction dot added where three wires meet.
+- Parts laid end to end are placed together but not joined: moving one
+  leaves the other. Bind a part's ends as wires' are.
 
 ## Housekeeping
 

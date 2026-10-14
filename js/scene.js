@@ -155,6 +155,18 @@
   /* The rectangle a thing really occupies, as opposed to its bbox, which
      is padded for the stroke and the shadow. Snap points and box-relative
      attachments are measured against this. */
+  /**
+   * A line's corners: its own (a polyline), or for a wire that keeps a
+   * right angle (elbow 'h': along, then up or down; 'v': the other way)
+   * the one corner its ends call for now — so it stays square as what it
+   * joins moves. Straight when the ends line up. Null: no corners.
+   */
+  function viaOf(it, a, b) {
+    if (it.via && it.via.length >= 2) return it.via;
+    if (!it.elbow || Math.abs(a.x - b.x) < 0.5 || Math.abs(a.y - b.y) < 0.5) return null;
+    return it.elbow === 'v' ? [a.x, b.y] : [b.x, a.y];
+  }
+
   /** points [x,y,…] turned by `ang` radians about (cx, cy) */
   function turnPoints(pts, cx, cy, ang) {
     const c = Math.cos(ang), s = Math.sin(ang), out = new Array(pts.length);
@@ -732,7 +744,8 @@
     /** a line's centreline as a flat [x,y,…] polyline: corners for a polyline, samples for a curve */
     linePath(it, depth = 0) {
       const [a, b] = this.lineEnds(it, depth);
-      if (it.via && it.via.length >= 2) return [a.x, a.y, ...it.via, b.x, b.y];
+      const via = viaOf(it, a, b);
+      if (via) return [a.x, a.y, ...via, b.x, b.y];
       const c = curveCtrl(a, b, it.curve);
       if (!c) return [a.x, a.y, b.x, b.y];
       const out = [];
@@ -1372,6 +1385,7 @@
   D.refsOf = refsOf;
   D.geomBox = geomBox;
   D.turnPoints = turnPoints;
+  D.viaOf = viaOf;
   D.rotatesAsBox = rotatesAsBox;
   D.FONT_STACK = FONT_STACK;
   D.HAND_STACK = HAND_STACK;
