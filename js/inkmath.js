@@ -134,6 +134,8 @@
   /* What a template-matched label may be read as. The rules below the
      matcher give "−", "=", ".", "·", "/", "÷", "1", "+" and "x" too. */
   const LABELS = [...new Set(GLYPHS.map(g => g[0]))];
+  /* what can be taught: the shapes above, and the ones only rules read */
+  const TEACHABLE = LABELS.concat(['/', '÷']);
   const DIGIT = /[0-9]/, LETTER = /[a-zπθ]/;
 
   /* ══ synthesis ═══════════════════════════════════════════════════════ */
@@ -311,7 +313,7 @@
 
   /* ── personal templates ──────────────────────────────────────────── */
   const LEARN_KEY = 'dpo:inkmath-learned';
-  const LEARN_PER = 12, LEARN_MAX = 240;
+  const LEARN_PER = 12, LEARN_MAX = 400;
   let LEARNED = null;
   function learned() {
     if (LEARNED) return LEARNED;
@@ -321,7 +323,7 @@
       for (const t of raw) {
         if (!t || typeof t.ch !== 'string' || !Array.isArray(t.p) || t.p.length !== N * 2) continue;
         const p = Float64Array.from(t.p);
-        LEARNED.push({ ch: t.ch, c: { p, a: +t.a || 0, g: gridOf(p) }, mine: true });
+        LEARNED.push({ ch: t.ch, c: { p, a: +t.a || 0, g: gridOf(p) }, mine: true, b: t.b || 0, s: Array.isArray(t.s) ? t.s : null });
       }
     } catch (_) { }
     return LEARNED;
@@ -329,15 +331,34 @@
   function saveLearned() {
     try {
       localStorage.setItem(LEARN_KEY, JSON.stringify(LEARNED.map(t => ({
-        ch: t.ch, a: U.round(t.c.a, 3), p: Array.from(t.c.p, v => U.round(v, 3))
+        ch: t.ch, a: U.round(t.c.a, 3), p: Array.from(t.c.p, v => U.round(v, 3)), b: t.b, s: t.s
       }))));
     } catch (_) { }
   }
+  /* Every sample belongs to a batch: the one thing that was taught at
+     once (a symbol on the pad, a chip, or all the symbols one Teach put
+     right), so Undo takes back exactly the last thing done. */
+  let lastBatch = 0;
+  const batch = () => (lastBatch = Math.max(Date.now(), lastBatch + 1));
+
+  /** the strokes, small, to show the sample by: fitted to a unit box, a dozen points a stroke */
+  function sketch(strokes) {
+    const b = boxOf(strokes), k = 1 / Math.max(b.w, b.h, 1e-9);
+    return strokes.map(s => {
+      const xy = s.xy, n = xy.length / 2, step = Math.max(1, Math.floor(n / 12)), o = [];
+      for (let i = 0; i < n; i += step) o.push(U.round((xy[i * 2] - b.x) * k, 2), U.round((xy[i * 2 + 1] - b.y) * k, 2));
+      o.push(U.round((xy[xy.length - 2] - b.x) * k, 2), U.round((xy[xy.length - 1] - b.y) * k, 2));
+      return o;
+    });
+  }
+
   /** strokes the person says are `ch`: a template of their own from now on */
-  function teach(strokes, ch) {
+  function teach(strokes, ch, b = batch()) {
     learned();
+    // the board's lines read again once a run of teaching is over, not once a sample
+    if (!rereadSoon) rereadSoon = setTimeout(() => { rereadSoon = 0; rereadAll(); }, 0);
     const c = cloud(strokes.map(s => s.xy));
-    const t = { ch, c, mine: true };
+    const t = { ch, c, mine: true, b, s: sketch(strokes) };
     LEARNED.push(t);
     // the oldest of that symbol go first, then the oldest of all
     let mine = LEARNED.filter(x => x.ch === ch);
@@ -348,6 +369,43 @@
     return t;
   }
   function forget() { LEARNED = []; saveLearned(); TEMPLATES = null; }
+  let rereadSoon = 0;
+  /** every "=" on the board read again: what was taught may change what they say */
+  function rereadAll() {
+    const app = S.app;
+    if (!app) return;
+    for (const e of S.eqs.values()) queue('eq:' + e.key, { kind: 'eq', ids: e.ids });
+    arm(app);
+  }
+
+  /** take back the last thing taught (one batch); gives what went */
+  function undoTeach() {
+    learned();
+    if (!LEARNED.length) return [];
+    const b = LEARNED[LEARNED.length - 1].b;
+    const gone = LEARNED.filter(t => t.b === b);
+    LEARNED = LEARNED.filter(t => t.b !== b);
+    saveLearned(); TEMPLATES = null;
+    return gone;
+  }
+  /** every sample of one symbol forgotten */
+  function forgetSymbol(ch) {
+    learned();
+    const n = LEARNED.length;
+    LEARNED = LEARNED.filter(t => t.ch !== ch);
+    saveLearned(); TEMPLATES = null;
+    return n - LEARNED.length;
+  }
+  /** one sample forgotten */
+  function forgetSample(t) {
+    learned();
+    const i = LEARNED.indexOf(t);
+    if (i < 0) return false;
+    LEARNED.splice(i, 1);
+    saveLearned(); TEMPLATES = null;
+    return true;
+  }
+  const samplesOf = ch => learned().filter(t => t.ch === ch);
 
   /* ══ strokes, measured ══════════════════════════════════════════════ */
   /** what the reader needs of a stroke: its points, box and shape */
@@ -414,8 +472,53 @@
   function classify(strokes, H) {
     if (!strokes.length) return [];
     if (strokes[0] && !strokes[0].xy) strokes = strokes.map(feature);
-    const box = boxOf(strokes);
     if (!H) H = lineHeight(strokes);
+    const base = byRule(strokes, H);
+    return learned().length ? yoursFirst(strokes, H, base) : base;
+  }
+
+  /* What the person taught comes before the rules and the built-in
+     shapes, or teaching a 1 that leans like a / could never take. But
+     only when it is plainly theirs: close, clear of anything else they
+     taught, and a better match than the shape the rules settled on. The
+     dot, the dash and the "=" stay with the rules: the reading of a whole
+     line hangs on them. */
+  const MINE = 0.85;          // a taught symbol must match at least this well…
+  const MINE_ALONE = 0.55;    // …or this well, against a rule's symbol with no shape to compare
+  const STRUCTURAL = new Set(['.', '−', '=']);
+  function yoursFirst(strokes, H, base) {
+    const top = base[0];
+    if (!top || STRUCTURAL.has(top.ch)) return base;
+    const n = strokes.length, box = boxOf(strokes);
+    const c = cloud(strokes.filter(s => !isDot(s, H) || n === 1).map(s => s.xy));
+    const near = [];
+    for (const t of learned()) {
+      if (Math.abs(t.c.a - c.a) > 1.15 || (ALLOW && !ALLOW(t.ch))) continue;
+      near.push({ t, d: gridDistance(c.g, t.c.g) + 6 * Math.abs(t.c.a - c.a) });
+    }
+    if (!near.length) return base;
+    near.sort((a, b) => a.d - b.d);
+    const best = new Map();
+    for (let i = 0; i < near.length && i < 12; i++) {
+      const t = near[i].t, d = match(c.p, t.c.p) + sizePenalty(t.ch, box, H);
+      if (!best.has(t.ch) || d < best.get(t.ch)) best.set(t.ch, d);
+    }
+    const ranked = [...best].sort((a, b) => a[1] - b[1]);
+    const [ch, d] = ranked[0];
+    if (ch === top.ch || (ranked[1] && ranked[1][1] - d < MARGIN)) return base;
+    const ref = shapeDistance(c, top.ch, box, H);
+    if (ref == null ? d > MINE_ALONE : d > MINE || d + MARGIN > ref) return base;
+    return [{ ch, d, mine: true }].concat(base.filter(b => b.ch !== ch));
+  }
+  /** how well the built-in shapes of `ch` match this cloud; null: it has none */
+  function shapeDistance(c, ch, box, H) {
+    let d = Infinity;
+    for (const t of templates()) if (!t.mine && t.ch === ch) d = Math.min(d, match(c.p, t.c.p, d));
+    return d === Infinity ? null : d + sizePenalty(ch, box, H);
+  }
+
+  function byRule(strokes, H) {
+    const box = boxOf(strokes);
     const n = strokes.length;
     const dots = strokes.filter(s => isDot(s, H));
 
@@ -1152,8 +1255,17 @@
       // "x = 5": a definition, if that is how it reads
       unanswer(app, e.key);
       unmark(e.key);
-      const r = read([...left, ...eqf, ...right], e.ids);
+      let r = read([...left, ...eqf, ...right], e.ids);
+      /* "x = 12" not read with confidence as a whole is read again as what
+         a definition is — a letter, "=", a number — so a loose 1 or a
+         rounded x does not leave every line below without its x. */
+      if (!(r.ok && r.eq === 'mid' && NAME.test(r.lhs))) {
+        const d = read([...left, ...eqf, ...right], e.ids, ch => DIGIT.test(ch) || LETTER.test(ch) || ch === '=' || ch === '.' || ch === '−');
+        if (d.eq === 'mid' && NAME.test(d.lhs) && /^−?[0-9]+(\.[0-9]+)?$/.test(d.rhs) && d.worst <= GUESS) r = Object.assign(d, { ok: true });
+      }
       e.reading = r; e.why = 'right';
+      // "y = x² − 3": not a number to keep, a curve to offer
+      if (r.ok && r.eq === 'mid' && r.lhs === 'y' && offerGraph(e, r.rhs, right)) { dropDef(e.key, changed); return; }
       if (r.ok && r.eq === 'mid' && NAME.test(r.lhs) && r.rhs) {
         const was = S.defs.get(e.key);
         const def = { key: e.key, name: r.lhs, rhs: r.rhs, src: [...left, ...eqf, ...right].map(f => f.id), cy: e.cy, x: e.x };
@@ -1164,6 +1276,7 @@
     }
 
     dropDef(e.key, changed);
+    if (corrected(app, e.key)) { unmark(e.key); e.why = 'answered'; return; }
     const ink = [...left, ...eqf];
     let r = read(ink, e.ids);
     /* A letter nothing defines cannot be answered, so a reading that has
@@ -1201,6 +1314,23 @@
     }
     note(e, 'answered', r);
     answer(app, e, eqf, left, r, out, uses);
+  }
+
+  /**
+   * A line that is a function of x — "y = x² − 3", or "x² − 3 =" with no
+   * x above — gets a chip beside it that puts a graph of it on the board.
+   * True if it did. `right`: the ink after the "=", for where the chip goes.
+   */
+  function offerGraph(e, fn, right) {
+    const scope = scopeAbove(e.cy);
+    if (scope.has('x') || !D.graph || !D.math.loaded) return false;
+    const g = D.graph.graphable('y = ' + fn);          // it was written as y = …
+    if (!g) return false;
+    e.graph = g;
+    e.gx = right && right.length ? Math.max(...right.map(f => f.x2)) : null;
+    e.why = 'graph';
+    mark(e, 'graph', e.reading, false);
+    return true;
   }
 
   /* A bare number before an "=" ("Step 2 =") is not a sum; anything with
@@ -1338,7 +1468,14 @@
     const id = S.byEq.get(key);
     const it = id && app.scene.get(id);
     if (!it) return;
+    // put right by hand (Solve this ink): the person's, kept until its ink goes
+    if (it.fixed && why !== 'line') return;
     quietRemove(app, it, why);
+  }
+  /** is the answer on this "=" one the person corrected? */
+  function corrected(app, key) {
+    const id = S.byEq.get(key), it = id && app.scene.get(id);
+    return !!(it && it.fixed);
   }
 
   /* ── why it did not answer ───────────────────────────────────────────
@@ -1357,6 +1494,7 @@
     'not-a-sum': 'Nothing to work out: no operator',
     shape: 'Read, but not as a sum that makes sense',
     eval: 'Read, but it does not work out — a letter nothing defines?',
+    graph: 'A function of x — tap to graph it',
     unsure: 'Not sure of the reading — tap to check it'
   };
   function note(e, why, r, guess = false) {
@@ -1382,8 +1520,10 @@
     const said = (WHY[why] || why) + (r && r.text ? ' (read as ' + r.text + (r.worst != null ? ', ' + r.worst.toFixed(2) : '') + ')' : '');
     m.el.title = said;
     m.el.setAttribute('aria-label', said);
-    m.el.classList.toggle('why', !guess);
-    m.el.textContent = guess ? '?' : '?  ' + why;
+    m.el.classList.toggle('why', !guess && why !== 'graph');
+    m.el.classList.toggle('graph', why === 'graph');
+    if (why === 'graph') m.el.innerHTML = U.GRAPH_ICON + '<span>Graph</span>';
+    else m.el.textContent = guess ? '?' : '?  ' + why;
     placeMark(m);
     if (S.app && S.app.requestDrawLive) S.app.requestDrawLive();
   }
@@ -1398,15 +1538,20 @@
   function placeMark(m) {
     const app = S.app, cam = app && app.camera;
     if (!cam || !cam.toScreen) return;
-    const e = m.e, p = cam.toScreen(e.x2 + 0.3 * e.L, e.cy);
+    const e = m.e, p = cam.toScreen((m.why === 'graph' && e.gx != null ? e.gx : e.x2) + 0.3 * e.L, e.cy);
     const px = U.clamp(e.L * cam.zoom * 0.7, 13, 26);
     m.el.style.left = p.x + 'px'; m.el.style.top = p.y + 'px';
     m.el.style.fontSize = px + 'px';
   }
   function placeMarks() { for (const m of S.marks.values()) placeMark(m); }
-  /** a "?" tapped: Solve this ink, on what it was read as */
+  /** a "?" tapped: Solve this ink, on what it was read as; a "Graph" chip: the graph */
   function ask(m) {
     const app = S.app;
+    if (m.why === 'graph' && app && m.e.graph) {
+      const e = m.e, x2 = e.gx != null ? e.gx : e.x2;
+      D.graph.beside(app, U.box(e.x, e.cy - e.L, x2, e.cy + e.L), m.e.graph);
+      return;
+    }
     if (!app || !m.reading) return;
     const items = m.reading.syms.flatMap(s => s.strokes.map(f => app.scene.get(f.id))).filter(Boolean);
     const b = m.el.getBoundingClientRect ? m.el.getBoundingClientRect() : null;
@@ -1705,12 +1850,47 @@
     const calc = el('button', { class: 'btn', type: 'button' }, 'Open in calculator');
     const teachB = el('button', { class: 'btn', type: 'button', title: 'Remember the symbols you corrected, for your handwriting' }, 'Teach');
     const note = el('p', { class: 'inkmath-note' },
-      reading.ok ? 'Tap the line to put a misreading right.' : 'Not sure of this one — check it, and Teach me if a symbol is wrong.');
+      reading.ok ? 'Tap the line to put a misreading right, or a symbol below to teach it.' : 'Not sure of this one. Tap a symbol below that is wrong, and pick what it is: it is learnt for next time.');
+    const chips = el('div', { class: 'inkmath-chips', 'aria-label': 'The symbols, as read' });
+    const pick = el('div', { class: 'inkmath-pick', hidden: true });
     const box = el('div', { class: 'inkmath-pop', role: 'dialog', 'aria-label': 'Solve this ink' },
       el('div', { class: 'inkmath-head' }, el('span', {}, 'Solve this ink'),
+        el('button', { class: 'btn inkmath-trainb', type: 'button', title: 'Write each symbol a few times, so your hand is read right', onclick: () => train(app) }, 'Train'),
         el('button', { class: 'icon', type: 'button', title: 'Close', 'aria-label': 'Close', onclick: () => closePop(),
           html: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>' })),
-      field, out, el('div', { class: 'inkmath-acts' }, ins, calc, teachB), note);
+      field, out, el('div', { class: 'inkmath-acts' }, ins, calc, teachB), chips, pick, note);
+    /* each symbol as it was read, with its own ink: tap one, pick what it
+       really is, and that is taught on the spot — no retyping the line,
+       and it works however the line was split into symbols */
+    const reread = () => {
+      Object.assign(reading, read(strokes));
+      field.value = shown(reading) || '';
+      work();
+      drawChips();
+    };
+    const drawChips = () => {
+      chips.replaceChildren();
+      pick.hidden = true;
+      reading.syms.forEach(sym => {
+        if (sym.frac || sym.roof || STRUCTURAL.has(sym.ch) || sym.ch === '·' || !sym.strokes || !sym.strokes.length) return;
+        const b = el('button', { class: 'inkmath-chip' + (sym.d != null && sym.d > MARGIN_FROM ? ' unsure' : ''), type: 'button', title: `Read as ${sym.ch}: tap to teach what it really is` },
+          el('span', { class: 'inkmath-thumb', html: thumb(sym.strokes, 26) }), el('b', {}, sym.ch));
+        b.onclick = () => {
+          const on = !b.classList.contains('on');
+          for (const c of chips.children) c.classList.toggle('on', on && c === b);
+          if (!on) { pick.hidden = true; return; }
+          pick.replaceChildren(...TEACHABLE.map(ch => el('button', { class: 'btn', type: 'button', onclick: () => {
+            teach(sym.strokes, ch);
+            if (app.toast) app.toast(`Learnt: that is ${ch}, in your hand`, 'Undo', () => { undoTeach(); reread(); });
+            reread();
+          } }, ch)));
+          pick.hidden = false;
+        };
+        chips.appendChild(b);
+      });
+      chips.hidden = !chips.children.length;
+    };
+    drawChips();
 
     let result = null;
     const work = () => {
@@ -1731,7 +1911,10 @@
     calc.onclick = () => { const v = field.value.trim().replace(/=\s*$/, ''); closePop(); if (D.calc) D.calc.open(v); };
     teachB.onclick = () => {
       const n = learn(reading, field.value);
-      if (app.toast) app.toast(n ? `Learnt ${n} symbol${n > 1 ? 's' : ''} of your handwriting` : 'Correct a symbol in place — the same number of symbols — to teach it');
+      if (app.toast) {
+        if (n) app.toast(`Learnt ${n} symbol${n > 1 ? 's' : ''} of your handwriting`, 'Undo', () => { undoTeach(); teachB.disabled = false; });
+        else app.toast('Correct a symbol in place — the same number of symbols — to teach it');
+      }
       if (n) { teachB.disabled = true; }
     };
 
@@ -1785,14 +1968,413 @@
       return i < eq ? reading.map[i] : i < eq + 3 ? -1 : reading.map[i - 2];
     };
     let n = 0;
+    const one = batch();
     for (let i = 0; i < from.length; i++) {
       const sym = reading.syms[mapAt(p + i)];
       const ch = TYPED[to[i]] || to[i];
-      if (!sym || sym.frac || sym.roof || !LABELS.includes(ch) || from[i] === to[i]) continue;
-      teach(sym.strokes, ch);
+      if (!sym || sym.frac || sym.roof || !TEACHABLE.includes(ch) || from[i] === to[i]) continue;
+      teach(sym.strokes, ch, one);
       n++;
     }
     return n;
+  }
+
+  /**
+   * Ink that may run to several lines → one reading per line, top to
+   * bottom. A new line starts where there is a clear gap below the last
+   * (a third of a line's height), so a fraction's top, bar and bottom stay
+   * one line. Each: { text, reading }, text as the calculator takes it —
+   * "x = 2", "3x² + 2" (an "=" at the end dropped).
+   */
+  function readLines(items) {
+    const strokes = items.map(s => s.xy ? s : feature(s)).filter(s => s.xy.length >= 2);
+    if (!strokes.length) return [];
+    const H = lineHeight(strokes);
+    const byTop = strokes.slice().sort((a, b) => a.y - b.y);
+    const lines = [];
+    let cur = null, bottom = -Infinity;
+    for (const s of byTop) {
+      if (!cur || s.y > bottom + H * 0.33) { cur = []; lines.push(cur); bottom = s.y2; }
+      cur.push(s); bottom = Math.max(bottom, s.y2);
+    }
+    return lines.map(ln => {
+      const r = read(ln);
+      const text = r.eq === 'mid' ? r.lhs + ' = ' + r.rhs : r.expr || r.text || '';
+      return { text, reading: r };
+    }).filter(l => l.text);
+  }
+
+  /* ══ the write pad ═══════════════════════════════════════════════════
+     For a pen with no keyboard: write a sum, a function or a few lines on
+     a pad and it is read as you go — into a field to put right with one
+     tap — then Use puts it where it was wanted: a graph's function, the
+     calculator's line, a calc block. Several lines when `multi`. */
+  let writer = null;
+  function closeWriter() {
+    if (!writer) return;
+    clearTimeout(writer.timer);
+    writer.el.remove();
+    if (typeof removeEventListener === 'function') {
+      removeEventListener('pointerdown', writer.away, true);
+      removeEventListener('keydown', writer.key, true);
+    }
+    writer = null;
+  }
+  function writePad(app, opts = {}) {
+    closeWriter();
+    const st = { ink: [], live: null, timer: 0 };
+    const pad = el('canvas', { class: 'inkmath-pad inkmath-wpad' + (opts.multi ? ' tall' : ''), 'aria-label': 'Write here' });
+    const field = opts.multi
+      ? el('textarea', { class: 'inkmath-field inkmath-wfield', rows: '3', spellcheck: 'false', 'aria-label': 'Read as' })
+      : el('input', { class: 'inkmath-field', type: 'text', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Read as' });
+    field.value = opts.start || '';
+    const useB = el('button', { class: 'btn primary', type: 'button' }, opts.useLabel || 'Use');
+    const undoB = el('button', { class: 'btn', type: 'button' }, 'Undo stroke');
+    const clearB = el('button', { class: 'btn', type: 'button' }, 'Clear');
+    const box = el('div', { class: 'inkmath-pop inkmath-write', role: 'dialog', 'aria-label': opts.title || 'Write' },
+      el('div', { class: 'inkmath-head' }, el('span', {}, opts.title || 'Write it'),
+        el('button', { class: 'icon', type: 'button', title: 'Close', 'aria-label': 'Close', onclick: () => closeWriter(),
+          html: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>' })),
+      pad, field, el('div', { class: 'inkmath-acts' }, undoB, clearB, useB),
+      el('p', { class: 'inkmath-note' }, opts.multi ? 'One line under another. Tap the text to put a misreading right.' : 'Tap the text to put a misreading right.'));
+    document.body.appendChild(box);
+    // beside what it is for, else in the middle
+    const nr = opts.near && opts.near.getBoundingClientRect ? opts.near.getBoundingClientRect() : null;
+    const W = Math.min(380, innerWidth - 16);
+    let x = innerWidth / 2 - W / 2, y = 80;
+    if (nr) {
+      x = nr.right + 12 + W < innerWidth - 8 ? nr.right + 12 : nr.left - 12 - W >= 8 ? nr.left - 12 - W : U.clamp(nr.left, 8, innerWidth - W - 8);
+      y = U.clamp(nr.top, 64, Math.max(64, innerHeight - (opts.multi ? 470 : 380)));
+    }
+    box.style.left = U.clamp(x, 8, Math.max(8, innerWidth - W - 8)) + 'px';
+    box.style.top = y + 'px';
+    box.style.width = W + 'px';
+
+    const ctx = pad.getContext('2d');
+    let Wp = 340, Hp = 160;
+    const size = () => {
+      const r = pad.getBoundingClientRect ? pad.getBoundingClientRect() : null;
+      Wp = (r && r.width) || 340; Hp = (r && r.height) || 160;
+      const dpr = devicePixelRatio || 1;
+      pad.width = Math.round(Wp * dpr); pad.height = Math.round(Hp * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paint();
+    };
+    const paint = () => {
+      ctx.clearRect(0, 0, Wp, Hp);
+      const css = getComputedStyle(box), ink = css.getPropertyValue('--text').trim() || '#222';
+      ctx.strokeStyle = css.getPropertyValue('--stroke').trim() || '#8886'; ctx.lineWidth = 1;
+      const rows = opts.multi ? 3 : 1;
+      for (let i = 1; i <= rows; i++) { const yy = Hp * i / rows - Hp * 0.18 / rows; ctx.beginPath(); ctx.moveTo(10, yy); ctx.lineTo(Wp - 10, yy); ctx.stroke(); }
+      ctx.strokeStyle = ink; ctx.lineWidth = 2.6; ctx.lineCap = ctx.lineJoin = 'round';
+      for (const s of st.live ? st.ink.concat([st.live]) : st.ink) {
+        ctx.beginPath();
+        for (let i = 0; i < s.length; i += 3) i ? ctx.lineTo(s[i], s[i + 1]) : ctx.moveTo(s[i], s[i + 1]);
+        if (s.length === 3) ctx.lineTo(s[0] + 0.1, s[1]);
+        ctx.stroke();
+      }
+    };
+    const readNow = () => {
+      const strokes = st.ink.filter(p => p.length >= 3).map(pts => feature({ id: U.uid(), pts }));
+      if (!strokes.length) { field.value = opts.start || ''; return; }
+      field.value = opts.multi ? readLines(strokes).map(l => l.text).join('\n') : (readLines(strokes)[0] || { text: '' }).text;
+    };
+    let pid = null;
+    const at = e => { const r = pad.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top, e.pressure || 0.5]; };
+    pad.addEventListener('pointerdown', e => {
+      if (pid != null) return;
+      e.preventDefault(); pid = e.pointerId;
+      try { pad.setPointerCapture(pid); } catch (_) { }
+      clearTimeout(st.timer);
+      st.live = at(e); paint();
+    });
+    pad.addEventListener('pointermove', e => {
+      if (e.pointerId !== pid || !st.live) return;
+      const all = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      for (const c of all.length ? all : [e]) st.live.push(...at(c));
+      paint();
+    });
+    const up = e => {
+      if (e.pointerId !== pid) return;
+      pid = null;
+      if (st.live) st.ink.push(st.live);
+      st.live = null; paint();
+      st.timer = setTimeout(readNow, 450);
+    };
+    pad.addEventListener('pointerup', up);
+    pad.addEventListener('pointercancel', up);
+    undoB.onclick = () => { st.ink.pop(); paint(); readNow(); };
+    clearB.onclick = () => { st.ink = []; paint(); field.value = opts.start || ''; };
+    useB.onclick = () => {
+      clearTimeout(st.timer);
+      if (st.ink.length && field.value === (opts.start || '')) readNow();
+      const text = field.value.trim();
+      closeWriter();
+      if (text && opts.use) opts.use(text);
+    };
+    field.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && !opts.multi) { e.preventDefault(); useB.onclick(); } });
+    U.penField(field, () => { pad.classList.add('nudge'); setTimeout(() => pad.classList.remove('nudge'), 500); });
+    writer = {
+      el: box, timer: 0,
+      away: ev => { if (!box.contains(ev.target)) closeWriter(); },
+      key: ev => { if (ev.key === 'Escape') { ev.stopPropagation(); closeWriter(); } },
+      /** for tests: lay strokes on the pad as if written there, and read them */
+      write(strokes) { st.ink.push(...strokes.map(s => s.pts.slice())); readNow(); },
+      field, use: () => useB.onclick()
+    };
+    Object.defineProperty(writer, 'timer', { get: () => st.timer });
+    setTimeout(() => { if (writer && writer.el === box && typeof addEventListener === 'function') { addEventListener('pointerdown', writer.away, true); addEventListener('keydown', writer.key, true); } }, 0);
+    requestAnimationFrame(size);
+    D.math.ready().catch(() => {});
+    return writer;
+  }
+
+  /** strokes as a little SVG, fitted to a `px` square */
+  function thumb(strokes, px) {
+    const b = boxOf(strokes), k = (px - 4) / Math.max(b.w, b.h, 1);
+    const ox = (px - b.w * k) / 2, oy = (px - b.h * k) / 2;
+    const d = strokes.map(s => {
+      let o = '';
+      for (let i = 0; i < s.xy.length; i += 2) o += (i ? 'L' : 'M') + U.round(ox + (s.xy[i] - b.x) * k, 1) + ' ' + U.round(oy + (s.xy[i + 1] - b.y) * k, 1);
+      return o;
+    }).join('');
+    return `<svg viewBox="0 0 ${px} ${px}" width="${px}" height="${px}"><path d="${d}"/></svg>`;
+  }
+
+  /** a taught sample as a small SVG: its strokes if kept, else its point cloud */
+  function sampleSvg(t, px = 30) {
+    const k = px - 6;
+    if (t.s && t.s.length) {
+      const d = t.s.map(s => { let o = ''; for (let i = 0; i < s.length; i += 2) o += (i ? 'L' : 'M') + U.round(3 + s[i] * k, 1) + ' ' + U.round(3 + s[i + 1] * k, 1); return o; }).join('');
+      return `<svg viewBox="0 0 ${px} ${px}" width="${px}" height="${px}"><path d="${d}"/></svg>`;
+    }
+    const p = t.c.p;
+    let dots = '';
+    for (let i = 0; i < p.length; i += 2) dots += `<circle cx="${U.round(px / 2 + p[i] * k, 1)}" cy="${U.round(px / 2 + p[i + 1] * k, 1)}" r=".9"/>`;
+    return `<svg viewBox="0 0 ${px} ${px}" width="${px}" height="${px}">${dots}</svg>`;
+  }
+
+  /* ══ Teach your handwriting ══════════════════════════════════════════
+     A pad to write each symbol on a few times, as you write it, so the
+     reader learns your hand before it has misread anything. It walks
+     through every symbol (or the ones you tap), takes a sample once the
+     pen has rested, and moves on. "Try it" reads whatever you write and
+     says what it saw; tap a symbol in the strip to teach it that instead.
+     The samples are the same personal templates Teach makes: on this
+     device, at most twelve a symbol, kept until Forget. */
+  const TRAIN_EACH = 3, TRAIN_REST = 900;
+  let trainer = null;
+
+  function train(app, only) {
+    closeTrainer();
+    closePop();
+    const order = (only && only.length ? only : TEACHABLE).slice();
+    const st = { i: 0, k: 0, ink: [], live: null, timer: 0, mode: 'teach' };
+    const taughtOf = ch => learned().filter(t => t.ch === ch).length;
+
+    const pad = el('canvas', { class: 'inkmath-pad', 'aria-label': 'Write here' });
+    const prompt = el('div', { class: 'inkmath-prompt', 'aria-live': 'polite' });
+    const strip = el('div', { class: 'inkmath-strip' });
+    const seen = el('div', { class: 'inkmath-seen', 'aria-live': 'polite' });
+    const modeSeg = el('div', { class: 'seg inkmath-mode' });
+    const undoB = el('button', { class: 'btn', type: 'button', title: 'Take back the last sample taught' }, 'Undo');
+    const samples = el('div', { class: 'inkmath-samples' });
+    const resetB = el('button', { class: 'inkmath-link', type: 'button' }, 'Forget everything taught…');
+    const clearB = el('button', { class: 'btn', type: 'button' }, 'Clear');
+    const skipB = el('button', { class: 'btn', type: 'button' }, 'Skip');
+    const doneB = el('button', { class: 'btn primary', type: 'button' }, 'Done');
+    const sheet = el('div', { class: 'inkmath-train', role: 'dialog', 'aria-label': 'Teach your handwriting' },
+      el('div', { class: 'inkmath-head' }, el('span', {}, 'Teach your handwriting'), modeSeg,
+        el('button', { class: 'icon', type: 'button', title: 'Close', 'aria-label': 'Close', onclick: () => closeTrainer(),
+          html: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>' })),
+      strip, samples, prompt, pad, seen, el('div', { class: 'inkmath-acts' }, undoB, clearB, skipB, doneB),
+      el('p', { class: 'inkmath-note' }, 'Digits and brackets fill the space between the solid lines; small letters reach the dashes. Kept on this device only. ', resetB));
+    const scrim = el('div', { class: 'inkmath-scrim', onclick: () => closeTrainer() });
+    document.body.append(scrim, sheet);
+
+    const ctx = pad.getContext('2d');
+    let W = 300, Hp = 220;
+    const size = () => {
+      const r = pad.getBoundingClientRect ? pad.getBoundingClientRect() : null;
+      W = (r && r.width) || 300; Hp = (r && r.height) || 220;
+      const dpr = devicePixelRatio || 1;
+      pad.width = Math.round(W * dpr); pad.height = Math.round(Hp * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paint();
+    };
+    // guides: a digit runs TOP to BASE, a small letter MID to BASE
+    const TOP = () => Hp * 0.16, BASE = () => Hp * 0.84, MID = () => BASE() - (BASE() - TOP()) * 0.62;
+    const paint = () => {
+      ctx.clearRect(0, 0, W, Hp);
+      const css = getComputedStyle(sheet);
+      const rule = css.getPropertyValue('--stroke').trim() || '#8886', ink = css.getPropertyValue('--text').trim() || '#222';
+      ctx.lineWidth = 1; ctx.strokeStyle = rule;
+      ctx.setLineDash([]);
+      for (const y of [TOP(), BASE()]) { ctx.beginPath(); ctx.moveTo(12, y); ctx.lineTo(W - 12, y); ctx.stroke(); }
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath(); ctx.moveTo(12, MID()); ctx.lineTo(W - 12, MID()); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = ink; ctx.lineWidth = 3; ctx.lineCap = ctx.lineJoin = 'round';
+      for (const s of st.live ? st.ink.concat([st.live]) : st.ink) {
+        ctx.beginPath();
+        for (let i = 0; i < s.length; i += 3) i ? ctx.lineTo(s[i], s[i + 1]) : ctx.moveTo(s[i], s[i + 1]);
+        if (s.length === 3) ctx.lineTo(s[0] + 0.1, s[1]);
+        ctx.stroke();
+      }
+    };
+    const strokesNow = () => st.ink.filter(p => p.length >= 3).map(pts => feature({ id: U.uid(), pts }));
+    const H = () => BASE() - TOP();
+
+    const current = () => order[st.i % order.length];
+    const show = () => {
+      const ch = current();
+      if (st.mode === 'teach') {
+        prompt.replaceChildren(el('span', {}, 'Write'), el('b', {}, ch), el('span', {}, `${Math.min(st.k + 1, TRAIN_EACH)} of ${TRAIN_EACH}`));
+      } else prompt.replaceChildren(el('span', {}, 'Write any symbol. If it is misread, tap what it really is'));
+      strip.replaceChildren(...TEACHABLE.map(c => {
+        const n = taughtOf(c);
+        return el('button', { class: 'inkmath-sym' + (st.mode === 'teach' && c === ch ? ' on' : '') + (n ? ' done' : ''), type: 'button',
+          title: n ? `${n} taught` : 'Not taught yet', onclick: () => pickSym(c) }, c, n ? el('i', {}, String(n)) : null);
+      }));
+      skipB.hidden = st.mode !== 'teach';
+      undoB.disabled = !learned().length;
+      drawSamples(st.mode === 'teach' ? ch : st.focus);
+    };
+    /* what has been taught for one symbol: each sample as it was written,
+       with a cross to forget that one, and a button to forget the lot */
+    const drawSamples = ch => {
+      const list = ch ? samplesOf(ch) : [];
+      if (!list.length) { samples.replaceChildren(); samples.hidden = true; return; }
+      samples.hidden = false;
+      samples.replaceChildren(
+        el('span', { class: 'inkmath-samples-l' }, `${list.length} of your ${ch}`),
+        ...list.map(t => el('button', { class: 'inkmath-sample', type: 'button', title: 'Forget this one', 'aria-label': `Forget this sample of ${ch}`,
+          html: sampleSvg(t) + '<i>×</i>', onclick: () => { forgetSample(t); show(); } })),
+        el('button', { class: 'inkmath-link', type: 'button', onclick: () => { forgetSymbol(ch); seen.textContent = `Forgot your ${ch}`; show(); } }, `Forget all ${ch}`));
+    };
+    const pickSym = c => {
+      if (st.mode === 'try') {
+        const s = strokesNow();
+        if (!s.length) { seen.textContent = 'Write it first, then tap what it is'; return; }
+        clearTimeout(st.timer);
+        teach(s, c);
+        seen.textContent = `Learnt: that is ${c}`;
+        st.focus = c;
+        st.ink = []; paint(); show();
+        return;
+      }
+      st.i = order.indexOf(c) >= 0 ? order.indexOf(c) : (order.push(c), order.length - 1);
+      st.k = 0; st.ink = []; paint(); show();
+    };
+    /* Undo: the last sample goes, and the count steps back to ask for it again */
+    const undo = () => {
+      clearTimeout(st.timer);
+      const gone = undoTeach();
+      if (!gone.length) return;
+      const ch = gone[0].ch;
+      if (st.mode === 'teach') {
+        if (order[st.i] === ch && st.k > 0) st.k--;
+        else if (st.k === 0 && st.i > 0 && order[st.i - 1] === ch) { st.i--; st.k = TRAIN_EACH - 1; }
+      }
+      st.focus = ch;
+      seen.textContent = `Took back a ${ch}`;
+      st.ink = []; paint(); show();
+    };
+    undoB.onclick = undo;
+    // two taps, so it is never done by a slip of the pen
+    resetB.onclick = () => {
+      if (resetB.dataset.armed) {
+        forget(); delete resetB.dataset.armed; resetB.textContent = 'Forget everything taught…';
+        st.i = 0; st.k = 0; seen.textContent = 'Forgot everything you taught'; show();
+        return;
+      }
+      resetB.dataset.armed = '1'; resetB.textContent = 'Tap again to forget everything';
+      setTimeout(() => { if (resetB.dataset.armed) { delete resetB.dataset.armed; resetB.textContent = 'Forget everything taught…'; } }, 3500);
+    };
+    const advance = () => {
+      st.k++;
+      if (st.k >= TRAIN_EACH) {
+        st.k = 0; st.i++;
+        if (st.i >= order.length) {
+          setMode('try');
+          seen.textContent = `All done: ${learned().length} samples of your handwriting. Try it out, or close.`;
+          return;
+        }
+      }
+      show();
+    };
+    const take = () => {
+      clearTimeout(st.timer);
+      const s = strokesNow();
+      if (!s.length) return;
+      if (st.mode === 'teach') {
+        const ch = current();
+        teach(s, ch);
+        seen.textContent = `Got it: ${ch}`;
+        st.ink = []; paint();
+        advance();
+      } else {
+        const got = classify(s, H()).slice(0, 3);
+        seen.replaceChildren(...[el('span', {}, 'Read as '), el('b', {}, got.length ? got[0].ch : '?'),
+          got[0] && got[0].mine ? el('span', {}, ', from what you taught') : got[0] && got[0].d > ACCEPT ? el('span', {}, ', not sure') : null,
+          got.length > 1 ? el('span', { class: 'alts' }, ' · then ' + got.slice(1).map(g => g.ch).join(', ')) : null].filter(Boolean));
+      }
+    };
+    const setMode = m => {
+      st.mode = m;
+      modeSeg.replaceChildren(...[['teach', 'Teach'], ['try', 'Try it']].map(([k, label]) =>
+        el('button', { class: k === m ? 'on' : '', type: 'button', onclick: () => { setMode(k); seen.textContent = ''; } }, label)));
+      st.ink = []; paint(); show();
+    };
+
+    // the pad takes any pointer: pen, finger or mouse, one stroke at a time
+    let pid = null;
+    const at = e => { const r = pad.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top, e.pressure || 0.5]; };
+    pad.addEventListener('pointerdown', e => {
+      if (pid != null) return;
+      e.preventDefault();
+      pid = e.pointerId;
+      try { pad.setPointerCapture(pid); } catch (_) { }
+      clearTimeout(st.timer);
+      if (st.mode === 'try' && !st.ink.length) seen.textContent = '';
+      st.live = at(e); paint();
+    });
+    pad.addEventListener('pointermove', e => {
+      if (e.pointerId !== pid || !st.live) return;
+      const all = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      for (const c of all.length ? all : [e]) st.live.push(...at(c));
+      paint();
+    });
+    const up = e => {
+      if (e.pointerId !== pid) return;
+      pid = null;
+      if (st.live) st.ink.push(st.live);
+      st.live = null; paint();
+      st.timer = setTimeout(take, TRAIN_REST);
+    };
+    pad.addEventListener('pointerup', up);
+    pad.addEventListener('pointercancel', up);
+    clearB.onclick = () => { clearTimeout(st.timer); st.ink = []; paint(); seen.textContent = ''; };
+    skipB.onclick = () => { clearTimeout(st.timer); st.ink = []; paint(); st.k = TRAIN_EACH - 1; advance(); };
+    doneB.onclick = () => closeTrainer();
+
+    const key = e => { if (e.key === 'Escape') { e.stopPropagation(); closeTrainer(); } };
+    if (typeof addEventListener === 'function') { addEventListener('keydown', key, true); addEventListener('resize', size); }
+    trainer = {
+      el: sheet, scrim, key, size, st, setMode, pickSym, take, undo, reset: () => { resetB.onclick(); resetB.onclick(); },
+      /** for tests: lay strokes on the pad as if written there */
+      write(strokes) { st.ink.push(...strokes.map(s => s.pts.slice())); }
+    };
+    setMode('teach');
+    requestAnimationFrame(size);
+    return trainer;
+  }
+  function closeTrainer() {
+    if (!trainer) return;
+    clearTimeout(trainer.st.timer);
+    trainer.el.remove(); trainer.scrim.remove();
+    if (typeof removeEventListener === 'function') { removeEventListener('keydown', trainer.key, true); removeEventListener('resize', trainer.size); }
+    trainer = null;
   }
 
   /** the answer, put on the board by hand: an ordinary edit, undone like one */
@@ -1825,7 +2407,7 @@
     }
     scene.begin('answer'); scene.add(it); scene.commit();
     know(it);
-    if (eqIds) rememberEq(eqSym.strokes);
+    if (eqIds) { rememberEq(eqSym.strokes); unmark(keyOf(eqIds)); }
     app.afterEdit();
     return it;
   }
@@ -1854,6 +2436,28 @@
     }
   });
 
+  D.ext.pressActions.push({
+    id: 'inkmath-block', label: 'To calc block', icon: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z|M7.5 9h5|M7.5 14.5h4|M15.5 8.2h2|M15.5 13.7h2', order: 63,
+    when: ctx => {
+      const sel = ctx.selection || [], ink = strokesOf(ctx);
+      return !!D.calc && ink.length > 0 && ink.length <= 600 && sel.every(i => isInk(i) || i.type === 'inkresult');
+    },
+    /* The selected writing, read a line at a time, as a calc block beside
+       it: the lines it was read as, worked out, ready to change by keypad,
+       by pen, or by hand. */
+    run: ctx => {
+      const app = ctx.app, ink = strokesOf(ctx);
+      const lines = readLines(ink).map(l => l.text.replace(/\s*=\s*$/, '')).filter(Boolean);
+      if (!lines.length) { app.toast('Could not read any lines there'); return; }
+      let b = null;
+      for (const it of ink) b = U.unionBox(b, app.scene.bbox(it));
+      D.math.ready().then(() => {
+        D.calc.newBlock(app, { x: b.x2 + 40, y: b.y }, lines.join('\n'));
+        app.toast(`A calc block of ${lines.length} line${lines.length > 1 ? 's' : ''}: double-tap it to change one`);
+      });
+    }
+  });
+
   D.ext.settings.push({
     id: 'inkmath', title: 'Handwritten maths', sub: 'Answers for sums written with the pen', icon: ICON.ink,
     render(ui) {
@@ -1868,8 +2472,15 @@
           ui.setRow('Answer colour', '', ui.setSeg(['accent', 'green', 'orange', 'red', 'purple'].map(c => [c, sw(c, c)]), o.color, v => { set('color', v); recolour(app, v); })),
           ui.setToggle('Show why it didn’t answer', 'A note beside each = it found but left alone, saying why. For when it misses one', !!o.explain, v => { set('explain', v); explainAll(app); })),
         ui.setGroup(
-          ui.setRow('Your handwriting', n ? `${n} symbol${n > 1 ? 's' : ''} taught with Teach` : 'Nothing taught yet: Teach in Solve this ink remembers a symbol it misread',
-            ui.setButton('Forget', () => { forget(); if (app.toast) app.toast('Forgot the symbols you taught'); if (ui.showSettings) ui.showSettings('inkmath'); }))),
+          ui.setRow('Your handwriting', n ? `${n} sample${n > 1 ? 's' : ''} of ${new Set(learned().map(t => t.ch)).size} symbols, taught on this device` : 'Nothing taught yet. Write each symbol a few times so it reads your hand',
+            el('div', { class: 'set-actions' },
+              ui.setButton('Train…', () => train(app), true),
+              n ? ui.setButton('Undo last', () => { const g = undoTeach(); if (app.toast) app.toast(g.length ? `Took back the last ${g[0].ch} taught` : 'Nothing to take back'); if (ui.showSettings) ui.showSettings('inkmath'); }) : null,
+              n ? ui.setButton('Forget all', () => { forget(); if (app.toast) app.toast('Forgot the symbols you taught'); if (ui.showSettings) ui.showSettings('inkmath'); }) : null)),
+          n ? ui.setStack(ui.setLabel('Taught, by symbol — tap one to see and change its samples'),
+            el('div', { class: 'inkmath-taught' }, ...TEACHABLE.filter(c => samplesOf(c).length).map(c =>
+              el('button', { class: 'inkmath-sym done', type: 'button', title: `${samplesOf(c).length} taught: open in the trainer`, onclick: () => { train(app, [c]); } },
+                c, el('i', {}, String(samplesOf(c).length)))))) : null),
         ui.setNote('Select handwriting and long-press it — or use the bar over the selection — for Solve this ink. Reading happens on this device; nothing is sent anywhere.')
       ];
     }
@@ -1907,14 +2518,15 @@
 
 
   D.ext.on('ready', app => { reset(app); watchPen(); });
-  D.ext.on('board', app => { closePop(); reset(app); });
+  D.ext.on('board', app => { closePop(); closeTrainer(); closeWriter(); reset(app); });
   D.ext.on('stroke', onStroke);
   D.ext.on('change', follow);
 
   D.inkmath = {
     read, classify: (strokes, H) => classify(strokes.map(s => s.xy ? s : feature(s)), H), feature, namesIn,
-    teach, forget, learned: () => learned().length, flush, solve, reset,
+    readLines, writePad, closeWriter,
+    teach, forget, undoTeach, forgetSymbol, forgetSample, samplesOf, learned: () => learned().length, flush, solve, reset, train, closeTrainer, TEACHABLE,
     get state() { return S; },
-    GLYPHS, LABELS, _cloud: cloud, _spline: spline, _gather: gather, _eq: rememberEq, _pairs: pairs
+    GLYPHS, LABELS, _cloud: cloud, _spline: spline, _gather: gather, _eq: rememberEq, _pairs: pairs, _ask: m => ask(m)
   };
 })(window.DPO);

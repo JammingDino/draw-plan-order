@@ -1,4 +1,6 @@
-# Draw · Plan · Order
+# Workings
+
+*Show your workings.* (Formerly Draw · Plan · Order.)
 
 An endless canvas for pen, keyboard and decision trees. Plain HTML/CSS/JS —
 no build step, no dependencies, no account. Everything lives on your machine.
@@ -9,6 +11,9 @@ worksheets on the board, handwritten sums that answer themselves when you
 write `=`, and drawing tools with real arrowheads, dimensions, a drawing
 scale and snapping. Every part of it works with only a stylus or a finger
 — press and hold anywhere for a menu.
+
+What is planned next, and what is known to be missing, is in
+[ROADMAP.md](ROADMAP.md).
 
 ## Running it
 
@@ -47,7 +52,7 @@ handling dropped images itself.
 The desktop app saves boards as plain files in a folder you choose under
 **Settings → Saving** (<kbd>Ctrl</kbd>+<kbd>,</kbd>), one `.dpo` file per
 board. Point it at an Obsidian vault and it uses the Draw · Plan · Order
-plugin's layout and folder, so the same boards open in either. Until a
+Obsidian plugin's layout and folder, so the same boards open in either. Until a
 folder is chosen, boards live in the app's own WebView2 profile, and they
 are copied into the folder the first time one is set. The browser keeps its
 own boards; move work across with ↧ Export .board / ↥ Import.
@@ -74,6 +79,7 @@ saved work — handy for trying something out.
 | **Scribble** back and forth over ink | The ink underneath is rubbed out, with an *Undo* toast. Handwriting and normal loops are not mistaken for scribbles. |
 | **Flip the Surface Pen** and rub | Erases, whatever tool you had selected. Let go and you are back on your previous tool. A ring shows the eraser's size, and appears as soon as the blunt end is in range — before you touch the glass — so you can see what you are about to take off. |
 | Draw a near-straight line | It is quietly straightened, and snapped to 0/45/90° if it is close. |
+| **Smoothing** (pen and highlighter panels) | Steadies a shaky hand. While you draw it pulls hardest when the pen moves slowly, where a tremor shows; when you lift, the stroke is smoothed along its length, keeping its ends and its sharp corners. 50% to start with; *Off* is the old feel. |
 | Erase over a PDF, image, sticky or node | Only your ink comes off. Those are hit-tested by their whole area, so an eraser stroke *across* one would otherwise delete the lot — remove them deliberately, with the select tool and <kbd>Delete</kbd>. |
 | With the select tool, **drag** across a PDF page or picture | Selects the notes and ink written on it, rather than dragging the page out from under them. **Press and hold** (about a third of a second) to pick up the page itself, or tap it to select it — once selected, it drags straight away. Keep holding, still, and the long-press menu follows. |
 | **Finger** on the canvas | Always pans and pinch-zooms, whatever tool is selected — so you can sketch, shove the page along, and sketch some more without putting the pen down. Your palm can rest anywhere, and a mouse or pen still draws normally. Turn it off under ☰ → Settings if you would rather draw with a finger. |
@@ -147,6 +153,80 @@ drawings, and for a pen alone — nothing needs a key held down.
 
 Long-press anywhere for *Measure from here*; on a line, *Dimension this*
 and *Set drawing scale…*.
+
+### Circuit and mechanics symbols
+
+The symbol tool (<kbd>S</kbd>) is built to be quicker than drawing the
+parts by hand. While it is out, a strip along the bottom holds the parts
+— resistor, capacitor, inductor, DC and AC sources, diode, switch,
+ground, op-amp, junction; *Mech* swaps in springs, dampers, a mass,
+supports and a pulley — and **Wire**.
+
+- **Drag to lay a part.** Drag from one point to another and a
+  two-terminal part spans exactly that: its leads stretch, its body
+  stays its proper size, and it lies along the drag (square to the page
+  when the drag nearly is). Ends snap to terminals first, so parts chain
+  end to end — a source dragged upwards, a resistor dragged on from its
+  top, a capacitor dragged down. A tap drops a part at its usual size; a
+  ground or a support tapped on a terminal hangs from it. Drag a source
+  from its + end.
+- **Wire** (or <kbd>W</kbd>): drag from a terminal to a terminal for a
+  square-cornered wire, attached at both ends, whose corner moves as the
+  parts do. Where three or more conductors meet — a wire ending on the
+  middle of another, or two wires on one terminal — a junction dot is
+  drawn, as a wiring diagram has it.
+- Parts are **named as they are placed** — R1, R2, C1, V1, k1 — and a
+  double-tap edits the label (`R1 = 4.7 kΩ`), by keys or by pen; it
+  stays upright however the part is turned. *Change to* in the panel
+  swaps a part for another in place, keeping its span.
+
+### Turning and lining things up
+
+The selection box turns with what it holds: select a turned box (or
+several turned alike) and it is framed at its angle, with its handles on
+its turned corners, and resizing stretches it along its own sides; turn
+a selection and its box goes round with it rather than growing.
+Drag the ring on a stalk above any selection to **turn** it about its
+middle; it settles on 15° steps as it passes them (always, with Shift),
+and the angle rides beside the pen. **Ctrl+R** turns a quarter
+clockwise, **Ctrl+Shift+R** back, and the style panel's *Turn* row and
+the action bar's turn button do the same with a pen. One selected box
+has a **Turn** field beside W, H, X and Y, anticlockwise like every
+other angle on the board. Ink, lines and arrows have their points
+turned; shapes, text, notes, nodes, pictures and PDF pages keep the
+angle and are drawn, picked, erased, snapped to and exported turned.
+
+With two or more things selected, **Align** (in the style panel, or
+*Align…* on the action bar and the long-press menu) lines up their left
+edges, centres, right edges, tops, middles or bottoms, and with three or
+more **spaces them evenly** across or down, keeping the outermost where
+they are. A group moves as one piece, and connectors follow what they
+join.
+
+### Pages
+
+The page tool (<kbd>F</kbd>) lays a sheet on the board: tap for A4, A3,
+A5, Letter or a 16:9 slide, upright or on its side, or drag out a page
+of your own size. A page can be plain or ruled with dots, a 5 mm grid,
+lines and a margin, or an engineering pad (5 mm squares, every fifth
+heavier). Pages sit behind everything and are picked only by their edge
+or their name, so you write, box-select and lasso on them as on the
+board — a lasso takes the page itself only when it goes all the way
+round. *Select with what is on it* (in its panel, its long-press menu,
+or a double-tap on its edge) picks up the page with its contents, to
+move them together.
+
+The **Pages** button in the zoom bar lists the pages, jumps to one,
+and adds the next, laid below the last (beside it, for one on its
+side). <kbd>Page Down</kbd> and <kbd>Page Up</kbd> step through them.
+The pages of an imported PDF are pages too: they come in at the same
+scale (an A4 PDF is exactly an A4 page), are listed by their document
+and page number, are stepped through with the rest, and *Add a page*
+after one gives a blank page its size. A PDF added from the menu to a
+board that has pages goes on after the last of them. Pages are what
+**Export PDF** prints, one sheet each, in reading order — so a marked-up
+PDF goes back as the same pages, at their own size, with your writing
+on them.
 
 ### PDFs
 
@@ -224,6 +304,38 @@ the block or change the settings they were made under. `D.math` (in
 `js/math.js`) and `D.calc` (in `js/calc.js`) are documented at the top of
 each file, for anything else that wants an answer worked out.
 
+### Graphs
+
+The graph tool (<kbd>Y</kbd>), *New graph here* on the long-press menu,
+or **Plot** in the calculator puts a graph of y = f(x) on the board.
+It plots anything the calculator reads — `sin(x)`, `3x² − 2`,
+`e^(−x/2)·cos(3x)`, constants such as `g` and `π` — several functions
+at once, each in its own colour with its formula over it, on a grid
+with ticks at 1, 2 and 5 steps. Double-tap it for the functions, the
+x range, radians or degrees, and a y range that either follows the
+curves (ignoring the spikes beside an asymptote, so `tan(x)` is
+readable) or is set by hand; the whole edit is one undo step. Its panel
+zooms x in and out and fits y again. A graph moves, resizes, turns and
+exports to SVG and PDF like anything else.
+
+**Prompted, and by pen.** A curve you ask for offers to graph itself:
+write `y = x² − 3` with the pen and a **Graph** chip appears beside it;
+type `y = x^2/4 − 3` in the calculator and it offers *Graph y = …*; a
+calc-block line like that puts a *Graph* button on the editing bar. A
+bare `12x =` is a sum, not a curve: it is answered from an `x = …`
+above, never offered as a graph. A pen tapped on a text field — the
+calculator's line, a graph's function, a label, a page's name — opens
+the app's own write pad rather than Windows' handwriting panel. In the graph editor, the pen button by each function (and
+*Write one*) opens a pad to write it on — it is read as you write, into a
+field to put right with a tap — the calculator's keypad types into the
+function last tapped, and the x range has one-tap presets (±1, ±10,
+±100, 0…10, ±2π, 0…2π).
+
+The same pad is on the calculator (*Write*) and on a calc block's editing
+bar (*Write*, several lines at once). And **To calc block**, on the
+long-press menu or the action bar over selected writing, reads it a line
+at a time into a calc block beside it.
+
 ### Handwritten maths
 
 Write a sum with the pen, finish it with **=**, and lift the pen for a
@@ -247,11 +359,30 @@ To check a reading, select the ink (lasso or marquee) and long-press
 it, or use the selection's action bar: **Solve this ink** shows what the
 strokes were read as, in a field to correct with one tap, with the
 answer, and **Insert result**, **Open in calculator** and **Teach**.
-Teach makes each symbol you corrected in place a template of your own,
-kept on this device (at most twelve per symbol), so the next one you
-write that way is read right. Double-tap an answer for the same panel.
-**Settings → Handwritten maths** turns solving as you write off, sets
-the decimal places and the answer colour, and forgets what you taught.
+Under the field, each symbol is shown with its own ink: tap one that was
+misread and pick what it really is, and it is learnt on the spot. Teach
+does the same for a correction typed into the field. Double-tap an
+answer for the same panel.
+
+**Train** (in that panel, or **Settings → Handwritten maths → Train…**)
+opens a pad that walks through every symbol, asking for each three
+times, and takes a sample when the pen rests; tap a symbol in its strip
+to jump to it. **Try it** reads whatever you write on the pad and says
+what it saw — tap the right symbol if it is wrong. Whatever you teach is
+a template of your own, kept on this device (at most twelve per symbol).
+Teaching is easy to take back: **Undo** in the trainer, on the toast
+after a correction, or in Settings takes back the last thing taught (a
+correction that fixed several symbols is one step); the trainer shows
+the samples of the symbol in hand, each with a cross to forget it, and
+*Forget all* for that symbol; and *Forget everything taught…* (two
+taps) starts again. What you teach is
+and it comes first: ahead of the built-in shapes and even of the rules
+that settle the look-alikes, so a 1 you lean like a slash is read as a
+1 once you have taught it. It only takes over when it is plainly the
+closer match, so teaching a few odd symbols leaves the rest of your
+writing read as before. **Settings → Handwritten maths** also turns
+solving as you write off, sets the decimal places and the answer colour,
+and forgets what you taught.
 
 It keeps out of the way. Nothing is read until the pen rests; a line
 that uses a letter nothing defines, or does not work out, is left
@@ -300,11 +431,11 @@ most of the rest, against one in twelve before; the notes themselves —
 
 `V` select · `G` lasso · `P` pen · `H` highlighter · `E` eraser · `R` rectangle ·
 `O` ellipse · `L` line · `A` arrow · `D` diamond · `T` text · `K` sticky ·
-`N` node · `C` connector · `M` measure (hold its button for dimensions) ·
+`N` node · `C` connector · `M` measure (hold its button for dimensions) · `F` page · `Y` graph · `S` symbols ·
 `Q` laser · `Space` pan · `Enter` finishes a polyline or a measured path
 
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
-`Ctrl+G` group · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
+`Ctrl+G` group · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+0` reset zoom · `Shift+1` zoom to fit · `Ctrl+'` cycle grid ·
 `Ctrl+M` boards · `Alt`+drag duplicates · `Shift` constrains (15° steps
 for lines; square or circle for shapes) · `Alt` draws from the centre
@@ -316,8 +447,16 @@ card with a live thumbnail, item count and when you last touched it, newest
 first — so it doubles as a recents list. Type to filter by name. Thumbnails
 are re-rendered when you leave a board and every few seconds while you work.
 
-It also holds export to `.board` (loss-free JSON), PNG and SVG, and import of
-anything exported. PNG and SVG come out on a transparent background by
+It also holds export to **PDF**, `.board` (loss-free JSON), PNG and SVG,
+and import of anything exported.
+
+**Export → Document (.pdf)** prints a sheet for each page on the board
+(see *Pages*), in their order and at their size, or one sheet round
+everything if the board has no pages; a page's own panel has *This page
+as PDF*. Sheets are drawn at 200 dpi on light paper, whatever the theme,
+and stored lossless — or as JPEG on a page that carries photos or PDF
+pages, which keeps the file small. The PDF is written by
+`js/exportpdf.js` with no library. PNG and SVG come out on a transparent background by
 default; **Settings → Export** switches to the paper colour, and picks the
 theme they are drawn in — matching the app, or always light or always dark —
 which sets the colour of default ink and of PDF pages. Autosave runs about
@@ -352,6 +491,10 @@ toast. Hiding the tab also forces a full save.
 | `js/cad.js` | Engineering drawing: dimensions, measuring, scale, snapping |
 | `js/press.js` | The long-press menu and the selection action bar |
 | `js/inkmath.js` | Handwritten maths, recognised and answered |
+| `js/frames.js` | Pages: sheets on the board, their rulings and the Pages list |
+| `js/exportpdf.js` | Export to PDF, a sheet per page, written by hand |
+| `js/graph.js` | Graphs of y = f(x), plotted through the maths engine |
+| `js/symbols.js` | Circuit and mechanics symbols, with terminals to wire to |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after

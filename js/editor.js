@@ -89,7 +89,13 @@
       ta.style.lineHeight = L.lh + 'px';
       ta.style.color = color;
       ta.style.textAlign = align;
-      ta.style.transform = `scale(${z})`;
+      ta.style.transformOrigin = '0 0';
+      const b = it.rot ? scene.bbox(it) : null;
+      if (b && b.local) {
+        // about the item's centre, as it is painted: (ox, oy) is that centre from the textarea's corner
+        const c = U.boxCenter(b.local), ox = (c.x - x) * z, oy = (c.y - y) * z;
+        ta.style.transform = `translate(${ox}px,${oy}px) rotate(${it.rot}rad) translate(${-ox}px,${-oy}px) scale(${z})`;
+      } else ta.style.transform = `scale(${z})`;
     }
 
     close() {

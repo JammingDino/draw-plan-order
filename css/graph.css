@@ -1,0 +1,46 @@
+/* ── graph.css ── the graph editor ───────────────────────────────────
+   The functions and ranges of a graph, beside it. The graph itself is
+   painted on the canvas (js/graph.js). Everything to press is at least
+   44px, for a pen or a finger.                                           */
+
+.graph-pop{
+  position:fixed;z-index:40;width:340px;max-width:calc(100vw - 16px);padding:6px 12px 12px;
+  display:flex;flex-direction:column;gap:8px;
+  background:var(--panel-solid);border:1px solid var(--stroke);border-radius:16px;box-shadow:var(--shadow);
+  animation:graph-in .16s var(--ease);
+}
+@keyframes graph-in{from{opacity:0;transform:translateY(-6px)}}
+.graph-head{display:flex;align-items:center;min-height:44px;margin-right:-6px}
+.graph-head span{flex:1;font-weight:650;font-size:13.5px}
+.graph-head .icon{width:44px;height:44px}
+.graph-pop svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+.graph-fns{display:flex;flex-direction:column;gap:6px}
+.graph-row{display:flex;align-items:center;gap:6px}
+.graph-sw{flex:0 0 auto;width:10px;height:28px;border-radius:5px}
+.graph-y{flex:0 0 auto;font:500 15px/1 "Segoe UI",system-ui,sans-serif;color:var(--muted)}
+.graph-fn,.graph-num{
+  min-width:0;height:44px;padding:0 10px;border:1.5px solid var(--stroke);border-radius:11px;outline:0;
+  background:var(--paper);color:var(--text);font:500 16px/1.2 "Segoe UI",system-ui,sans-serif;
+}
+.graph-fn{flex:1}
+.graph-fn:focus,.graph-num:focus{border-color:var(--accent)}
+.graph-num{width:84px;flex:1;text-align:center;font-variant-numeric:tabular-nums}
+.graph-num.bad{border-color:#e5484d}
+.graph-x{flex:0 0 auto;width:40px;height:40px}
+.graph-add{min-height:40px;border-radius:11px;justify-content:center}
+.graph-range{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.graph-range[hidden]{display:none}
+.graph-opts{display:flex;gap:8px;flex-wrap:wrap}
+.graph-opts .seg{flex:1 1 140px}
+.graph-opts .seg button{min-height:36px}
+.graph-note{margin:0;font-size:12px;line-height:1.45;color:var(--muted)}
+.graph-acts{display:flex;flex-wrap:wrap;gap:6px}
+.graph-acts .btn{flex:1 1 auto;min-height:40px;justify-content:center}
+
+.graph-w{flex:0 0 auto;width:40px;height:40px}
+.graph-acts .graph-add{flex:1 1 auto}
+.graph-presets{display:flex;flex-wrap:wrap;gap:4px}
+.graph-presets .btn{flex:1 1 auto;min-height:36px;padding:0 8px;font-size:12.5px;border-radius:9px;justify-content:center}
+
+.graph-pop .btn svg,.calc-graph svg,.calc-bar .btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px;margin-right:5px}

@@ -76,8 +76,23 @@
     page: svg('M4 5h16v14H4z|M4 16l4.5-4.5 4 4L16 12l4 4'),
     undo: svg('M9 14L4 9l5-5|M4 9h10a6 6 0 0 1 0 12H9'),
     redo: svg('M15 14l5-5-5-5|M20 9H10a6 6 0 0 0 0 12h5'),
-    hold: svg('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z|M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17z')
+    hold: svg('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z|M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17z'),
+    turn: svg('M19.5 9.5A8 8 0 1 0 18 17|M19.5 4.5v5h-5'),
+    align: svg('M4 3.5v17|M7 7h11v3.5H7z|M7 13.5h7V17H7z'),
+    al_left: svg('M4 3.5v17|M7 7h11v3.5H7z|M7 13.5h7V17H7z'),
+    al_hcentre: svg('M12 3.5v17|M6 7h12v3.5H6z|M8.5 13.5h7V17h-7z'),
+    al_right: svg('M20 3.5v17|M6 7h11v3.5H6z|M10 13.5h7V17h-7z'),
+    al_top: svg('M3.5 4h17|M7 7h3.5v11H7z|M13.5 7H17v7h-3.5z'),
+    al_vcentre: svg('M3.5 12h17|M7 6h3.5v12H7z|M13.5 8.5H17v7h-3.5z'),
+    al_bottom: svg('M3.5 20h17|M7 6h3.5v11H7z|M13.5 10H17v7h-3.5z'),
+    al_hspace: svg('M3.5 4v16|M20.5 4v16|M7 8h3v8H7z|M14 8h3v8h-3z'),
+    al_vspace: svg('M4 3.5h16|M4 20.5h16|M8 7h8v3H8z|M8 14h8v3H8z')
   };
+  const ALIGNS = [
+    ['left', 'Left'], ['hcentre', 'Centre'], ['right', 'Right'],
+    ['top', 'Top'], ['vcentre', 'Middle'], ['bottom', 'Bottom'],
+    ['hspace', 'Space across'], ['vspace', 'Space down']
+  ];
 
   const TEXTY = new Set(['text', 'note', 'node']);
   const BAR_TOP = 60;          // CSS px kept clear for the top bar
@@ -89,6 +104,7 @@
      it out rather than hiding it, so the menu keeps its shape. */
   function selectionActions(app, sel) {
     const grouped = sel.some(i => i.group);
+    const units = app.alignUnits ? app.alignUnits().length : 0;
     const one = sel.length === 1 ? sel[0] : null;
     const edit = one && app.canEdit(one) ? {
       id: 'edit', icon: ICON.edit, run: () => app.editItem(one),
@@ -106,8 +122,17 @@
       back: { id: 'back', label: 'To back', icon: ICON.back, run: () => app.arrange('back') },
       group: grouped
         ? { id: 'group', label: 'Ungroup', icon: ICON.ungroup, run: () => app.toggleGroup() }
-        : { id: 'group', label: 'Group', icon: ICON.group, run: () => app.toggleGroup(), off: sel.length < 2 }
+        : { id: 'group', label: 'Group', icon: ICON.group, run: () => app.toggleGroup(), off: sel.length < 2 },
+      turn: { id: 'turn', label: 'Turn 90°', icon: ICON.turn, run: () => app.rotateSelection(90) },
+      // opens a second menu of its own, in place of this one
+      align: units >= 2 ? { id: 'align', label: 'Align…', icon: ICON.align, run: ctx => app.press.openMenu(Object.assign({}, ctx, { align: true })) } : null
     };
+  }
+  /** the Align menu's tiles: every way to line the selection up */
+  function alignActions(app) {
+    const units = app.alignUnits().length;
+    return ALIGNS.map(([k, label]) => ({ id: 'align-' + k, label, icon: ICON['al_' + k], run: () => app.alignSelection(k),
+      off: (k === 'hspace' || k === 'vspace') && units < 3 }));
   }
 
   /** the features' actions for ctx, in order; a when() that throws counts as no */
@@ -219,11 +244,13 @@
 
       const here = { id: 'paste-here', label: 'Paste here', icon: ICON.here, run: () => app.pasteFromClipboard({ x: ctx.x, y: ctx.y }) };
       const list = [];
-      if (ctx.selection.length) {
+      if (ctx.align) {
+        m.append(el('div', { class: 'press-tiles' }, alignActions(app).map(tile)));
+      } else if (ctx.selection.length) {
         const s = selectionActions(app, ctx.selection);
         m.append(el('div', { class: 'press-tiles' }, s.tiles.map(tile)));
         if (s.edit) list.push(row(s.edit));
-        list.push(pair(s.front, s.back), row(s.group), row(here));
+        list.push(pair(s.front, s.back), s.align ? pair(s.turn, s.align) : row(s.turn), row(s.group), row(here));
       } else {
         m.append(el('div', { class: 'press-tiles' }, [
           { id: 'paste', label: 'Paste', icon: ICON.paste, run: () => app.pasteFromClipboard(null) },
@@ -237,7 +264,7 @@
             icon: ICON.page, run: () => app.select(app.groupOf(it)) }));
         }
       }
-      for (const a of extActions(ctx)) list.push(row(a));
+      if (!ctx.align) for (const a of extActions(ctx)) list.push(row(a));
       if (list.length) m.append(el('div', { class: 'press-list' }, list));
       const sc = app.scene;
       m.append(el('div', { class: 'press-foot' },
@@ -334,7 +361,11 @@
       if (b.sel !== app.selection || b.ver !== app.scene.version) this.buildBar();
       if (!b.w) { this.hideBar(); return; }
 
-      let y = box.y - BAR_GAP - b.h;
+      /* above the selection, and above its turn handle too — over it, the
+         bar hid the one handle that has nowhere else to be */
+      let top = box.y;
+      if (app.renderer.handleRects) for (const h of app.renderer.handleRects(box)) if (h.y < top) top = h.y;
+      let y = top - BAR_GAP - b.h;
       if (y < BAR_TOP) {
         y = box.y + box.h + BAR_GAP;
         // a selection that fills the window: inside its top edge instead
@@ -387,7 +418,8 @@
       const ext = extActions(ctx);
       const bar = this.barEl;
       bar.textContent = '';
-      bar.append(...a.tiles.map(btn), sep(), btn(a.front), btn(a.back));
+      bar.append(...a.tiles.map(btn), sep(), btn(a.front), btn(a.back), btn(a.turn));
+      if (a.align) bar.append(btn(a.align));
       if (!a.group.off) bar.append(btn(a.group));          // one loose item has nothing to group with
       if (a.edit) bar.append(sep(), btn(a.edit));
       if (ext.length) bar.append(sep(), ...ext.map(btn));

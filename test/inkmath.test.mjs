@@ -25,7 +25,7 @@ const storage = g => {
   g.localStorage = { getItem: k => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
 };
 
-const D = load('util.js', storage, mathjs, 'freehand.js', 'recognize.js', 'scene.js', 'camera.js', 'render.js', 'tools.js', 'math.js', 'calc.js', 'inkmath.js');
+const D = load('util.js', storage, mathjs, 'freehand.js', 'recognize.js', 'scene.js', 'camera.js', 'render.js', 'tools.js', 'math.js', 'calc.js', 'inkmath.js', 'graph.js');
 await D.math.ready();
 const IM = D.inkmath;
 
@@ -318,7 +318,8 @@ test('lines of working, in that hand: read whole', () => {
    in the order the core emits them. */
 function board() {
   const app = fakeApp(D, {
-    opts: { inkmath: { auto: true, places: 'auto', color: 'accent' }, general: {} },
+    opts: { inkmath: { auto: true, places: 'auto', color: 'accent' }, general: {}, calc: { size: 16 } },
+    setTool() {}, select(items) { this.selection = items; },
     selection: [], camera: new D.Camera(), pointerType: 'pen',
     afterEdit() { D.ext.emit('change', this); },
     requestDraw() {}, markDirty() { this.dirtied = (this.dirtied || 0) + 1; }, toast(m) { this.toasted = m; },
@@ -671,3 +672,201 @@ test('not sure enough to answer: a "?" with its best guess; "Show why" says why 
   assert.equal(IM.state.marks.size, 0, 'and the notes go with the board');
 });
 
+
+/* ── a hand of its own ───────────────────────────────────────────────
+   Shapes the built-in templates and rules get wrong, written the same
+   way each time: a 1 leaning like a slash, a 9 with a curled tail, a z
+   with a bar through it. Taught a few times, they are read as taught —
+   even where a rule, not the matcher, had the say — and the ordinary
+   hand is hardly touched. */
+const QUIRK = {
+  '1': [[0.62, 0, 0.05, 1]],
+  '9': [[0.5, 0.2, 0.3, 0.0, 0.08, 0.15, 0.1, 0.4, 0.3, 0.5, 0.5, 0.35, 0.5, 0.15, 0.5, 0.15, 0.5, 0.8, 0.35, 1.0, 0.1, 0.9]],
+  'z': small([[0.0, 0.0, 0.6, 0.0, 0.0, 1.0, 0.6, 1.0], [0.1, 0.5, 0.5, 0.5]])
+};
+function quirkRate(seed, n = 20) {
+  const r = rng(seed), out = {};
+  for (const ch in QUIRK) {
+    let ok = 0;
+    for (let k = 0; k < n; k++) { const size = 24 + r() * 50; if (IM.classify(pen(QUIRK[ch], { r, size, x: 100, y: 100 }), size)[0].ch === ch) ok++; }
+    out[ch] = ok / n;
+  }
+  return out;
+}
+
+test('taught symbols are read as taught, ahead of the rules, and the ordinary hand barely moves', () => {
+  IM.forget();
+  const before = quirkRate(3);
+  assert.ok(before['1'] < 0.5, `a slanted 1 reads as a / untaught (${before['1']})`);
+  const r = rng(99);
+  for (const ch in QUIRK) for (let k = 0; k < 4; k++) IM.teach(pen(QUIRK[ch], { r, size: 30 + r() * 40 }).map(IM.feature), ch);
+  const after = quirkRate(5);
+  for (const ch in QUIRK) assert.ok(after[ch] >= 0.85, `${ch}: ${after[ch]} once taught`);
+  assert.ok(accuracy(7).rate > 0.97, 'the ordinary hand still reads');
+  IM.forget();
+});
+
+test('the training pad teaches each symbol from what is written on it, and Try it reads it back', () => {
+  IM.forget();
+  const app = board();
+  const t = IM.train(app, ['1', '9']);
+  const r = rng(12);
+  for (let k = 0; k < 3; k++) { t.write(pen(QUIRK['1'], { r, size: 120, x: 40, y: 30 })); t.take(); }
+  assert.equal(IM.learned(), 3, 'three samples of the 1');
+  assert.equal(t.st.i, 1, 'then on to the 9');
+  t.st.k = 2;
+  t.write(pen(QUIRK['9'], { r, size: 120, x: 40, y: 30 })); t.take();
+  assert.equal(t.st.mode, 'try', 'the end of the list: over to Try it');
+  // Try it: a misreading is put right by tapping what it really is
+  t.write(pen(QUIRK['z'], { r, size: 80, x: 40, y: 70 }));
+  t.pickSym('z');
+  assert.equal(IM.learned(), 5);
+  IM.closeTrainer();
+  IM.forget();
+});
+
+test('Solve this ink: a symbol chip is taught by picking what it really is', async () => {
+  IM.forget();
+  const app = board();
+  app.opts.inkmath.auto = false;
+  const ink = inkOf(['8', '+', '1', '='], 31);
+  draw(app, ink);
+  const p = IM.solve(app, ink, { sx: 100, sy: 100 });
+  await D.math.ready();
+  p.work();
+  const chips = p.el.children.find(c => c.className === 'inkmath-chips');
+  assert.ok(chips && chips.children.length >= 3, 'a chip for each symbol');
+  chips.children[2].onclick();
+  const pick = p.el.children.find(c => c.className === 'inkmath-pick');
+  assert.equal(pick.hidden, false, 'tapping a chip offers every symbol');
+  assert.equal(pick.children.length, IM.TEACHABLE.length);
+  assert.ok(IM.TEACHABLE.includes('/'), 'a slash can be taught, though only a rule reads one');
+  IM.forget();
+});
+
+test('taking teaching back: the last thing taught, one sample, one symbol, or everything', () => {
+  IM.forget();
+  const r = rng(41);
+  const one = ch => IM.teach(pen(QUIRK[ch], { r, size: 40 }).map(IM.feature), ch);
+  one('1'); one('1'); one('9');
+  assert.equal(IM.learned(), 3);
+  const gone = IM.undoTeach();
+  assert.equal(gone.length, 1); assert.equal(gone[0].ch, '9', 'the last thing taught');
+  assert.equal(IM.samplesOf('1').length, 2);
+  // a Teach that put two symbols right is one step
+  const strokes = pen(QUIRK['z'], { r, size: 40 }).map(IM.feature);
+  const b = Date.now() + 1e6;
+  IM.teach(strokes, 'z', b); IM.teach(strokes, '2', b);
+  assert.equal(IM.undoTeach().length, 2, 'both, as they were taught together');
+  assert.ok(IM.forgetSample(IM.samplesOf('1')[0]));
+  assert.equal(IM.samplesOf('1').length, 1, 'one sample');
+  one('9');
+  assert.equal(IM.forgetSymbol('1'), 1, 'one symbol');
+  assert.equal(IM.samplesOf('9').length, 1, 'the others kept');
+  assert.ok(store.get('dpo:inkmath-learned').includes('"s":'), 'samples keep a sketch to be shown by');
+  IM.forget();
+  assert.equal(IM.learned(), 0, 'everything');
+});
+
+test('the trainer: Undo takes back the last sample and asks for it again; Start again needs two taps', () => {
+  IM.forget();
+  const app = board();
+  const t = IM.train(app, ['1', '9']);
+  const r = rng(13);
+  t.write(pen(QUIRK['1'], { r, size: 120, x: 40, y: 30 })); t.take();
+  t.write(pen(QUIRK['1'], { r, size: 120, x: 40, y: 30 })); t.take();
+  assert.equal(t.st.k, 2);
+  t.undo();
+  assert.equal(IM.learned(), 1); assert.equal(t.st.k, 1, 'asks for the second one again');
+  t.write(pen(QUIRK['1'], { r, size: 120, x: 40, y: 30 })); t.take();
+  t.write(pen(QUIRK['1'], { r, size: 120, x: 40, y: 30 })); t.take();
+  assert.equal(t.st.i, 1, 'on to the 9');
+  t.undo();
+  assert.equal(t.st.i, 0, 'back to the third 1'); assert.equal(t.st.k, 2);
+  t.reset();
+  assert.equal(IM.learned(), 0);
+  IM.closeTrainer();
+});
+
+test('readLines: several lines of writing, read top to bottom; a fraction stays one line', () => {
+  const r = rng(77);
+  const a = write(['x', '=', '2'], { r, size: 36, base: 100 });
+  const b = write(['3', 'x', { sup: ['2'] }, '+', '1'], { r, size: 36, base: 200 });
+  const c = write([{ frac: [['1'], ['2']] }, '+', '3'], { r, size: 36, base: 320 });
+  const lines = IM.readLines([...c, ...a, ...b]);
+  assert.deepEqual([...lines.map(l => l.text)], ['x = 2', '3x^2+1', '1/2+3']);
+});
+
+test('"y = x² − 3" gets a Graph chip that puts a graph beside it; "12x =" under "x = 12" gets 144, not a graph', async () => {
+  const app = board();
+  draw(app, inkOf(['y', '=', 'x', { sup: ['2'] }, '−', '3'], 3));
+  await IM.flush(app);
+  const marks = [...IM.state.marks.values()];
+  assert.equal(marks.length, 1);
+  assert.equal(marks[0].why, 'graph');
+  assert.equal(marks[0].e.graph, 'x^2−3');
+  IM._ask(marks[0]);
+  const g = app.scene.items.find(i => i.type === 'graph');
+  assert.ok(g, 'a graph on the board');
+  assert.deepEqual([...g.fns], ['x^2−3']);
+
+  const b = board();
+  draw(b, write(['x', '=', '1', '2'], { r: rng(8), size: 40, base: 100 }));
+  draw(b, write(['1', '2', 'x', '='], { r: rng(9), size: 40, base: 200 }));
+  await IM.flush(b);
+  assert.deepEqual([...answers(b).map(a => a.text)], ['144']);
+  assert.equal([...IM.state.marks.values()].filter(m => m.why === 'graph').length, 0, 'no graph offered');
+});
+
+test('a bare sum in x with no x above is left alone, not offered as a graph', async () => {
+  const app = board();
+  draw(app, inkOf(['x', { sup: ['2'] }, '−', '3', '='], 91));
+  await IM.flush(app);
+  assert.equal(answers(app).length, 0);
+  assert.equal([...IM.state.marks.values()].filter(m => m.why === 'graph').length, 0);
+});
+
+test('an answer put right by hand is kept, and nothing is marked over it', async () => {
+  const app = board();
+  app.opts.inkmath.explain = true;
+  const ink = inkOf(['8', '+', '1', '='], 31);
+  draw(app, ink);
+  await IM.flush(app);
+  const p = IM.solve(app, ink, {});
+  await D.math.ready();
+  p.field.value = '8+7'; p.work(); p.insert();
+  assert.equal(answers(app)[0].text, '15');
+  // the line read again, as any stroke near it would make it be
+  for (const e of [...IM.state.eqs.values()]) IM._eq(e.ids.map(id => IM.feature(app.scene.get(id))));
+  app.afterEdit();
+  await IM.flush(app);
+  assert.equal(answers(app).length, 1, 'still there');
+  assert.equal(answers(app)[0].text, '15');
+  assert.equal(IM.state.marks.size, 0, 'no note beside it');
+  app.opts.inkmath.explain = false;
+});
+
+test('the write pad reads what is written into its field, and Use hands it over', () => {
+  const app = board();
+  let got = null;
+  const w = IM.writePad(app, { title: 'Write y =', use: t => { got = t; } });
+  w.write(write(['2', 'x', '+', '1'], { r: rng(5), size: 40, base: 80, x: 20 }));
+  assert.equal(w.field.value, '2x+1');
+  w.use();
+  assert.equal(got, '2x+1');
+});
+
+test('To calc block: selected writing becomes a calc block of its lines', async () => {
+  const app = board();
+  const a = write(['x', '=', '2'], { r: rng(3), size: 36, base: 100 });
+  const b = write(['3', 'x', '+', '1', '='], { r: rng(4), size: 36, base: 200 });
+  draw(app, [...a, ...b]);
+  const act = D.ext.pressActions.find(p => p.id === 'inkmath-block');
+  const ctx = { app, selection: [...a, ...b] };
+  assert.ok(act.when(ctx));
+  act.run(ctx);
+  await D.math.ready(); await new Promise(r => setTimeout(r, 0));
+  const blk = app.scene.items.find(i => i.type === 'calc');
+  assert.ok(blk, 'a calc block');
+  assert.equal(blk.text, 'x = 2\n3x+1');
+});

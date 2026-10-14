@@ -1,7 +1,7 @@
 {
-  "name": "Draw · Plan · Order",
-  "short_name": "Draw Plan",
-  "description": "An endless canvas for pen, keyboard and decision trees.",
+  "name": "Workings",
+  "short_name": "Workings",
+  "description": "Show your workings: an endless canvas for engineering by pen, with maths that answers itself.",
   "start_url": "./",
   "scope": "./",
   "id": "draw-plan-order",

@@ -30,12 +30,11 @@
   font:600 15px/1 inherit;font-variant-numeric:tabular-nums;text-align:right;padding:0;
 }
 .num-unit{flex:none;font-size:12px;color:var(--muted)}
-/* two narrow fields side by side: W and H, X and Y */
-.num-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.num-pair .num-step{width:26px;font-size:17px}
-.num-pair .num-box{padding:0 5px}
-.num-pair .num-in{font-size:14px}
-.num-pair .num-unit{display:none}
+/* W and H, X and Y: side by side only where the panel has room for a
+   number between the steppers; in the usual panel, one under the other,
+   so 1234.5 is never cut to "12" */
+.num-pair{display:grid;grid-template-columns:1fr;gap:8px}
+@container (min-width:340px){.num-pair{grid-template-columns:1fr 1fr}}
 
 .txt-in{
   height:38px;border:1px solid var(--stroke);border-radius:9px;background:var(--panel-solid);

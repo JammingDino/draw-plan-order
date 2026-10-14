@@ -90,6 +90,23 @@
                                   the select tool only picks it up on a hold
                                   or a tap (D.backdrop). Default false.
        label                      The style panel's heading for one of these.
+       rotate                     How it turns (Scene.rotateItem). 'box': it keeps
+                                  an angle in it.rot, about the middle of its box,
+                                  and is painted, hit, outlined, snapped to and
+                                  exported turned — draw, hit and outline work
+                                  unturned and the core turns them. A function
+                                  (it, origin, ang, scene): it turns itself (ang
+                                  in radians, clockwise on screen). Default: it
+                                  is only carried round, by the middle of its box.
+       snapPoints(it, scene)      [{ k, x, y, t }]: the points lines snap to and
+                                  attach to (k names one for the attachment; t is
+                                  'end', 'mid', 'centre' or 'quad', for the marker).
+                                  Turned with the item. Default: the corners, edge
+                                  middles and centre of its box. snaps: false
+                                  offers none.
+       enclose                    true: a lasso takes it only when it goes all the
+                                  way round its outline (a page), not when it
+                                  merely holds its middle. Default false.
 
      Caches: anything on an item whose key starts with '_' is left out of
      saves, undo and copies. Of those, the core clears _b, _path, _lod,

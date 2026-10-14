@@ -3,12 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Draw · Plan · Order</title>
+<title>Workings</title>
 <link rel="stylesheet" href="css/app.css">
 <link rel="stylesheet" href="css/calc.css">
 <link rel="stylesheet" href="css/cad.css">
 <link rel="stylesheet" href="css/press.css">
 <link rel="stylesheet" href="css/inkmath.css">
+<link rel="stylesheet" href="css/frames.css">
+<link rel="stylesheet" href="css/graph.css">
+<link rel="stylesheet" href="css/symbols.css">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0e1014" id="theme-color">
 <link rel="icon" href="icons/icon-192.png">
@@ -139,9 +142,12 @@
         <div><kbd>[</kbd> / <kbd>]</kbd> z-order</div><div><kbd>1</kbd>–<kbd>8</kbd> colour</div><div><kbd>Shift</kbd> constrain</div>
         <div><kbd>Ctrl</kbd>+<kbd>\</kbd> hide panels</div><div><kbd>Ctrl</kbd>+<kbd>,</kbd> settings</div><div><kbd>Ctrl</kbd>+<kbd>K</kbd> calculator</div>
         <div><kbd>B</kbd> calc block</div><div><kbd>M</kbd> measure</div><div><kbd>Enter</kbd> finish a polyline</div>
+        <div><kbd>F</kbd> page</div><div><kbd>Y</kbd> graph</div><div><kbd>S</kbd> symbols</div>
+        <div><kbd>Ctrl</kbd>+<kbd>R</kbd> turn 90°</div><div><kbd>PgUp</kbd> / <kbd>PgDn</kbd> pages</div><div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> turn back</div>
         <div class="wide">Hold the pen still at the end of a stroke to snap it into a clean shape. Scribble over ink to rub it out. Flip the Surface Pen to erase. The eraser only takes ink — PDFs, images, notes and nodes are removed with the select tool and Delete.</div>
         <div class="wide">Press and hold with the pen or a finger, with any tool, then lift for a menu (paste, insert a picture or PDF, or pick up whatever is under the pen), or drag on to select with a box or lasso — then press inside the selection to move it. Double-tap to edit text. Hold the Measure button for dimensions; the style panel takes exact lengths and angles for whatever is selected.</div>
-        <div class="wide">Write a sum by hand and finish it with <kbd>=</kbd>: the answer appears beside it. Write <code>x = 3</code> above to use <code>x</code> below. Hold the ink and choose Solve this ink to fix a misreading.</div>
+        <div class="wide">Write a sum by hand and finish it with <kbd>=</kbd>: the answer appears beside it. Write <code>x = 3</code> above to use <code>x</code> below. Hold the ink and choose Solve this ink to fix a misreading, or tap a misread symbol to teach it; Train teaches your handwriting up front.</div>
+        <div class="wide">Drag the ring above a selection to turn it. With several things selected, Align lines them up or spaces them evenly. Pages are what Export PDF prints, one sheet each.</div>
       </div>
       <div class="foot-links">
         <a href="#" data-link="feature">Suggest a feature</a>
@@ -154,6 +160,7 @@
 
 <!-- export choices, opened from the top bar -->
 <div class="menu" id="export-menu" hidden>
+  <button data-export="pdf">Document, a sheet per page (.pdf)</button>
   <button data-export="png">Picture (.png)</button>
   <button data-export="svg">Vector drawing (.svg)</button>
   <button data-export="board">Board file (.board)</button>
@@ -205,6 +212,10 @@
 <script src="js/cad.js"></script>
 <script src="js/press.js"></script>
 <script src="js/inkmath.js"></script>
+<script src="js/frames.js"></script>
+<script src="js/exportpdf.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/symbols.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

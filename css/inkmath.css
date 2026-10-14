@@ -36,7 +36,7 @@
 .inkmath-out.none{font:13px/1.4 inherit;color:var(--muted)}
 
 .inkmath-acts{display:flex;flex-wrap:wrap;gap:6px}
-.inkmath-acts .btn{min-height:44px;flex:1 1 auto;padding:0 12px;border-radius:11px}
+.inkmath-acts .btn{min-height:44px;flex:1 1 auto;padding:0 12px;border-radius:11px;justify-content:center;text-align:center}
 .inkmath-acts .btn:disabled{opacity:.4;pointer-events:none}
 .inkmath-note{margin:0;font-size:12px;line-height:1.45;color:var(--muted)}
 
@@ -61,3 +61,78 @@
 .inkmath-ask:hover,.inkmath-ask:focus-visible{opacity:.95;outline:0}
 .inkmath-ask.why{font:500 12px/1.2 "Segoe UI",system-ui,sans-serif;color:var(--muted);opacity:.85}
 @keyframes inkmath-ask-in{from{opacity:0}}
+
+/* the symbols of a reading, each with its own ink: tap to teach */
+.inkmath-chips{display:flex;flex-wrap:wrap;gap:4px}
+.inkmath-chip{
+  min-width:44px;min-height:44px;padding:2px 6px;border:1.5px solid var(--stroke);border-radius:10px;
+  display:flex;align-items:center;gap:4px;background:var(--paper);color:var(--text);cursor:pointer;
+}
+.inkmath-chip b{font:600 15px/1 "Segoe UI",system-ui,sans-serif}
+.inkmath-chip.unsure{border-style:dashed}
+.inkmath-chip.on{border-color:var(--accent);background:var(--accent-soft)}
+.inkmath-thumb svg{display:block;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;opacity:.75}
+.inkmath-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:4px}
+.inkmath-pick .btn{min-height:40px;padding:0;font-size:16px;border-radius:9px}
+.inkmath-trainb{min-height:36px;padding:0 12px;border-radius:10px;font-size:12.5px}
+
+/* Teach your handwriting: a pad, a prompt, and every symbol in a strip */
+.inkmath-scrim{position:fixed;inset:0;z-index:44;background:#0004;animation:inkmath-ask-in .18s var(--ease)}
+.inkmath-train{
+  position:fixed;z-index:45;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(440px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;
+  padding:6px 14px 14px;display:flex;flex-direction:column;gap:10px;
+  background:var(--panel-solid);border:1px solid var(--stroke);border-radius:18px;box-shadow:var(--shadow);
+}
+.inkmath-mode{flex:0 0 auto}
+.inkmath-mode button{min-height:36px;padding:0 12px}
+.inkmath-strip{display:flex;flex-wrap:wrap;gap:4px}
+.inkmath-sym{
+  position:relative;min-width:40px;min-height:40px;border:1.5px solid var(--stroke);border-radius:9px;
+  background:var(--paper);color:var(--text);font:600 15px/1 "Segoe UI",system-ui,sans-serif;cursor:pointer;
+}
+.inkmath-sym.done{border-color:color-mix(in srgb,var(--accent) 45%,var(--stroke))}
+.inkmath-sym.on{border-color:var(--accent);background:var(--accent-soft)}
+.inkmath-sym i{position:absolute;right:2px;bottom:1px;font:600 9px/1 "Segoe UI",system-ui,sans-serif;font-style:normal;color:var(--accent)}
+.inkmath-prompt{display:flex;align-items:baseline;gap:10px;min-height:40px;font-size:14px;color:var(--muted)}
+.inkmath-prompt b{font:600 34px/1 "Segoe UI",system-ui,sans-serif;color:var(--text)}
+.inkmath-pad{
+  width:100%;height:220px;border:1.5px solid var(--stroke);border-radius:14px;background:var(--paper);
+  touch-action:none;cursor:crosshair;
+}
+.inkmath-seen{min-height:22px;font-size:14px}
+.inkmath-seen b{font-size:20px;color:var(--accent)}
+.inkmath-seen .alts{color:var(--muted)}
+
+/* the samples of one symbol in the trainer, each with a cross to forget it */
+.inkmath-samples{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:4px 0}
+.inkmath-samples[hidden]{display:none}
+.inkmath-samples-l{font-size:12.5px;color:var(--muted);margin-right:4px}
+.inkmath-sample{
+  position:relative;width:40px;height:40px;border:1.5px solid var(--stroke);border-radius:9px;
+  display:grid;place-items:center;background:var(--paper);color:var(--text);cursor:pointer;
+}
+.inkmath-sample svg{fill:currentColor;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.inkmath-sample svg path{fill:none}
+.inkmath-sample i{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;
+  font:700 11px/1 "Segoe UI",system-ui,sans-serif;font-style:normal;background:var(--panel-solid);border:1px solid var(--stroke);color:var(--muted)}
+.inkmath-sample:hover{border-color:#e5484d}
+.inkmath-sample:hover i{color:#e5484d;border-color:#e5484d}
+.inkmath-link{border:0;background:none;padding:6px 4px;min-height:32px;color:var(--accent);font:inherit;font-size:12.5px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.inkmath-taught{display:flex;flex-wrap:wrap;gap:4px}
+
+/* the write pad: write with the pen, read into a field */
+.inkmath-write{z-index:46}
+.inkmath-wpad{height:150px}
+.inkmath-wpad.tall{height:230px}
+.inkmath-wfield{height:auto;min-height:84px;padding:8px 12px;resize:vertical;font-size:17px;line-height:1.4}
+/* "Graph" beside a handwritten function of x */
+.inkmath-ask.graph{font:600 13px/1 "Segoe UI",system-ui,sans-serif;opacity:.9;padding:0 10px;border-radius:20px;
+  background:var(--accent-soft);color:var(--accent);min-height:32px}
+.inkmath-ask.graph:hover{opacity:1;background:var(--accent);color:#fff}
+
+.inkmath-ask.graph{gap:6px}
+.inkmath-ask.graph svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* a pen tapped on the text instead of the pad: the pad says "here" */
+.inkmath-pad.nudge{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}

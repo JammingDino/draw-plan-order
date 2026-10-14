@@ -42,6 +42,70 @@
     return sm;
   };
 
+  /**
+   * How hard the live filter pulls, for the Smoothing setting `s` (0–1)
+   * and how fast the pen is going (screen px between samples). A slow
+   * pen is where a shaky hand shows, so that is where it smooths most; a
+   * quick stroke keeps up with the nib.
+   */
+  F.liveAmount = (s, speed) => {
+    if (!s) return F.STREAMLINE;
+    const slow = U.clamp(1 - speed / 10, 0.15, 1);
+    return F.STREAMLINE + (0.9 - F.STREAMLINE) * s * slow;
+  };
+
+  /**
+   * The finished stroke, steadied: each point becomes a gaussian average
+   * of the points within `radius` of it along the line (world units).
+   * The window shrinks towards the ends, so the stroke starts and stops
+   * where the pen did, and it never reaches past a sharp corner, so a 4
+   * or a 7 keeps its points while the wobble between them goes.
+   * Pressure is left as it was. pts: [x, y, p, …]
+   */
+  F.relax = (pts, radius) => {
+    const n = pts.length / 3;
+    if (n < 5 || !(radius > 0)) return pts.slice();
+    // distance along the line to each point
+    const along = new Float64Array(n);
+    for (let i = 1; i < n; i++) along[i] = along[i - 1] + Math.hypot(pts[i * 3] - pts[i * 3 - 3], pts[i * 3 + 1] - pts[i * 3 - 2]);
+    const total = along[n - 1];
+    // corners: where the line turns hard over about a radius either side
+    const corner = new Uint8Array(n);
+    // judged over the whole radius: over less, the wobble's own peaks look like corners
+    const span = Math.max(radius * 1.5, 1e-9);
+    for (let i = 1, a = 0, b = 0; i < n - 1; i++) {
+      while (a < i && along[i] - along[a] > span) a++;
+      while (b < n - 1 && along[b] - along[i] < span) b++;
+      const ax = pts[i * 3] - pts[a * 3], ay = pts[i * 3 + 1] - pts[a * 3 + 1];
+      const bx = pts[b * 3] - pts[i * 3], by = pts[b * 3 + 1] - pts[i * 3 + 1];
+      const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+      if (la > span * 0.5 && lb > span * 0.5 && (ax * bx + ay * by) / (la * lb) < 0.35) corner[i] = 1;   // turned more than ~70°
+    }
+    // cut off at 2.5 sigma: any shorter and the window lets the wobble through
+    const out = pts.slice(), sig = radius / 2.5;
+    for (let i = 1; i < n - 1; i++) {
+      if (corner[i]) continue;
+      // no further than the nearer end, so the ends stay put
+      const r = Math.min(radius, along[i], total - along[i]);
+      if (r <= 0) continue;
+      let sx = 0, sy = 0, sw = 0;
+      for (let j = i; j >= 0 && along[i] - along[j] <= r; j--) {
+        if (j !== i && corner[j]) break;
+        const d = (along[i] - along[j]) / sig, w = Math.exp(-0.5 * d * d);
+        sx += pts[j * 3] * w; sy += pts[j * 3 + 1] * w; sw += w;
+      }
+      for (let j = i + 1; j < n && along[j] - along[i] <= r; j++) {
+        if (corner[j]) break;
+        const d = (along[j] - along[i]) / sig, w = Math.exp(-0.5 * d * d);
+        sx += pts[j * 3] * w; sy += pts[j * 3 + 1] * w; sw += w;
+      }
+      out[i * 3] = sx / sw; out[i * 3 + 1] = sy / sw;
+    }
+    return out;
+  };
+  /** the radius the Smoothing setting asks for, in screen px */
+  F.RELAX_PX = 24;
+
   /** Per-point radius from pressure. */
   function radius(size, pressure, thinning) {
     if (!thinning) return size / 2;

@@ -22,8 +22,8 @@
 
       this.opts = {
         general: { holdToSnap: true, scribbleErase: true, snapGrid: false, touchPan: true, stickyTools: true },
-        pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.6 },
-        highlighter: { color: '#ffe066', size: 22, alpha: 0.4 },
+        pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.6, smooth: 0.5 },
+        highlighter: { color: '#ffe066', size: 22, alpha: 0.4, smooth: 0.5 },
         eraser: { mode: 'object', size: 26 },
         shape: { kind: 'rect', color: 'ink', size: 3, alpha: 1, fill: 'none', dash: 0, radius: 10 },
         text: { color: 'ink', size: 20, font: 'sans', align: 'left' },
@@ -446,10 +446,51 @@
     }
 
     select(items, quiet) {
+      const was = this.selection;
       this.selection = items.filter(Boolean);
+      /* The selection box turns with what it holds: a turned box, or
+         several turned alike, are framed at their angle; anything else
+         starts square, and turns as it is turned (rotateSelection, the
+         turn handle). A marquee re-selecting as it grows keeps 0. */
+      const same = was && was.length === this.selection.length && was.every((it, i) => it === this.selection[i]);
+      if (!same) this.selRot = commonTurn(this.selection);
       this.requestDrawLive();
       if (!quiet && this.ui) this.ui.refresh();
       D.ext.emit('select', this, this.selection);
+    }
+
+    /**
+     * The selection's frame: the smallest box round it at the selection's
+     * angle (selRot), as { cx, cy, w, h, rot } in board units. Square, it
+     * is the bounds; turned, a turned box at the same angle gives its own
+     * box exactly, and anything else its outline.
+     */
+    selectionFrame() {
+      const rot = this.selRot || 0;
+      if (!rot) {
+        const b = this.selectionBounds();
+        return b ? { cx: b.x + b.w / 2, cy: b.y + b.h / 2, w: b.w, h: b.h, rot: 0 } : null;
+      }
+      const c = Math.cos(rot), s = Math.sin(rot), sc = this.scene;
+      let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
+      const take = (x, y, pad) => {
+        const u = x * c + y * s, v = -x * s + y * c;
+        if (u - pad < u0) u0 = u - pad; if (u + pad > u1) u1 = u + pad;
+        if (v - pad < v0) v0 = v - pad; if (v + pad > v1) v1 = v + pad;
+      };
+      for (const it of this.selection) {
+        const b = sc.bbox(it);
+        if (b.local && Math.abs(Math.atan2(Math.sin((it.rot || 0) - rot), Math.cos((it.rot || 0) - rot))) < 1e-6) {
+          const L = b.local, q = D.turnPoints([L.x, L.y, L.x2, L.y, L.x2, L.y2, L.x, L.y2], L.x + L.w / 2, L.y + L.h / 2, it.rot);
+          for (let i = 0; i < 8; i += 2) take(q[i], q[i + 1], 0);
+          continue;
+        }
+        const o = sc.outlinePoints(it), pad = (it.size || 2) / 2 + 1;
+        for (let i = 0; i < o.length; i += 2) take(o[i], o[i + 1], pad);
+      }
+      if (!isFinite(u0)) return null;
+      const cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
+      return { cx: cu * c - cv * s, cy: cu * s + cv * c, w: u1 - u0, h: v1 - v0, rot };
     }
 
     selectionBounds() {
@@ -1035,6 +1076,7 @@
           case 'v': return;                       // handled by the paste event
           case 'd': e.preventDefault(); this.duplicate(); return;
           case 'g': e.preventDefault(); this.toggleGroup(); return;
+          case 'r': if (this.selection.length) { e.preventDefault(); this.rotateSelection(e.shiftKey ? -90 : 90); } return;
           case 's': e.preventDefault(); this.saveNow(false, true); this.toast('Saved'); return;
           case 'm': e.preventDefault(); this.ui.openSheet(); return;
           case ',': e.preventDefault(); this.ui.openSettings(); return;
@@ -1277,9 +1319,9 @@
       }
     }
 
-    async insertPdf(file, at) {
+    async insertPdf(file, at, opts) {
       try {
-        const items = await D.pdf.import(this, file, at);
+        const items = await D.pdf.import(this, file, at, opts);
         if (items.length) {
           this.camera.fit(this.scene.bbox(items[0]), innerWidth, innerHeight);
           this.requestDraw();
@@ -1376,6 +1418,78 @@
       if (!this.selection.length) return;
       this.scene.reorder(this.selection, mode);
       this.afterEdit();
+    }
+
+    /**
+     * Turn the selection by `deg` degrees, clockwise on screen, about the
+     * middle of its box: one undo step. An arrow end attached to
+     * something outside the selection lets go, as it does in a drag.
+     */
+    rotateSelection(deg) {
+      const sel = this.selection;
+      if (!sel.length) return;
+      const f = this.selectionFrame(), c = { x: f.cx, y: f.cy }, ids = new Set(sel.map(i => i.id));
+      this.scene.begin('turn');
+      for (const it of sel) {
+        this.scene.touch(it);
+        if (it.bind1 && !ids.has(it.bind1.id)) delete it.bind1;
+        if (it.bind2 && !ids.has(it.bind2.id)) delete it.bind2;
+        this.scene.rotateItem(it, c, deg * Math.PI / 180);
+      }
+      this.selRot = turnOf((this.selRot || 0) + deg * Math.PI / 180);
+      this.scene.commit();
+      this.afterEdit();
+    }
+
+    /**
+     * Line the selection up, or share out the space between it, as one
+     * undo step. A group moves as one piece; connectors are left to follow
+     * what they join. `mode`: left, hcentre, right, top, vcentre, bottom —
+     * against the selection's own box — or hspace, vspace, which keep the
+     * outermost pieces where they are and make the gaps between all of
+     * them equal.
+     */
+    alignSelection(mode) {
+      const units = this.alignUnits();
+      if (units.length < 2 || ((mode === 'hspace' || mode === 'vspace') && units.length < 3)) return;
+      const B = units.reduce((b, u) => U.unionBox(b, u.box), null);
+      const moves = new Map();
+      if (mode === 'hspace' || mode === 'vspace') {
+        const h = mode === 'hspace', lo = h ? 'x' : 'y', size = h ? 'w' : 'h';
+        units.sort((a, b) => (a.box[lo] + a.box[size] / 2) - (b.box[lo] + b.box[size] / 2));
+        const used = units.reduce((s, u) => s + u.box[size], 0);
+        const gap = (B[size] - used) / (units.length - 1);
+        let at = B[lo];
+        for (const u of units) { moves.set(u, h ? [at - u.box.x, 0] : [0, at - u.box.y]); at += u.box[size] + gap; }
+      } else {
+        for (const u of units) {
+          const b = u.box;
+          const dx = mode === 'left' ? B.x - b.x : mode === 'right' ? B.x2 - b.x2 : mode === 'hcentre' ? (B.x + B.w / 2) - (b.x + b.w / 2) : 0;
+          const dy = mode === 'top' ? B.y - b.y : mode === 'bottom' ? B.y2 - b.y2 : mode === 'vcentre' ? (B.y + B.h / 2) - (b.y + b.h / 2) : 0;
+          moves.set(u, [dx, dy]);
+        }
+      }
+      this.scene.begin('align');
+      for (const [u, [dx, dy]] of moves) {
+        if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) continue;
+        for (const it of u.items) this.scene.translate(it, dx, dy);
+      }
+      this.scene.commit();
+      this.afterEdit();
+    }
+
+    /** the selection as pieces that move together: a group is one, connectors are none */
+    alignUnits() {
+      const byGroup = new Map(), units = [];
+      for (const it of this.selection) {
+        if (it.type === 'edge') continue;
+        const key = it.group || it.id;
+        let u = byGroup.get(key);
+        if (!u) { u = { items: [], box: null }; byGroup.set(key, u); units.push(u); }
+        u.items.push(it);
+        u.box = U.unionBox(u.box, this.scene.bbox(it));
+      }
+      return units;
     }
 
     toggleGroup() {
@@ -1766,12 +1880,14 @@
     onFile(e) {
       const files = [...e.target.files];
       e.target.value = '';
+      // from the menu, with nowhere asked for: a PDF goes on after the board's pages
+      const flow = !this._fileAt;
       const at = this._fileAt || this.viewCentre();
       this._fileAt = null;
       files.forEach((f, i) => {
         // several pictures at once land in a short diagonal rather than in one pile
         const p = { x: at.x + i * 40, y: at.y + i * 40 };
-        if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) this.insertPdf(f, p);
+        if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) this.insertPdf(f, p, { flow });
         else if (f.type.startsWith('image/') || /\.svg$/i.test(f.name)) this.insertImageFile(f, p);
         else this.importFile(f);
       });
@@ -1889,6 +2005,18 @@
     if (e.pointerType === 'pen') return e.pressure > 0 ? e.pressure : 0.35;
     if (e.pointerType === 'touch') return e.pressure > 0 && e.pressure !== 0.5 ? e.pressure : 0.6;
     return 0.55;
+  }
+
+  /** an angle in (−π, π], 0 when it is a whisker off */
+  function turnOf(a) {
+    a = Math.atan2(Math.sin(a), Math.cos(a));
+    return Math.abs(a) < 1e-9 ? 0 : a;
+  }
+  /** the angle several things are all turned to, if they are boxes turned alike; else 0 */
+  function commonTurn(items) {
+    if (!items.length || !items.every(D.rotatesAsBox)) return 0;
+    const r = items[0].rot || 0;
+    return items.every(it => Math.abs(turnOf((it.rot || 0) - r)) < 1e-6) ? turnOf(r) : 0;
   }
 
   function download(blob, name) {

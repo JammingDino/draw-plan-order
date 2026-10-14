@@ -55,9 +55,11 @@
       /* Extend the smoothed copy rather than rebuilding it: filtering the
          whole stroke on every sample is quadratic, and a pen at 240Hz makes
          that felt well before the stroke looks long. */
+      // the Smoothing setting pulls harder while the pen is slow, where a shaky hand shows
+      const amount = FH.liveAmount(this.opt.smooth || 0, n >= 3 ? U.dist(this.raw[n - 3], this.raw[n - 2], ev.x, ev.y) * this.app.camera.zoom : 0);
       if (this.raw.length <= 6) { this.sm = null; this.item.pts = this.raw.slice(); }
-      else if (!this.sm || this.sm.length + 3 !== this.raw.length) this.item.pts = this.sm = FH.smooth(this.raw);
-      else this.item.pts = FH.smoothStep(this.raw, this.sm);
+      else if (!this.sm || this.sm.length + 3 !== this.raw.length) this.item.pts = this.sm = FH.smooth(this.raw, amount);
+      else this.item.pts = FH.smoothStep(this.raw, this.sm, amount);
       this.item._path = null; this.item._lod = null; this.item._b = null;
       return true;
     }
@@ -134,6 +136,12 @@
 
       if (U.pathLength(RG.xy(item.pts)) < 1.2 && item.pts.length <= 6) {
         // a tap: leave a dot rather than nothing
+      }
+      /* Steadied once the pen lifts: the live filter can only look back,
+         this looks both ways, and finishes where the pen actually stopped. */
+      if (o.smooth > 0 && this.raw.length >= 15) {
+        const pts = FH.relax(this.raw, (1.5 + o.smooth * FH.RELAX_PX) / app.camera.zoom);
+        item.pts = pts; item._path = null; item._lod = null; item._b = null;
       }
       scene.begin('draw'); scene.add(item); scene.commit();
       app.afterEdit();
@@ -777,8 +785,35 @@
         for (const h of app.renderer.handleRects(app.selBox)) {
           const pad = this.handlePad(ev);
           if (ev.sx >= h.x - pad && ev.sx <= h.x + h.w + pad && ev.sy >= h.y - pad && ev.sy <= h.y + h.h + pad) {
+            if (h.k === 'turn') {
+              const f = app.selectionFrame ? app.selectionFrame() : null, b = app.selectionBounds();
+              this.mode = 'turn';
+              this.pivot = f ? { x: f.cx, y: f.cy } : U.boxCenter(b);
+              this.rot0 = app.selRot || 0;
+              this.turn0 = Math.atan2(ev.y - this.pivot.y, ev.x - this.pivot.x);
+              this.turned = 0;
+              scene.begin('turn');
+              for (const it of app.selection) scene.touch(it);
+              this.snapshot = app.selection.map(it => D.clone(it));
+              return true;
+            }
             this.mode = 'resize'; this.handle = h.k;
             this.origBox = app.selectionBounds();
+            // a turned selection resizes along its own sides
+            const f = app.selRot && app.selectionFrame ? app.selectionFrame() : null;
+            this.frame = f && f.rot ? f : null;
+            /* Measured from where the handle was pressed, not from the
+               pointer itself: the handle sits a few px outside the box, and
+               the box used to jump out to meet the pointer on the first move. */
+            {
+              const F = this.frame, k = h.k;
+              const q = F ? D.turnPoints([ev.x, ev.y], F.cx, F.cy, -F.rot) : [ev.x, ev.y];
+              const B = F ? U.box(F.cx - F.w / 2, F.cy - F.h / 2, F.cx + F.w / 2, F.cy + F.h / 2) : this.origBox;
+              this.grabOff = {
+                x: k.includes('e') ? B.x2 - q[0] : k.includes('w') ? B.x - q[0] : 0,
+                y: k.includes('s') ? B.y2 - q[1] : k.includes('n') ? B.y - q[1] : 0
+              };
+            }
             scene.begin('resize');
             for (const it of app.selection) scene.touch(it);
             this.snapshot = app.selection.map(it => D.clone(it));
@@ -913,22 +948,58 @@
         app.requestDraw();
       }
       else if (this.mode === 'resize') {
-        const b = this.origBox, h = this.handle;
+        const f = this.frame, h = this.handle;
+        /* Square, in board units; turned, in the frame's own: the pointer
+           turned back about its middle, against a box centred there. */
+        let b = this.origBox, px = ev.x, py = ev.y;
+        if (f) {
+          const q = D.turnPoints([ev.x, ev.y], f.cx, f.cy, -f.rot);
+          px = q[0]; py = q[1];
+          b = U.box(f.cx - f.w / 2, f.cy - f.h / 2, f.cx + f.w / 2, f.cy + f.h / 2);
+        }
+        if (this.grabOff) { px += this.grabOff.x; py += this.grabOff.y; }
         let sx = 1, sy = 1;
         const ox = { x: b.x, y: b.y };
-        if (h.includes('e')) { sx = (ev.x - b.x) / (b.w || 1); ox.x = b.x; }
-        if (h.includes('w')) { sx = (b.x2 - ev.x) / (b.w || 1); ox.x = b.x2; }
-        if (h.includes('s')) { sy = (ev.y - b.y) / (b.h || 1); ox.y = b.y; }
-        if (h.includes('n')) { sy = (b.y2 - ev.y) / (b.h || 1); ox.y = b.y2; }
+        if (h.includes('e')) { sx = (px - b.x) / (b.w || 1); ox.x = b.x; }
+        if (h.includes('w')) { sx = (b.x2 - px) / (b.w || 1); ox.x = b.x2; }
+        if (h.includes('s')) { sy = (py - b.y) / (b.h || 1); ox.y = b.y; }
+        if (h.includes('n')) { sy = (b.y2 - py) / (b.h || 1); ox.y = b.y2; }
         if (h === 'n' || h === 's') sx = 1;
         if (h === 'e' || h === 'w') sy = 1;
         if (ev.shift || h.length === 2) { const s = Math.max(Math.abs(sx), Math.abs(sy)); sx = Math.sign(sx || 1) * s; sy = Math.sign(sy || 1) * s; }
         sx = Math.abs(sx) < 0.02 ? 0.02 * Math.sign(sx || 1) : sx;
         sy = Math.abs(sy) < 0.02 ? 0.02 * Math.sign(sy || 1) : sy;
+        const piv = f ? { x: f.cx, y: f.cy } : null;
         app.selection.forEach((it, i) => {
           const src = this.snapshot[i];
           for (const k in src) if (k[0] !== '_') it[k] = D.clone(src)[k];
+          if (!f) { scene.scaleItem(it, ox, sx, sy); return; }
+          // turned square, scaled, turned back: a turned box at the frame's angle stays a box
+          scene.rotateItem(it, piv, -f.rot);
           scene.scaleItem(it, ox, sx, sy);
+          scene.rotateItem(it, piv, f.rot);
+        });
+        app.requestDraw();
+      }
+      else if (this.mode === 'turn') {
+        /* Turned from where the handle was taken, re-applied from the
+           snapshot each move. It settles on 15° steps when it comes near
+           one — always with Shift — so square is easy to find. */
+        let a = Math.atan2(ev.y - this.pivot.y, ev.x - this.pivot.x) - this.turn0;
+        a = Math.atan2(Math.sin(a), Math.cos(a));
+        const step = Math.PI / 12, near = Math.round(a / step) * step;
+        if (ev.shift || Math.abs(a - near) < 0.06) a = near;
+        this.turned = a;
+        app.selRot = Math.atan2(Math.sin(this.rot0 + a), Math.cos(this.rot0 + a));
+        if (Math.abs(app.selRot) < 1e-9) app.selRot = 0;
+        const moving = new Set(app.selection.map(i => i.id));
+        app.selection.forEach((it, i) => {
+          const src = this.snapshot[i];
+          for (const k in src) if (k[0] !== '_') it[k] = D.clone(src)[k];
+          for (const k in it) if (k[0] !== '_' && !(k in src)) delete it[k];
+          if (it.bind1 && !moving.has(it.bind1.id)) delete it.bind1;
+          if (it.bind2 && !moving.has(it.bind2.id)) delete it.bind2;
+          scene.rotateItem(it, this.pivot, a);
         });
         app.requestDraw();
       }
@@ -1042,6 +1113,12 @@
     }
 
     paint(r) {
+      if (this.mode === 'turn' && D.cad) {
+        // anticlockwise counts up, as every other angle on the board does
+        const deg = -this.turned * 180 / Math.PI;
+        D.cad.paintReadout(r, this.app.pointer, [(Math.round(deg * 10) / 10 || 0) + '°']);
+        return;
+      }
       if (this.mode === 'line') {
         const it = this.app.selection[0];
         if (!D.cad || !it || !this.lineMoved) return;

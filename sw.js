@@ -2,14 +2,14 @@
    Network first, cache as the fallback: edits to the source show up straight
    away while you are working on it, and the app still opens with nothing
    running (or no network) because every response is kept in the cache. */
-const CACHE = 'dpo-v8';
+const CACHE = 'dpo-v12';
 const ASSETS = [
   './', './index.html', './css/app.css', './manifest.webmanifest',
-  './css/calc.css', './css/cad.css', './css/press.css', './css/inkmath.css',
+  './css/calc.css', './css/cad.css', './css/press.css', './css/inkmath.css', './css/frames.css', './css/graph.css', './css/symbols.css',
   './js/util.js', './js/ext.js', './js/freehand.js', './js/recognize.js', './js/scene.js',
   './js/camera.js', './js/render.js', './js/preview.js', './js/store.js', './js/editor.js', './js/taps.js',
   './js/tools.js', './js/ui.js', './js/app.js', './js/pdf.js', './js/perf.js', './js/desktop.js',
-  './js/math.js', './js/calc.js', './js/cad.js', './js/press.js', './js/inkmath.js',
+  './js/math.js', './js/calc.js', './js/cad.js', './js/press.js', './js/inkmath.js', './js/frames.js', './js/exportpdf.js', './js/graph.js', './js/symbols.js',
   './vendor/mathjs/math.min.js',
   './icons/icon-192.png', './icons/icon-512.png'
 ];

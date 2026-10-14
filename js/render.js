@@ -570,6 +570,13 @@
     drawItem(ctx, it) {
       ctx.save();
       ctx.globalAlpha = it.alpha ?? 1;
+      if (it.rot) {
+        const b = this.app && this.app.scene ? this.app.scene.bbox(it) : null;
+        if (b && b.local) {
+          const c = U.boxCenter(b.local);
+          ctx.translate(c.x, c.y); ctx.rotate(it.rot); ctx.translate(-c.x, -c.y);
+        }
+      }
       switch (it.type) {
         case 'stroke': this.drawStroke(ctx, it); break;
         case 'shape': this.drawShape(ctx, it); break;
@@ -661,6 +668,11 @@
       ctx.stroke();
       ctx.setLineDash([]);
       paintHeads(ctx, L.heads, U.color(it.color), it.size);
+      // a wire's ends where three or more conductors meet: the dot a wiring diagram puts there
+      if ((it.wire || it.elbow) && D.wires) {
+        ctx.fillStyle = U.color(it.color);
+        for (const p of D.wires.dotsOf(this.app.scene, it)) { ctx.beginPath(); ctx.arc(p.x, p.y, D.wires.dotR(it), 0, Math.PI * 2); ctx.fill(); }
+      }
     }
 
     /** one arrowhead of the default kind, as connectors draw them */
@@ -913,12 +925,17 @@
         const b = scene.bbox(it);
         box = U.unionBox(box, b);
         if (each) {
-          const a = cam.toScreen(b.x, b.y), c = cam.toScreen(b.x2, b.y2);
           ctx.setLineDash([4, 4]); ctx.globalAlpha = .55;
-          ctx.strokeRect(a.x - 2, a.y - 2, c.x - a.x + 4, c.y - a.y + 4);
+          if (b.local) this.turnedRect(ctx, b.local, it.rot, 2);       // a turned one, turned
+          else {
+            const a = cam.toScreen(b.x, b.y), c = cam.toScreen(b.x2, b.y2);
+            ctx.strokeRect(a.x - 2, a.y - 2, c.x - a.x + 4, c.y - a.y + 4);
+          }
           ctx.globalAlpha = 1; ctx.setLineDash([]);
         }
       }
+      const fr = this.app.selRot && this.app.selectionFrame ? this.app.selectionFrame() : null;
+      if (fr && fr.rot) { const out = this.drawTurnedFrame(ctx, fr, opts, acc); ctx.restore(); return out; }
       const a = cam.toScreen(box.x, box.y), c = cam.toScreen(box.x2, box.y2);
       const x = a.x - 5, y = a.y - 5, w = c.x - a.x + 10, h = c.y - a.y + 10;
       ctx.setLineDash([]);
@@ -930,9 +947,56 @@
         for (const [hx, hy] of [[x, y], [x + w / 2, y], [x + w, y], [x + w, y + h / 2], [x + w, y + h], [x + w / 2, y + h], [x, y + h], [x, y + h / 2]]) {
           ctx.beginPath(); ctx.roundRect(hx - hs / 2, hy - hs / 2, hs, hs, 2); ctx.fill(); ctx.stroke();
         }
+        // the turn handle: a turning arrow in a disc, on a stalk above the top edge
+        const t = this.turnHandle({ x, y, w, h });
+        ctx.beginPath(); ctx.moveTo(x + w / 2, y); ctx.lineTo(t.x, t.y + t.r); ctx.stroke();
+        this.turnGlyph(ctx, t.x, t.y, t.r, 0);
       }
       ctx.restore();
       return { x, y, w, h };
+    }
+
+    /** a world box turned by `rot` about its middle, outlined on the screen layer, grown by `pad` px */
+    turnedRect(ctx, L, rot, pad) {
+      const cam = this.app.camera, z = cam.zoom, cx = L.x + L.w / 2, cy = L.y + L.h / 2;
+      const hw = L.w / 2 + pad / z, hh = L.h / 2 + pad / z;
+      const q = D.turnPoints([cx - hw, cy - hh, cx + hw, cy - hh, cx + hw, cy + hh, cx - hw, cy + hh], cx, cy, rot);
+      ctx.beginPath();
+      for (let i = 0; i < 8; i += 2) { const p = cam.toScreen(q[i], q[i + 1]); i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); }
+      ctx.closePath(); ctx.stroke();
+    }
+
+    /** where the handles of a turned frame sit, on the screen: { k, x, y } and the frame in screen px */
+    frameHandles(fr) {
+      const cam = this.app.camera, z = cam.zoom, c = cam.toScreen(fr.cx, fr.cy);
+      const w = fr.w * z + 10, h = fr.h * z + 10, cs = Math.cos(fr.rot), sn = Math.sin(fr.rot);
+      const at = (u, v) => ({ x: c.x + u * cs - v * sn, y: c.y + u * sn + v * cs });
+      const hw = w / 2, hh = h / 2;
+      const pts = [['nw', -hw, -hh], ['n', 0, -hh], ['ne', hw, -hh], ['e', hw, 0], ['se', hw, hh], ['s', 0, hh], ['sw', -hw, hh], ['w', -hw, 0]]
+        .map(([k, u, v]) => Object.assign({ k }, at(u, v)));
+      const t = this.turnHandle({ x: 0, y: 0, w: 0, h: 0 }), lift = -t.y;           // the stalk's length, as on a square box
+      return { c, w, h, rot: fr.rot, pts, turn: Object.assign(at(0, -hh - lift), { r: t.r }), stalk: at(0, -hh) };
+    }
+
+    drawTurnedFrame(ctx, fr, opts, acc) {
+      const F = this.frameHandles(fr), hs = this.handleSize();
+      const corners = [F.pts[0], F.pts[2], F.pts[4], F.pts[6]];
+      ctx.strokeStyle = acc; ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.beginPath(); corners.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.stroke();
+      if (opts.handles !== false) {
+        ctx.fillStyle = this.tokens().panel;
+        for (const p of F.pts) {
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(F.rot);
+          ctx.beginPath(); ctx.roundRect(-hs / 2, -hs / 2, hs, hs, 2); ctx.fill(); ctx.stroke();
+          ctx.restore();
+        }
+        const t = F.turn;
+        ctx.beginPath(); ctx.moveTo(F.stalk.x, F.stalk.y); ctx.lineTo(t.x, t.y); ctx.stroke();
+        this.turnGlyph(ctx, t.x, t.y, t.r, F.rot);
+      }
+      const xs = corners.map(p => p.x), ys = corners.map(p => p.y);
+      const x = Math.min(...xs), y = Math.min(...ys);
+      return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y, frame: F };
     }
 
     /* A selected line: its centreline traced faintly, a round handle at
@@ -967,12 +1031,51 @@
     /** the eight handle positions in screen space for a selection box */
     handleRects(box) {
       if (box.line) return [];                 // a line has its own handles (lineHandles)
-      const { x, y, w, h } = box, hs = this.app.coarse ? 22 : 11;
+      const hs0 = this.app.coarse ? 22 : 11;
+      if (box.frame) {
+        const F = box.frame, ts = Math.max(hs0, F.turn.r * 2 + 4);
+        return F.pts.map(p => ({ k: p.k, x: p.x - hs0 / 2, y: p.y - hs0 / 2, w: hs0, h: hs0 }))
+          .concat({ k: 'turn', x: F.turn.x - ts / 2, y: F.turn.y - ts / 2, w: ts, h: ts });
+      }
+      const { x, y, w, h } = box, hs = hs0;
       const pts = [
         ['nw', x, y], ['n', x + w / 2, y], ['ne', x + w, y], ['e', x + w, y + h / 2],
         ['se', x + w, y + h], ['s', x + w / 2, y + h], ['sw', x, y + h], ['w', x, y + h / 2]
       ];
-      return pts.map(([k, px, py]) => ({ k, x: px - hs / 2, y: py - hs / 2, w: hs, h: hs }));
+      const t = this.turnHandle(box), ts = Math.max(hs, t.r * 2 + 4);
+      return pts.map(([k, px, py]) => ({ k, x: px - hs / 2, y: py - hs / 2, w: hs, h: hs }))
+        .concat({ k: 'turn', x: t.x - ts / 2, y: t.y - ts / 2, w: ts, h: ts });
+    }
+
+    /** where the turn handle sits over a selection box (screen px) */
+    turnHandle(box) {
+      const coarse = this.app.coarse;
+      return { x: box.x + box.w / 2, y: box.y - (coarse ? 38 : 28), r: coarse ? 13 : 10 };
+    }
+
+    /**
+     * The turn handle's face: a disc in the accent colour with a white
+     * arrow curling round it — the "rotate" picture every app uses, big
+     * enough to read at a glance. `rot` turns it with a turned frame.
+     */
+    turnGlyph(ctx, x, y, r, rot) {
+      const acc = this.tokens().accent;
+      ctx.save();
+      ctx.translate(x, y); if (rot) ctx.rotate(rot);
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = acc; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = this.tokens().panel; ctx.stroke();
+      const a = r * 0.52, a0 = -Math.PI * 0.95, a1 = Math.PI * 0.45;
+      ctx.beginPath(); ctx.arc(0, 0, a, a0, a1);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1.6, r * 0.17); ctx.lineCap = 'round'; ctx.stroke();
+      // the head, at the arrow's end, pointing on round the circle
+      const ex = Math.cos(a1) * a, ey = Math.sin(a1) * a, tx = -Math.sin(a1), ty = Math.cos(a1), hs = r * 0.42;
+      ctx.beginPath();
+      ctx.moveTo(ex + tx * hs * 0.9, ey + ty * hs * 0.9);
+      ctx.lineTo(ex + Math.cos(a1) * hs * 0.75, ey + Math.sin(a1) * hs * 0.75);
+      ctx.lineTo(ex - Math.cos(a1) * hs * 0.75, ey - Math.sin(a1) * hs * 0.75);
+      ctx.closePath(); ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.restore();
     }
 
     /* ── export ───────────────────────────────────────────────────── */
@@ -1037,7 +1140,13 @@
         out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(b.w)}" height="${Math.round(b.h)}" viewBox="${U.round(b.x)} ${U.round(b.y)} ${U.round(b.w)} ${U.round(b.h)}">`);
         if (!look.transparent)
           out.push(`<rect x="${U.round(b.x)}" y="${U.round(b.y)}" width="${U.round(b.w)}" height="${U.round(b.h)}" fill="${U.color('paper')}"/>`);
-        for (const it of scene.items) out.push(svgItem(this, scene, it, hrefs));
+        for (const it of scene.items) {
+          const s = svgItem(this, scene, it, hrefs), b = it.rot && s ? scene.bbox(it) : null;
+          if (b && b.local) {
+            const c = U.boxCenter(b.local);
+            out.push(`<g transform="rotate(${U.round(it.rot * 180 / Math.PI, 3)} ${U.round(c.x, 2)} ${U.round(c.y, 2)})">${s}</g>`);
+          } else out.push(s);
+        }
         out.push('</svg>');
         return out.join('\n');
       });
@@ -1080,8 +1189,9 @@
         if (D.isLine(it) || it.kind === 'moment') {
           const L = lineParts(scene, it);
           if (!L) return '';
+          const dots = (it.wire || it.elbow) && D.wires ? D.wires.dotsOf(scene, it).map(p => `<circle cx="${U.round(p.x, 2)}" cy="${U.round(p.y, 2)}" r="${U.round(D.wires.dotR(it), 2)}" fill="${col}"/>`).join('') : '';
           return `<g${op}><path d="${svgShaft(L)}" fill="none" stroke="${col}" stroke-width="${it.size}" stroke-linejoin="round" stroke-linecap="round"${dash}/>` +
-            svgHeads(L.heads, col, it.size) + '</g>';
+            svgHeads(L.heads, col, it.size) + dots + '</g>';
         }
         const pts = scene.outlinePoints(it).map(v => U.round(v, 1));
         const d = 'M' + pts.filter((_, i) => i % 2 === 0).map((x, i) => `${x},${pts[i * 2 + 1]}`).join('L');
@@ -1234,11 +1344,12 @@
       return { arc: { ...A, a0: A.a0 + s.cut * dir, sweep: A.sweep - (s.cut + e.cut) * dir }, heads: [s.g, e.g] };
     }
     const [a, b] = scene.lineEnds(it);
-    if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) < 1e-9 && !it.via) return null;
-    const c = !it.via && D.curveCtrl(a, b, it.curve);
+    const via = D.viaOf(it, a, b);
+    if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) < 1e-9 && !via) return null;
+    const c = !via && D.curveCtrl(a, b, it.curve);
     // the way each head points: along the last stretch of the line
     let from0, from1;
-    if (it.via && it.via.length >= 2) { from0 = { x: it.via[0], y: it.via[1] }; from1 = { x: it.via[it.via.length - 2], y: it.via[it.via.length - 1] }; }
+    if (via) { from0 = { x: via[0], y: via[1] }; from1 = { x: via[via.length - 2], y: via[via.length - 1] }; }
     else if (c) { from0 = c; from1 = c; }
     else { from0 = b; from1 = a; }
     const g1 = h1 !== 'none' ? headGeom(h1, a.x, a.y, Math.atan2(a.y - from0.y, a.x - from0.x), it.size, it.headScale) : null;
@@ -1253,7 +1364,7 @@
     const p0 = cut(a, from0, g1 && g1.back), p1 = cut(b, from1, g2 && g2.back);
     if (c) return { quad: [p0, c, p1], heads: [g1, g2] };
     const pts = [p0.x, p0.y];
-    if (it.via) pts.push(...it.via);
+    if (via) pts.push(...via);
     pts.push(p1.x, p1.y);
     return { pts, heads: [g1, g2] };
   }
