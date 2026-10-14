@@ -261,6 +261,20 @@ the block or change the settings they were made under. `D.math` (in
 `js/math.js`) and `D.calc` (in `js/calc.js`) are documented at the top of
 each file, for anything else that wants an answer worked out.
 
+### Graphs
+
+The graph tool (<kbd>Y</kbd>), *New graph here* on the long-press menu,
+or **Plot** in the calculator puts a graph of y = f(x) on the board.
+It plots anything the calculator reads — `sin(x)`, `3x² − 2`,
+`e^(−x/2)·cos(3x)`, constants such as `g` and `π` — several functions
+at once, each in its own colour with its formula over it, on a grid
+with ticks at 1, 2 and 5 steps. Double-tap it for the functions, the
+x range, radians or degrees, and a y range that either follows the
+curves (ignoring the spikes beside an asymptote, so `tan(x)` is
+readable) or is set by hand; the whole edit is one undo step. Its panel
+zooms x in and out and fits y again. A graph moves, resizes, turns and
+exports to SVG and PDF like anything else.
+
 ### Handwritten maths
 
 Write a sum with the pen, finish it with **=**, and lift the pen for a
@@ -350,7 +364,7 @@ most of the rest, against one in twelve before; the notes themselves —
 
 `V` select · `G` lasso · `P` pen · `H` highlighter · `E` eraser · `R` rectangle ·
 `O` ellipse · `L` line · `A` arrow · `D` diamond · `T` text · `K` sticky ·
-`N` node · `C` connector · `M` measure (hold its button for dimensions) · `F` page ·
+`N` node · `C` connector · `M` measure (hold its button for dimensions) · `F` page · `Y` graph ·
 `Q` laser · `Space` pan · `Enter` finishes a polyline or a measured path
 
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
@@ -412,6 +426,7 @@ toast. Hiding the tab also forces a full save.
 | `js/inkmath.js` | Handwritten maths, recognised and answered |
 | `js/frames.js` | Pages: sheets on the board, their rulings and the Pages list |
 | `js/exportpdf.js` | Export to PDF, a sheet per page, written by hand |
+| `js/graph.js` | Graphs of y = f(x), plotted through the maths engine |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after
