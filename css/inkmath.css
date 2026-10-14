@@ -103,3 +103,20 @@
 .inkmath-seen{min-height:22px;font-size:14px}
 .inkmath-seen b{font-size:20px;color:var(--accent)}
 .inkmath-seen .alts{color:var(--muted)}
+
+/* the samples of one symbol in the trainer, each with a cross to forget it */
+.inkmath-samples{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:4px 0}
+.inkmath-samples[hidden]{display:none}
+.inkmath-samples-l{font-size:12.5px;color:var(--muted);margin-right:4px}
+.inkmath-sample{
+  position:relative;width:40px;height:40px;border:1.5px solid var(--stroke);border-radius:9px;
+  display:grid;place-items:center;background:var(--paper);color:var(--text);cursor:pointer;
+}
+.inkmath-sample svg{fill:currentColor;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.inkmath-sample svg path{fill:none}
+.inkmath-sample i{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;
+  font:700 11px/1 "Segoe UI",system-ui,sans-serif;font-style:normal;background:var(--panel-solid);border:1px solid var(--stroke);color:var(--muted)}
+.inkmath-sample:hover{border-color:#e5484d}
+.inkmath-sample:hover i{color:#e5484d;border-color:#e5484d}
+.inkmath-link{border:0;background:none;padding:6px 4px;min-height:32px;color:var(--accent);font:inherit;font-size:12.5px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.inkmath-taught{display:flex;flex-wrap:wrap;gap:4px}

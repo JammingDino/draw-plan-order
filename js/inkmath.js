@@ -323,7 +323,7 @@
       for (const t of raw) {
         if (!t || typeof t.ch !== 'string' || !Array.isArray(t.p) || t.p.length !== N * 2) continue;
         const p = Float64Array.from(t.p);
-        LEARNED.push({ ch: t.ch, c: { p, a: +t.a || 0, g: gridOf(p) }, mine: true });
+        LEARNED.push({ ch: t.ch, c: { p, a: +t.a || 0, g: gridOf(p) }, mine: true, b: t.b || 0, s: Array.isArray(t.s) ? t.s : null });
       }
     } catch (_) { }
     return LEARNED;
@@ -331,15 +331,32 @@
   function saveLearned() {
     try {
       localStorage.setItem(LEARN_KEY, JSON.stringify(LEARNED.map(t => ({
-        ch: t.ch, a: U.round(t.c.a, 3), p: Array.from(t.c.p, v => U.round(v, 3))
+        ch: t.ch, a: U.round(t.c.a, 3), p: Array.from(t.c.p, v => U.round(v, 3)), b: t.b, s: t.s
       }))));
     } catch (_) { }
   }
+  /* Every sample belongs to a batch: the one thing that was taught at
+     once (a symbol on the pad, a chip, or all the symbols one Teach put
+     right), so Undo takes back exactly the last thing done. */
+  let lastBatch = 0;
+  const batch = () => (lastBatch = Math.max(Date.now(), lastBatch + 1));
+
+  /** the strokes, small, to show the sample by: fitted to a unit box, a dozen points a stroke */
+  function sketch(strokes) {
+    const b = boxOf(strokes), k = 1 / Math.max(b.w, b.h, 1e-9);
+    return strokes.map(s => {
+      const xy = s.xy, n = xy.length / 2, step = Math.max(1, Math.floor(n / 12)), o = [];
+      for (let i = 0; i < n; i += step) o.push(U.round((xy[i * 2] - b.x) * k, 2), U.round((xy[i * 2 + 1] - b.y) * k, 2));
+      o.push(U.round((xy[xy.length - 2] - b.x) * k, 2), U.round((xy[xy.length - 1] - b.y) * k, 2));
+      return o;
+    });
+  }
+
   /** strokes the person says are `ch`: a template of their own from now on */
-  function teach(strokes, ch) {
+  function teach(strokes, ch, b = batch()) {
     learned();
     const c = cloud(strokes.map(s => s.xy));
-    const t = { ch, c, mine: true };
+    const t = { ch, c, mine: true, b, s: sketch(strokes) };
     LEARNED.push(t);
     // the oldest of that symbol go first, then the oldest of all
     let mine = LEARNED.filter(x => x.ch === ch);
@@ -350,6 +367,34 @@
     return t;
   }
   function forget() { LEARNED = []; saveLearned(); TEMPLATES = null; }
+  /** take back the last thing taught (one batch); gives what went */
+  function undoTeach() {
+    learned();
+    if (!LEARNED.length) return [];
+    const b = LEARNED[LEARNED.length - 1].b;
+    const gone = LEARNED.filter(t => t.b === b);
+    LEARNED = LEARNED.filter(t => t.b !== b);
+    saveLearned(); TEMPLATES = null;
+    return gone;
+  }
+  /** every sample of one symbol forgotten */
+  function forgetSymbol(ch) {
+    learned();
+    const n = LEARNED.length;
+    LEARNED = LEARNED.filter(t => t.ch !== ch);
+    saveLearned(); TEMPLATES = null;
+    return n - LEARNED.length;
+  }
+  /** one sample forgotten */
+  function forgetSample(t) {
+    learned();
+    const i = LEARNED.indexOf(t);
+    if (i < 0) return false;
+    LEARNED.splice(i, 1);
+    saveLearned(); TEMPLATES = null;
+    return true;
+  }
+  const samplesOf = ch => learned().filter(t => t.ch === ch);
 
   /* ══ strokes, measured ══════════════════════════════════════════════ */
   /** what the reader needs of a stroke: its points, box and shape */
@@ -1783,7 +1828,7 @@
           if (!on) { pick.hidden = true; return; }
           pick.replaceChildren(...TEACHABLE.map(ch => el('button', { class: 'btn', type: 'button', onclick: () => {
             teach(sym.strokes, ch);
-            if (app.toast) app.toast(`Learnt: that is ${ch}, in your hand`);
+            if (app.toast) app.toast(`Learnt: that is ${ch}, in your hand`, 'Undo', () => { undoTeach(); reread(); });
             reread();
           } }, ch)));
           pick.hidden = false;
@@ -1813,7 +1858,10 @@
     calc.onclick = () => { const v = field.value.trim().replace(/=\s*$/, ''); closePop(); if (D.calc) D.calc.open(v); };
     teachB.onclick = () => {
       const n = learn(reading, field.value);
-      if (app.toast) app.toast(n ? `Learnt ${n} symbol${n > 1 ? 's' : ''} of your handwriting` : 'Correct a symbol in place — the same number of symbols — to teach it');
+      if (app.toast) {
+        if (n) app.toast(`Learnt ${n} symbol${n > 1 ? 's' : ''} of your handwriting`, 'Undo', () => { undoTeach(); teachB.disabled = false; });
+        else app.toast('Correct a symbol in place — the same number of symbols — to teach it');
+      }
       if (n) { teachB.disabled = true; }
     };
 
@@ -1867,11 +1915,12 @@
       return i < eq ? reading.map[i] : i < eq + 3 ? -1 : reading.map[i - 2];
     };
     let n = 0;
+    const one = batch();
     for (let i = 0; i < from.length; i++) {
       const sym = reading.syms[mapAt(p + i)];
       const ch = TYPED[to[i]] || to[i];
       if (!sym || sym.frac || sym.roof || !TEACHABLE.includes(ch) || from[i] === to[i]) continue;
-      teach(sym.strokes, ch);
+      teach(sym.strokes, ch, one);
       n++;
     }
     return n;
@@ -1887,6 +1936,19 @@
       return o;
     }).join('');
     return `<svg viewBox="0 0 ${px} ${px}" width="${px}" height="${px}"><path d="${d}"/></svg>`;
+  }
+
+  /** a taught sample as a small SVG: its strokes if kept, else its point cloud */
+  function sampleSvg(t, px = 30) {
+    const k = px - 6;
+    if (t.s && t.s.length) {
+      const d = t.s.map(s => { let o = ''; for (let i = 0; i < s.length; i += 2) o += (i ? 'L' : 'M') + U.round(3 + s[i] * k, 1) + ' ' + U.round(3 + s[i + 1] * k, 1); return o; }).join('');
+      return `<svg viewBox="0 0 ${px} ${px}" width="${px}" height="${px}"><path d="${d}"/></svg>`;
+    }
+    const p = t.c.p;
+    let dots = '';
+    for (let i = 0; i < p.length; i += 2) dots += `<circle cx="${U.round(px / 2 + p[i] * k, 1)}" cy="${U.round(px / 2 + p[i + 1] * k, 1)}" r=".9"/>`;
+    return `<svg viewBox="0 0 ${px} ${px}" width="${px}" height="${px}">${dots}</svg>`;
   }
 
   /* ══ Teach your handwriting ══════════════════════════════════════════
@@ -1912,6 +1974,9 @@
     const strip = el('div', { class: 'inkmath-strip' });
     const seen = el('div', { class: 'inkmath-seen', 'aria-live': 'polite' });
     const modeSeg = el('div', { class: 'seg inkmath-mode' });
+    const undoB = el('button', { class: 'btn', type: 'button', title: 'Take back the last sample taught' }, 'Undo');
+    const samples = el('div', { class: 'inkmath-samples' });
+    const resetB = el('button', { class: 'inkmath-link', type: 'button' }, 'Forget everything taught…');
     const clearB = el('button', { class: 'btn', type: 'button' }, 'Clear');
     const skipB = el('button', { class: 'btn', type: 'button' }, 'Skip');
     const doneB = el('button', { class: 'btn primary', type: 'button' }, 'Done');
@@ -1919,8 +1984,8 @@
       el('div', { class: 'inkmath-head' }, el('span', {}, 'Teach your handwriting'), modeSeg,
         el('button', { class: 'icon', type: 'button', title: 'Close', 'aria-label': 'Close', onclick: () => closeTrainer(),
           html: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>' })),
-      strip, prompt, pad, seen, el('div', { class: 'inkmath-acts' }, clearB, skipB, doneB),
-      el('p', { class: 'inkmath-note' }, 'Digits and brackets fill the space between the solid lines; small letters reach the dashes. Kept on this device only.'));
+      strip, samples, prompt, pad, seen, el('div', { class: 'inkmath-acts' }, undoB, clearB, skipB, doneB),
+      el('p', { class: 'inkmath-note' }, 'Digits and brackets fill the space between the solid lines; small letters reach the dashes. Kept on this device only. ', resetB));
     const scrim = el('div', { class: 'inkmath-scrim', onclick: () => closeTrainer() });
     document.body.append(scrim, sheet);
 
@@ -1969,6 +2034,20 @@
           title: n ? `${n} taught` : 'Not taught yet', onclick: () => pickSym(c) }, c, n ? el('i', {}, String(n)) : null);
       }));
       skipB.hidden = st.mode !== 'teach';
+      undoB.disabled = !learned().length;
+      drawSamples(st.mode === 'teach' ? ch : st.focus);
+    };
+    /* what has been taught for one symbol: each sample as it was written,
+       with a cross to forget that one, and a button to forget the lot */
+    const drawSamples = ch => {
+      const list = ch ? samplesOf(ch) : [];
+      if (!list.length) { samples.replaceChildren(); samples.hidden = true; return; }
+      samples.hidden = false;
+      samples.replaceChildren(
+        el('span', { class: 'inkmath-samples-l' }, `${list.length} of your ${ch}`),
+        ...list.map(t => el('button', { class: 'inkmath-sample', type: 'button', title: 'Forget this one', 'aria-label': `Forget this sample of ${ch}`,
+          html: sampleSvg(t) + '<i>×</i>', onclick: () => { forgetSample(t); show(); } })),
+        el('button', { class: 'inkmath-link', type: 'button', onclick: () => { forgetSymbol(ch); seen.textContent = `Forgot your ${ch}`; show(); } }, `Forget all ${ch}`));
     };
     const pickSym = c => {
       if (st.mode === 'try') {
@@ -1977,11 +2056,37 @@
         clearTimeout(st.timer);
         teach(s, c);
         seen.textContent = `Learnt: that is ${c}`;
+        st.focus = c;
         st.ink = []; paint(); show();
         return;
       }
       st.i = order.indexOf(c) >= 0 ? order.indexOf(c) : (order.push(c), order.length - 1);
       st.k = 0; st.ink = []; paint(); show();
+    };
+    /* Undo: the last sample goes, and the count steps back to ask for it again */
+    const undo = () => {
+      clearTimeout(st.timer);
+      const gone = undoTeach();
+      if (!gone.length) return;
+      const ch = gone[0].ch;
+      if (st.mode === 'teach') {
+        if (order[st.i] === ch && st.k > 0) st.k--;
+        else if (st.k === 0 && st.i > 0 && order[st.i - 1] === ch) { st.i--; st.k = TRAIN_EACH - 1; }
+      }
+      st.focus = ch;
+      seen.textContent = `Took back a ${ch}`;
+      st.ink = []; paint(); show();
+    };
+    undoB.onclick = undo;
+    // two taps, so it is never done by a slip of the pen
+    resetB.onclick = () => {
+      if (resetB.dataset.armed) {
+        forget(); delete resetB.dataset.armed; resetB.textContent = 'Forget everything taught…';
+        st.i = 0; st.k = 0; seen.textContent = 'Forgot everything you taught'; show();
+        return;
+      }
+      resetB.dataset.armed = '1'; resetB.textContent = 'Tap again to forget everything';
+      setTimeout(() => { if (resetB.dataset.armed) { delete resetB.dataset.armed; resetB.textContent = 'Forget everything taught…'; } }, 3500);
     };
     const advance = () => {
       st.k++;
@@ -2053,7 +2158,7 @@
     const key = e => { if (e.key === 'Escape') { e.stopPropagation(); closeTrainer(); } };
     if (typeof addEventListener === 'function') { addEventListener('keydown', key, true); addEventListener('resize', size); }
     trainer = {
-      el: sheet, scrim, key, size, st, setMode, pickSym, take,
+      el: sheet, scrim, key, size, st, setMode, pickSym, take, undo, reset: () => { resetB.onclick(); resetB.onclick(); },
       /** for tests: lay strokes on the pad as if written there */
       write(strokes) { st.ink.push(...strokes.map(s => s.pts.slice())); }
     };
@@ -2145,7 +2250,12 @@
           ui.setRow('Your handwriting', n ? `${n} sample${n > 1 ? 's' : ''} of ${new Set(learned().map(t => t.ch)).size} symbols, taught on this device` : 'Nothing taught yet. Write each symbol a few times so it reads your hand',
             el('div', { class: 'set-actions' },
               ui.setButton('Train…', () => train(app), true),
-              n ? ui.setButton('Forget', () => { forget(); if (app.toast) app.toast('Forgot the symbols you taught'); if (ui.showSettings) ui.showSettings('inkmath'); }) : null))),
+              n ? ui.setButton('Undo last', () => { const g = undoTeach(); if (app.toast) app.toast(g.length ? `Took back the last ${g[0].ch} taught` : 'Nothing to take back'); if (ui.showSettings) ui.showSettings('inkmath'); }) : null,
+              n ? ui.setButton('Forget all', () => { forget(); if (app.toast) app.toast('Forgot the symbols you taught'); if (ui.showSettings) ui.showSettings('inkmath'); }) : null)),
+          n ? ui.setStack(ui.setLabel('Taught, by symbol — tap one to see and change its samples'),
+            el('div', { class: 'inkmath-taught' }, ...TEACHABLE.filter(c => samplesOf(c).length).map(c =>
+              el('button', { class: 'inkmath-sym done', type: 'button', title: `${samplesOf(c).length} taught: open in the trainer`, onclick: () => { train(app, [c]); } },
+                c, el('i', {}, String(samplesOf(c).length)))))) : null),
         ui.setNote('Select handwriting and long-press it — or use the bar over the selection — for Solve this ink. Reading happens on this device; nothing is sent anywhere.')
       ];
     }
@@ -2189,7 +2299,7 @@
 
   D.inkmath = {
     read, classify: (strokes, H) => classify(strokes.map(s => s.xy ? s : feature(s)), H), feature, namesIn,
-    teach, forget, learned: () => learned().length, flush, solve, reset, train, closeTrainer, TEACHABLE,
+    teach, forget, undoTeach, forgetSymbol, forgetSample, samplesOf, learned: () => learned().length, flush, solve, reset, train, closeTrainer, TEACHABLE,
     get state() { return S; },
     GLYPHS, LABELS, _cloud: cloud, _spline: spline, _gather: gather, _eq: rememberEq, _pairs: pairs
   };

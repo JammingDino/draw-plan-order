@@ -325,7 +325,13 @@ opens a pad that walks through every symbol, asking for each three
 times, and takes a sample when the pen rests; tap a symbol in its strip
 to jump to it. **Try it** reads whatever you write on the pad and says
 what it saw — tap the right symbol if it is wrong. Whatever you teach is
-a template of your own, kept on this device (at most twelve per symbol),
+a template of your own, kept on this device (at most twelve per symbol).
+Teaching is easy to take back: **Undo** in the trainer, on the toast
+after a correction, or in Settings takes back the last thing taught (a
+correction that fixed several symbols is one step); the trainer shows
+the samples of the symbol in hand, each with a cross to forget it, and
+*Forget all* for that symbol; and *Forget everything taught…* (two
+taps) starts again. What you teach is
 and it comes first: ahead of the built-in shapes and even of the rules
 that settle the look-alikes, so a 1 you lean like a slash is read as a
 1 once you have taught it. It only takes over when it is plainly the
