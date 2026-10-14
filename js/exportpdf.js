@@ -1,7 +1,8 @@
 /* ── exportpdf.js ── the board as a PDF, a sheet per page ─────────────
-   Each page on the board (js/frames.js) becomes a sheet of its own size,
-   in the pages' order; a board with no pages comes out as one sheet
-   round everything on it. A sheet is the board painted at 200 dpi, on
+   Each page on the board (js/frames.js) — drawn with the page tool, or a
+   page of an imported PDF — becomes a sheet of its own size, in reading
+   order, so a marked-up PDF goes back as the same pages with the writing
+   on them; a board with no pages comes out as one sheet round everything. A sheet is the board painted at 200 dpi, on
    light paper — it is for printing and handing in — and set into the
    PDF as a picture: lossless (deflated, as PNG is) when the page is ink
    and shapes, JPEG when it carries photos or PDF pages, which would
@@ -28,8 +29,8 @@
 
   /** the sheets to print: the pages, or one round everything */
   function plan(scene, only) {
-    const pages = only && only.length ? only : D.frames ? D.frames.list(scene) : [];
-    if (pages.length) return pages.map(f => ({ x: f.x, y: f.y, w: f.w, h: f.h, frame: f }));
+    const pages = only && only.length ? only : D.frames ? D.frames.sheets(scene) : [];
+    if (pages.length) return pages.map(f => ({ x: f.x, y: f.y, w: f.w, h: f.h, frame: f, pt: D.frames.pointsOf(f) }));
     const b = scene.contentBounds();
     if (!b) return [];
     return [{ x: b.x - PAD, y: b.y - PAD, w: b.w + PAD * 2, h: b.h + PAD * 2 }];
@@ -120,7 +121,7 @@
         const px = ctx.getImageData(0, 0, c.width, c.height).data;
         img = { w: c.width, h: c.height, filter: 'FlateDecode', data: await deflateRGB(px, c.width, c.height) };
       }
-      return { w: s.w * PT, h: s.h * PT, img };
+      return { w: s.pt ? s.pt.w : s.w * PT, h: s.pt ? s.pt.h : s.h * PT, img };
     } finally { c.width = 0; c.height = 0; }
   }
 

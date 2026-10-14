@@ -204,7 +204,14 @@ move them together.
 The **Pages** button in the zoom bar lists the pages, jumps to one,
 and adds the next, laid below the last (beside it, for one on its
 side). <kbd>Page Down</kbd> and <kbd>Page Up</kbd> step through them.
-Pages are what **Export PDF** prints, one sheet each, in their order.
+The pages of an imported PDF are pages too: they come in at the same
+scale (an A4 PDF is exactly an A4 page), are listed by their document
+and page number, are stepped through with the rest, and *Add a page*
+after one gives a blank page its size. A PDF added from the menu to a
+board that has pages goes on after the last of them. Pages are what
+**Export PDF** prints, one sheet each, in reading order — so a marked-up
+PDF goes back as the same pages, at their own size, with your writing
+on them.
 
 ### PDFs
 
