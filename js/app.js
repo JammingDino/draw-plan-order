@@ -22,8 +22,8 @@
 
       this.opts = {
         general: { holdToSnap: true, scribbleErase: true, snapGrid: false, touchPan: true, stickyTools: true },
-        pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.6 },
-        highlighter: { color: '#ffe066', size: 22, alpha: 0.4 },
+        pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.6, smooth: 0.5 },
+        highlighter: { color: '#ffe066', size: 22, alpha: 0.4, smooth: 0.5 },
         eraser: { mode: 'object', size: 26 },
         shape: { kind: 'rect', color: 'ink', size: 3, alpha: 1, fill: 'none', dash: 0, radius: 10 },
         text: { color: 'ink', size: 20, font: 'sans', align: 'left' },
