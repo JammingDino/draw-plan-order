@@ -25,8 +25,11 @@
 
    ── For other features ───────────────────────────────────────────────
 
-   D.frames.list(scene) → the pages, in order
+   D.frames.list(scene) → the page tool's pages, in board order
+   D.frames.sheets(scene) → every page: those and the pages of imported
+     PDFs, in reading order (down the board, left to right along a row)
    D.frames.nameOf(scene, it) → what it is called
+   D.frames.pointsOf(it) → its size in PDF points
    D.frames.mm → board units in a millimetre                              */
 (function (D) {
   'use strict';
@@ -51,7 +54,43 @@
   }
 
   const list = scene => scene.items.filter(it => it.type === 'frame');
-  const nameOf = (scene, it) => it.name || 'Page ' + (list(scene).indexOf(it) + 1);
+
+  /* The pages of a board: the sheets laid with the page tool and the
+     pages of PDFs brought in, one set, in reading order — down the board,
+     and left to right along a row — kept until the board next changes. */
+  const isSheet = it => it.type === 'frame' || it.type === 'pdfpage';
+  let memo = { scene: null, ver: -1, list: [] };
+  function sheets(scene) {
+    if (memo.scene === scene && memo.ver === scene.version) return memo.list;
+    const all = scene.items.filter(isSheet).slice().sort((a, b) => a.y - b.y || a.x - b.x);
+    const out = [];
+    for (let i = 0; i < all.length;) {
+      // a row: everything that starts before the first of it is half way down
+      const top = all[i], row = [top];
+      let j = i + 1;
+      while (j < all.length && all[j].y < top.y + Math.min(top.h, all[j].h) * 0.5) row.push(all[j++]);
+      row.sort((a, b) => a.x - b.x);
+      out.push(...row);
+      i = j;
+    }
+    memo = { scene, ver: scene.version, list: out };
+    return out;
+  }
+  const numberOf = (scene, it) => sheets(scene).indexOf(it) + 1;
+  const nameOf = (scene, it) => it.name || (it.type === 'pdfpage'
+    ? `${String(it.label || 'PDF').replace(/\.pdf$/i, '')} · p. ${it.page}`
+    : 'Page ' + numberOf(scene, it));
+  /** a sheet's size in PDF points: a PDF page's own, else its board size at 96 to the inch */
+  function pointsOf(it) {
+    if (it.type === 'pdfpage') {
+      // brought in before pages were 96 to the inch: one unit was a point
+      if (!it.pw) return { w: it.w, h: it.h };
+      // as it came in (perhaps shrunk to fit): its own size; resized since, in proportion
+      const k = it.w / Math.min(it.pw * 96 / 72, 2000);
+      return { w: it.pw * k, h: it.ph * k };
+    }
+    return { w: it.w * 0.75, h: it.h * 0.75 };
+  }
   /** how tall the name over a page is, in board units: in proportion to the page */
   const labelSize = it => U.clamp(Math.min(Math.abs(it.w), Math.abs(it.h)) * 0.022, 10, 60);
 
@@ -225,15 +264,16 @@
   }
   /** a page like `after`, below it (beside it, for one on its side) */
   function addAfter(app, after) {
-    const pages = list(app.scene);
+    const pages = sheets(app.scene);
     after = after || pages[pages.length - 1];
-    const f = after
-      ? Object.assign(make(app, { x: 0, y: 0 }, after.size === 'custom' ? { w: after.w, h: after.h, orient: after.orient, paper: after.paper } : { size: after.size, orient: after.orient, paper: after.paper }), {})
-      : make(app, { x: 0, y: 0 });
+    // after a PDF page: a blank page the same size, to carry on the working on
+    const like = !after ? null : after.type === 'pdfpage' ? { w: after.w, h: after.h, paper: 'plain' }
+      : after.size === 'custom' ? { w: after.w, h: after.h, orient: after.orient, paper: after.paper } : { size: after.size, orient: after.orient, paper: after.paper };
+    const f = make(app, { x: 0, y: 0 }, like || {});
     if (after) {
       const side = after.w > after.h;
       f.x = side ? after.x + after.w + GAP : after.x;
-      f.y = side ? after.y : after.y + after.h + GAP + labelSize(after) * 1.5;
+      f.y = side ? after.y : after.y + after.h + GAP + (after.type === 'frame' ? labelSize(after) * 1.5 : 0);
     } else {
       const c = app.camera.toWorld(innerWidth / 2, innerHeight / 2);
       f.x = c.x - f.w / 2; f.y = c.y - f.h / 2;
@@ -265,7 +305,7 @@
   function current(app) {
     const c = app.camera.toWorld(innerWidth / 2, innerHeight / 2);
     let best = null, bd = Infinity;
-    for (const f of list(app.scene)) {
+    for (const f of sheets(app.scene)) {
       const dx = Math.max(f.x - c.x, 0, c.x - f.x - f.w), dy = Math.max(f.y - c.y, 0, c.y - f.y - f.h);
       const d = dx * dx + dy * dy;
       if (d < bd) { bd = d; best = f; }
@@ -273,8 +313,8 @@
     return best;
   }
   function step(app, by) {
-    const pages = list(app.scene);
-    if (!pages.length) { app.toast('No pages on this board yet — the page tool (F) lays one down'); return; }
+    const pages = sheets(app.scene);
+    if (!pages.length) { app.toast('No pages on this board yet: the page tool (F) lays one down, or add a PDF'); return; }
     const now = current(app);
     const c = app.camera.toWorld(innerWidth / 2, innerHeight / 2);
     const inside = now && c.x >= now.x && c.x <= now.x + now.w && c.y >= now.y && c.y <= now.y + now.h;
@@ -294,9 +334,10 @@
   }
   function openPages(app) {
     if (pop) { closePages(); return; }
-    const pages = list(app.scene), now = current(app);
+    const pages = sheets(app.scene), now = current(app);
+    const kindOf = f => f.type === 'pdfpage' ? 'PDF' : f.size === 'custom' ? 'own size' : f.size === 'Slide' ? '16:9' : f.size + (f.orient === 'landscape' ? ' ⟷' : '');
     const rows = pages.map((f, i) => el('button', { class: 'frames-row' + (f === now ? ' on' : ''), type: 'button', onclick: () => { closePages(); go(app, f); } },
-      el('b', {}, String(i + 1)), el('span', {}, nameOf(app.scene, f)), el('i', {}, f.size === 'custom' ? 'own size' : f.size === 'Slide' ? '16:9' : f.size + (f.orient === 'landscape' ? ' ⟷' : ''))));
+      el('b', {}, String(i + 1)), el('span', {}, nameOf(app.scene, f)), el('i', {}, kindOf(f))));
     const box = el('div', { class: 'frames-pop', role: 'dialog', 'aria-label': 'Pages' },
       el('div', { class: 'frames-head' }, el('span', {}, pages.length ? `${pages.length} page${pages.length > 1 ? 's' : ''}` : 'No pages yet')),
       pages.length ? el('div', { class: 'frames-list' }, rows) : el('p', { class: 'frames-note' }, 'A page is a sheet on the board: what you print and export to PDF. The page tool (F) lays them down.'),
@@ -381,5 +422,5 @@
   });
   D.ext.on('board', () => closePages());
 
-  D.frames = { list, nameOf, dims, mm: MM, go, step, current, addAfter, selectWithContents, make, labelSize };
+  D.frames = { list, sheets, nameOf, numberOf, pointsOf, dims, mm: MM, go, step, current, addAfter, selectWithContents, make, labelSize };
 })(window.DPO);

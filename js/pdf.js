@@ -118,7 +118,12 @@
    *
    * @returns the created page items
    */
-  P.attach = async (app, assetId, label, at) => {
+  /* A PDF point is 1/72 in; a board unit is a CSS px, 1/96 in. Pages
+     come in at that, so an A4 PDF is exactly as big as an A4 page drawn
+     with the page tool, and prints back at its own size. */
+  const PX_PER_PT = 96 / 72;
+
+  P.attach = async (app, assetId, label, at, opts = {}) => {
     app.toast(`Reading ${label}…`);
     const bytes = await app.getAsset(assetId);
     if (!bytes) { app.toast(`Could not read ${label}`); return []; }
@@ -145,14 +150,18 @@
 
     const gap = 28;
     const items = [];
-    let y = at.y;
+    /* Added from the menu to a board that has pages already, it goes on
+       after the last of them, as more pages; dropped, it lands where it
+       was dropped. */
+    const last = opts.flow && D.frames ? D.frames.sheets(app.scene).slice(-1)[0] : null;
+    let y = last ? last.y + last.h + gap * 2 : at.y;
     for (let i = 0; i < n; i++) {
       const s = sizes[i];
-      const w = Math.min(s.w, 1000);
+      const w = Math.min(s.w * PX_PER_PT, 2000);
       const h = s.h * (w / s.w);
       items.push(D.make.pdfpage({
         asset: assetId, page: i + 1, pages: n, label: file.name,
-        x: at.x - w / 2, y, w, h
+        x: last ? last.x : at.x - w / 2, y, w, h, pw: s.w, ph: s.h
       }));
       y += h + gap;
     }
@@ -169,11 +178,11 @@
    * Import a PDF dropped onto the board: store the bytes as a board
    * asset, then lay it out.
    */
-  P.import = async (app, file, at) => {
+  P.import = async (app, file, at, opts = {}) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const assetId = U.uid();
     await app.putAsset(assetId, bytes, { name: file.name, type: 'application/pdf' });
-    return P.attach(app, assetId, file.name, at);
+    return P.attach(app, assetId, file.name, at, opts);
   };
 
   /* ── the drawing path ────────────────────────────────────────────── */

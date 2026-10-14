@@ -17,6 +17,10 @@ function rig() {
   app.toast = () => {};
   app.saveDebounced = () => {}; app.warmSave = () => {}; app.savePrefs = () => {}; app.saveView = () => {};
   app.setBoard({ id: 'b', name: 'B', doc: { items: [] } });
+  // nothing here is about painting, and PDF pages would want pdf.js to paint
+  app.requestDraw = () => {}; app.requestDrawLive = () => {};
+  // and a stand-in for pdf.js, which the painter asks for page pictures
+  if (!D.pdf) D.pdf = new Proxy({}, { get: () => () => null });
   return { D, app, scene: app.scene, F: D.frames };
 }
 
@@ -96,4 +100,34 @@ test('pages save, load and undo like anything else', () => {
   assert.equal(F.list(scene).length, 0);
   const s2 = new D.Scene(doc);
   assert.equal(F.list(s2).length, 1);
+});
+
+test('imported PDF pages are pages too: in reading order, named by their document, and followed by pages their size', () => {
+  const { D, app, scene, F } = rig();
+  // an A4 PDF page as it now comes in: 96 to the inch
+  const p1 = scene.add(D.make.pdfpage({ asset: 'a', page: 1, pages: 2, label: 'Tutorial 3.pdf', x: 0, y: 0, w: 793.7, h: 1122.5, pw: 595.3, ph: 841.9 }), 0);
+  const p2 = scene.add(D.make.pdfpage({ asset: 'a', page: 2, pages: 2, label: 'Tutorial 3.pdf', x: 0, y: 1150, w: 793.7, h: 1122.5, pw: 595.3, ph: 841.9 }), 0);
+  assert.deepEqual([...F.sheets(scene)].map(s => s.id), [p1.id, p2.id]);
+  assert.equal(F.nameOf(scene, p2), 'Tutorial 3 · p. 2');
+  const next = F.addAfter(app, null);
+  assert.ok(Math.abs(next.w - p2.w) < 1e-6 && Math.abs(next.h - p2.h) < 1e-6, 'a blank page the PDF page\'s size');
+  assert.ok(next.y > p2.y + p2.h, 'after it');
+  assert.equal(F.sheets(scene).length, 3);
+  assert.equal(F.nameOf(scene, next), 'Page 3');
+  // an A4 page and an A4 PDF page are the same size
+  const a4 = F.dims('A4', 'portrait');
+  assert.ok(Math.abs(a4.w - p1.w) < 1 && Math.abs(a4.h - p1.h) < 1);
+  // and they print at their own size in points
+  assert.deepEqual([Math.round(F.pointsOf(p1).w), Math.round(F.pointsOf(p1).h)], [595, 842]);
+  assert.deepEqual([Math.round(F.pointsOf(next).w), Math.round(F.pointsOf(next).h)], [595, 842]);
+  // one brought in before, at a unit to the point, prints at that
+  const old = D.make.pdfpage({ asset: 'b', page: 1, x: 0, y: 0, w: 596, h: 842 });
+  assert.deepEqual([F.pointsOf(old).w, F.pointsOf(old).h], [596, 842]);
+});
+
+test('reading order: down the board, and left to right along a row', () => {
+  const { D, scene, F } = rig();
+  const f = (x, y) => scene.add({ id: D.util.uid(), type: 'frame', x, y, w: 100, h: 140, size: 'custom', orient: 'portrait', paper: 'plain', name: '' }, 0);
+  const c = f(0, 400), b = f(130, 10), a = f(0, 0);
+  assert.deepEqual([...F.sheets(scene)].map(s => s.id), [a.id, b.id, c.id]);
 });

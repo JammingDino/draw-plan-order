@@ -1319,9 +1319,9 @@
       }
     }
 
-    async insertPdf(file, at) {
+    async insertPdf(file, at, opts) {
       try {
-        const items = await D.pdf.import(this, file, at);
+        const items = await D.pdf.import(this, file, at, opts);
         if (items.length) {
           this.camera.fit(this.scene.bbox(items[0]), innerWidth, innerHeight);
           this.requestDraw();
@@ -1880,12 +1880,14 @@
     onFile(e) {
       const files = [...e.target.files];
       e.target.value = '';
+      // from the menu, with nowhere asked for: a PDF goes on after the board's pages
+      const flow = !this._fileAt;
       const at = this._fileAt || this.viewCentre();
       this._fileAt = null;
       files.forEach((f, i) => {
         // several pictures at once land in a short diagonal rather than in one pile
         const p = { x: at.x + i * 40, y: at.y + i * 40 };
-        if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) this.insertPdf(f, p);
+        if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) this.insertPdf(f, p, { flow });
         else if (f.type.startsWith('image/') || /\.svg$/i.test(f.name)) this.insertImageFile(f, p);
         else this.importFile(f);
       });
