@@ -366,8 +366,16 @@ card with a live thumbnail, item count and when you last touched it, newest
 first — so it doubles as a recents list. Type to filter by name. Thumbnails
 are re-rendered when you leave a board and every few seconds while you work.
 
-It also holds export to `.board` (loss-free JSON), PNG and SVG, and import of
-anything exported. PNG and SVG come out on a transparent background by
+It also holds export to **PDF**, `.board` (loss-free JSON), PNG and SVG,
+and import of anything exported.
+
+**Export → Document (.pdf)** prints a sheet for each page on the board
+(see *Pages*), in their order and at their size, or one sheet round
+everything if the board has no pages; a page's own panel has *This page
+as PDF*. Sheets are drawn at 200 dpi on light paper, whatever the theme,
+and stored lossless — or as JPEG on a page that carries photos or PDF
+pages, which keeps the file small. The PDF is written by
+`js/exportpdf.js` with no library. PNG and SVG come out on a transparent background by
 default; **Settings → Export** switches to the paper colour, and picks the
 theme they are drawn in — matching the app, or always light or always dark —
 which sets the colour of default ink and of PDF pages. Autosave runs about
@@ -403,6 +411,7 @@ toast. Hiding the tab also forces a full save.
 | `js/press.js` | The long-press menu and the selection action bar |
 | `js/inkmath.js` | Handwritten maths, recognised and answered |
 | `js/frames.js` | Pages: sheets on the board, their rulings and the Pages list |
+| `js/exportpdf.js` | Export to PDF, a sheet per page, written by hand |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after
