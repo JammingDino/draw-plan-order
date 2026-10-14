@@ -134,6 +134,8 @@
   /* What a template-matched label may be read as. The rules below the
      matcher give "−", "=", ".", "·", "/", "÷", "1", "+" and "x" too. */
   const LABELS = [...new Set(GLYPHS.map(g => g[0]))];
+  /* what can be taught: the shapes above, and the ones only rules read */
+  const TEACHABLE = LABELS.concat(['/', '÷']);
   const DIGIT = /[0-9]/, LETTER = /[a-zπθ]/;
 
   /* ══ synthesis ═══════════════════════════════════════════════════════ */
@@ -311,7 +313,7 @@
 
   /* ── personal templates ──────────────────────────────────────────── */
   const LEARN_KEY = 'dpo:inkmath-learned';
-  const LEARN_PER = 12, LEARN_MAX = 240;
+  const LEARN_PER = 12, LEARN_MAX = 400;
   let LEARNED = null;
   function learned() {
     if (LEARNED) return LEARNED;
@@ -414,8 +416,53 @@
   function classify(strokes, H) {
     if (!strokes.length) return [];
     if (strokes[0] && !strokes[0].xy) strokes = strokes.map(feature);
-    const box = boxOf(strokes);
     if (!H) H = lineHeight(strokes);
+    const base = byRule(strokes, H);
+    return learned().length ? yoursFirst(strokes, H, base) : base;
+  }
+
+  /* What the person taught comes before the rules and the built-in
+     shapes, or teaching a 1 that leans like a / could never take. But
+     only when it is plainly theirs: close, clear of anything else they
+     taught, and a better match than the shape the rules settled on. The
+     dot, the dash and the "=" stay with the rules: the reading of a whole
+     line hangs on them. */
+  const MINE = 0.85;          // a taught symbol must match at least this well…
+  const MINE_ALONE = 0.55;    // …or this well, against a rule's symbol with no shape to compare
+  const STRUCTURAL = new Set(['.', '−', '=']);
+  function yoursFirst(strokes, H, base) {
+    const top = base[0];
+    if (!top || STRUCTURAL.has(top.ch)) return base;
+    const n = strokes.length, box = boxOf(strokes);
+    const c = cloud(strokes.filter(s => !isDot(s, H) || n === 1).map(s => s.xy));
+    const near = [];
+    for (const t of learned()) {
+      if (Math.abs(t.c.a - c.a) > 1.15 || (ALLOW && !ALLOW(t.ch))) continue;
+      near.push({ t, d: gridDistance(c.g, t.c.g) + 6 * Math.abs(t.c.a - c.a) });
+    }
+    if (!near.length) return base;
+    near.sort((a, b) => a.d - b.d);
+    const best = new Map();
+    for (let i = 0; i < near.length && i < 12; i++) {
+      const t = near[i].t, d = match(c.p, t.c.p) + sizePenalty(t.ch, box, H);
+      if (!best.has(t.ch) || d < best.get(t.ch)) best.set(t.ch, d);
+    }
+    const ranked = [...best].sort((a, b) => a[1] - b[1]);
+    const [ch, d] = ranked[0];
+    if (ch === top.ch || (ranked[1] && ranked[1][1] - d < MARGIN)) return base;
+    const ref = shapeDistance(c, top.ch, box, H);
+    if (ref == null ? d > MINE_ALONE : d > MINE || d + MARGIN > ref) return base;
+    return [{ ch, d, mine: true }].concat(base.filter(b => b.ch !== ch));
+  }
+  /** how well the built-in shapes of `ch` match this cloud; null: it has none */
+  function shapeDistance(c, ch, box, H) {
+    let d = Infinity;
+    for (const t of templates()) if (!t.mine && t.ch === ch) d = Math.min(d, match(c.p, t.c.p, d));
+    return d === Infinity ? null : d + sizePenalty(ch, box, H);
+  }
+
+  function byRule(strokes, H) {
+    const box = boxOf(strokes);
     const n = strokes.length;
     const dots = strokes.filter(s => isDot(s, H));
 
@@ -1705,12 +1752,47 @@
     const calc = el('button', { class: 'btn', type: 'button' }, 'Open in calculator');
     const teachB = el('button', { class: 'btn', type: 'button', title: 'Remember the symbols you corrected, for your handwriting' }, 'Teach');
     const note = el('p', { class: 'inkmath-note' },
-      reading.ok ? 'Tap the line to put a misreading right.' : 'Not sure of this one — check it, and Teach me if a symbol is wrong.');
+      reading.ok ? 'Tap the line to put a misreading right, or a symbol below to teach it.' : 'Not sure of this one. Tap a symbol below that is wrong, and pick what it is: it is learnt for next time.');
+    const chips = el('div', { class: 'inkmath-chips', 'aria-label': 'The symbols, as read' });
+    const pick = el('div', { class: 'inkmath-pick', hidden: true });
     const box = el('div', { class: 'inkmath-pop', role: 'dialog', 'aria-label': 'Solve this ink' },
       el('div', { class: 'inkmath-head' }, el('span', {}, 'Solve this ink'),
+        el('button', { class: 'btn inkmath-trainb', type: 'button', title: 'Write each symbol a few times, so your hand is read right', onclick: () => train(app) }, 'Train'),
         el('button', { class: 'icon', type: 'button', title: 'Close', 'aria-label': 'Close', onclick: () => closePop(),
           html: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>' })),
-      field, out, el('div', { class: 'inkmath-acts' }, ins, calc, teachB), note);
+      field, out, el('div', { class: 'inkmath-acts' }, ins, calc, teachB), chips, pick, note);
+    /* each symbol as it was read, with its own ink: tap one, pick what it
+       really is, and that is taught on the spot — no retyping the line,
+       and it works however the line was split into symbols */
+    const reread = () => {
+      Object.assign(reading, read(strokes));
+      field.value = shown(reading) || '';
+      work();
+      drawChips();
+    };
+    const drawChips = () => {
+      chips.replaceChildren();
+      pick.hidden = true;
+      reading.syms.forEach(sym => {
+        if (sym.frac || sym.roof || STRUCTURAL.has(sym.ch) || sym.ch === '·' || !sym.strokes || !sym.strokes.length) return;
+        const b = el('button', { class: 'inkmath-chip' + (sym.d != null && sym.d > MARGIN_FROM ? ' unsure' : ''), type: 'button', title: `Read as ${sym.ch}: tap to teach what it really is` },
+          el('span', { class: 'inkmath-thumb', html: thumb(sym.strokes, 26) }), el('b', {}, sym.ch));
+        b.onclick = () => {
+          const on = !b.classList.contains('on');
+          for (const c of chips.children) c.classList.toggle('on', on && c === b);
+          if (!on) { pick.hidden = true; return; }
+          pick.replaceChildren(...TEACHABLE.map(ch => el('button', { class: 'btn', type: 'button', onclick: () => {
+            teach(sym.strokes, ch);
+            if (app.toast) app.toast(`Learnt: that is ${ch}, in your hand`);
+            reread();
+          } }, ch)));
+          pick.hidden = false;
+        };
+        chips.appendChild(b);
+      });
+      chips.hidden = !chips.children.length;
+    };
+    drawChips();
 
     let result = null;
     const work = () => {
@@ -1788,11 +1870,203 @@
     for (let i = 0; i < from.length; i++) {
       const sym = reading.syms[mapAt(p + i)];
       const ch = TYPED[to[i]] || to[i];
-      if (!sym || sym.frac || sym.roof || !LABELS.includes(ch) || from[i] === to[i]) continue;
+      if (!sym || sym.frac || sym.roof || !TEACHABLE.includes(ch) || from[i] === to[i]) continue;
       teach(sym.strokes, ch);
       n++;
     }
     return n;
+  }
+
+  /** strokes as a little SVG, fitted to a `px` square */
+  function thumb(strokes, px) {
+    const b = boxOf(strokes), k = (px - 4) / Math.max(b.w, b.h, 1);
+    const ox = (px - b.w * k) / 2, oy = (px - b.h * k) / 2;
+    const d = strokes.map(s => {
+      let o = '';
+      for (let i = 0; i < s.xy.length; i += 2) o += (i ? 'L' : 'M') + U.round(ox + (s.xy[i] - b.x) * k, 1) + ' ' + U.round(oy + (s.xy[i + 1] - b.y) * k, 1);
+      return o;
+    }).join('');
+    return `<svg viewBox="0 0 ${px} ${px}" width="${px}" height="${px}"><path d="${d}"/></svg>`;
+  }
+
+  /* ══ Teach your handwriting ══════════════════════════════════════════
+     A pad to write each symbol on a few times, as you write it, so the
+     reader learns your hand before it has misread anything. It walks
+     through every symbol (or the ones you tap), takes a sample once the
+     pen has rested, and moves on. "Try it" reads whatever you write and
+     says what it saw; tap a symbol in the strip to teach it that instead.
+     The samples are the same personal templates Teach makes: on this
+     device, at most twelve a symbol, kept until Forget. */
+  const TRAIN_EACH = 3, TRAIN_REST = 900;
+  let trainer = null;
+
+  function train(app, only) {
+    closeTrainer();
+    closePop();
+    const order = (only && only.length ? only : TEACHABLE).slice();
+    const st = { i: 0, k: 0, ink: [], live: null, timer: 0, mode: 'teach' };
+    const taughtOf = ch => learned().filter(t => t.ch === ch).length;
+
+    const pad = el('canvas', { class: 'inkmath-pad', 'aria-label': 'Write here' });
+    const prompt = el('div', { class: 'inkmath-prompt', 'aria-live': 'polite' });
+    const strip = el('div', { class: 'inkmath-strip' });
+    const seen = el('div', { class: 'inkmath-seen', 'aria-live': 'polite' });
+    const modeSeg = el('div', { class: 'seg inkmath-mode' });
+    const clearB = el('button', { class: 'btn', type: 'button' }, 'Clear');
+    const skipB = el('button', { class: 'btn', type: 'button' }, 'Skip');
+    const doneB = el('button', { class: 'btn primary', type: 'button' }, 'Done');
+    const sheet = el('div', { class: 'inkmath-train', role: 'dialog', 'aria-label': 'Teach your handwriting' },
+      el('div', { class: 'inkmath-head' }, el('span', {}, 'Teach your handwriting'), modeSeg,
+        el('button', { class: 'icon', type: 'button', title: 'Close', 'aria-label': 'Close', onclick: () => closeTrainer(),
+          html: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>' })),
+      strip, prompt, pad, seen, el('div', { class: 'inkmath-acts' }, clearB, skipB, doneB),
+      el('p', { class: 'inkmath-note' }, 'Digits and brackets fill the space between the solid lines; small letters reach the dashes. Kept on this device only.'));
+    const scrim = el('div', { class: 'inkmath-scrim', onclick: () => closeTrainer() });
+    document.body.append(scrim, sheet);
+
+    const ctx = pad.getContext('2d');
+    let W = 300, Hp = 220;
+    const size = () => {
+      const r = pad.getBoundingClientRect ? pad.getBoundingClientRect() : null;
+      W = (r && r.width) || 300; Hp = (r && r.height) || 220;
+      const dpr = devicePixelRatio || 1;
+      pad.width = Math.round(W * dpr); pad.height = Math.round(Hp * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paint();
+    };
+    // guides: a digit runs TOP to BASE, a small letter MID to BASE
+    const TOP = () => Hp * 0.16, BASE = () => Hp * 0.84, MID = () => BASE() - (BASE() - TOP()) * 0.62;
+    const paint = () => {
+      ctx.clearRect(0, 0, W, Hp);
+      const css = getComputedStyle(sheet);
+      const rule = css.getPropertyValue('--stroke').trim() || '#8886', ink = css.getPropertyValue('--text').trim() || '#222';
+      ctx.lineWidth = 1; ctx.strokeStyle = rule;
+      ctx.setLineDash([]);
+      for (const y of [TOP(), BASE()]) { ctx.beginPath(); ctx.moveTo(12, y); ctx.lineTo(W - 12, y); ctx.stroke(); }
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath(); ctx.moveTo(12, MID()); ctx.lineTo(W - 12, MID()); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = ink; ctx.lineWidth = 3; ctx.lineCap = ctx.lineJoin = 'round';
+      for (const s of st.live ? st.ink.concat([st.live]) : st.ink) {
+        ctx.beginPath();
+        for (let i = 0; i < s.length; i += 3) i ? ctx.lineTo(s[i], s[i + 1]) : ctx.moveTo(s[i], s[i + 1]);
+        if (s.length === 3) ctx.lineTo(s[0] + 0.1, s[1]);
+        ctx.stroke();
+      }
+    };
+    const strokesNow = () => st.ink.filter(p => p.length >= 3).map(pts => feature({ id: U.uid(), pts }));
+    const H = () => BASE() - TOP();
+
+    const current = () => order[st.i % order.length];
+    const show = () => {
+      const ch = current();
+      if (st.mode === 'teach') {
+        prompt.replaceChildren(el('span', {}, 'Write'), el('b', {}, ch), el('span', {}, `${Math.min(st.k + 1, TRAIN_EACH)} of ${TRAIN_EACH}`));
+      } else prompt.replaceChildren(el('span', {}, 'Write any symbol. If it is misread, tap what it really is'));
+      strip.replaceChildren(...TEACHABLE.map(c => {
+        const n = taughtOf(c);
+        return el('button', { class: 'inkmath-sym' + (st.mode === 'teach' && c === ch ? ' on' : '') + (n ? ' done' : ''), type: 'button',
+          title: n ? `${n} taught` : 'Not taught yet', onclick: () => pickSym(c) }, c, n ? el('i', {}, String(n)) : null);
+      }));
+      skipB.hidden = st.mode !== 'teach';
+    };
+    const pickSym = c => {
+      if (st.mode === 'try') {
+        const s = strokesNow();
+        if (!s.length) { seen.textContent = 'Write it first, then tap what it is'; return; }
+        clearTimeout(st.timer);
+        teach(s, c);
+        seen.textContent = `Learnt: that is ${c}`;
+        st.ink = []; paint(); show();
+        return;
+      }
+      st.i = order.indexOf(c) >= 0 ? order.indexOf(c) : (order.push(c), order.length - 1);
+      st.k = 0; st.ink = []; paint(); show();
+    };
+    const advance = () => {
+      st.k++;
+      if (st.k >= TRAIN_EACH) {
+        st.k = 0; st.i++;
+        if (st.i >= order.length) {
+          setMode('try');
+          seen.textContent = `All done: ${learned().length} samples of your handwriting. Try it out, or close.`;
+          return;
+        }
+      }
+      show();
+    };
+    const take = () => {
+      clearTimeout(st.timer);
+      const s = strokesNow();
+      if (!s.length) return;
+      if (st.mode === 'teach') {
+        const ch = current();
+        teach(s, ch);
+        seen.textContent = `Got it: ${ch}`;
+        st.ink = []; paint();
+        advance();
+      } else {
+        const got = classify(s, H()).slice(0, 3);
+        seen.replaceChildren(...[el('span', {}, 'Read as '), el('b', {}, got.length ? got[0].ch : '?'),
+          got[0] && got[0].mine ? el('span', {}, ', from what you taught') : got[0] && got[0].d > ACCEPT ? el('span', {}, ', not sure') : null,
+          got.length > 1 ? el('span', { class: 'alts' }, ' · then ' + got.slice(1).map(g => g.ch).join(', ')) : null].filter(Boolean));
+      }
+    };
+    const setMode = m => {
+      st.mode = m;
+      modeSeg.replaceChildren(...[['teach', 'Teach'], ['try', 'Try it']].map(([k, label]) =>
+        el('button', { class: k === m ? 'on' : '', type: 'button', onclick: () => { setMode(k); seen.textContent = ''; } }, label)));
+      st.ink = []; paint(); show();
+    };
+
+    // the pad takes any pointer: pen, finger or mouse, one stroke at a time
+    let pid = null;
+    const at = e => { const r = pad.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top, e.pressure || 0.5]; };
+    pad.addEventListener('pointerdown', e => {
+      if (pid != null) return;
+      e.preventDefault();
+      pid = e.pointerId;
+      try { pad.setPointerCapture(pid); } catch (_) { }
+      clearTimeout(st.timer);
+      if (st.mode === 'try' && !st.ink.length) seen.textContent = '';
+      st.live = at(e); paint();
+    });
+    pad.addEventListener('pointermove', e => {
+      if (e.pointerId !== pid || !st.live) return;
+      const all = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      for (const c of all.length ? all : [e]) st.live.push(...at(c));
+      paint();
+    });
+    const up = e => {
+      if (e.pointerId !== pid) return;
+      pid = null;
+      if (st.live) st.ink.push(st.live);
+      st.live = null; paint();
+      st.timer = setTimeout(take, TRAIN_REST);
+    };
+    pad.addEventListener('pointerup', up);
+    pad.addEventListener('pointercancel', up);
+    clearB.onclick = () => { clearTimeout(st.timer); st.ink = []; paint(); seen.textContent = ''; };
+    skipB.onclick = () => { clearTimeout(st.timer); st.ink = []; paint(); st.k = TRAIN_EACH - 1; advance(); };
+    doneB.onclick = () => closeTrainer();
+
+    const key = e => { if (e.key === 'Escape') { e.stopPropagation(); closeTrainer(); } };
+    if (typeof addEventListener === 'function') { addEventListener('keydown', key, true); addEventListener('resize', size); }
+    trainer = {
+      el: sheet, scrim, key, size, st, setMode, pickSym, take,
+      /** for tests: lay strokes on the pad as if written there */
+      write(strokes) { st.ink.push(...strokes.map(s => s.pts.slice())); }
+    };
+    setMode('teach');
+    requestAnimationFrame(size);
+    return trainer;
+  }
+  function closeTrainer() {
+    if (!trainer) return;
+    clearTimeout(trainer.st.timer);
+    trainer.el.remove(); trainer.scrim.remove();
+    if (typeof removeEventListener === 'function') { removeEventListener('keydown', trainer.key, true); removeEventListener('resize', trainer.size); }
+    trainer = null;
   }
 
   /** the answer, put on the board by hand: an ordinary edit, undone like one */
@@ -1868,8 +2142,10 @@
           ui.setRow('Answer colour', '', ui.setSeg(['accent', 'green', 'orange', 'red', 'purple'].map(c => [c, sw(c, c)]), o.color, v => { set('color', v); recolour(app, v); })),
           ui.setToggle('Show why it didn’t answer', 'A note beside each = it found but left alone, saying why. For when it misses one', !!o.explain, v => { set('explain', v); explainAll(app); })),
         ui.setGroup(
-          ui.setRow('Your handwriting', n ? `${n} symbol${n > 1 ? 's' : ''} taught with Teach` : 'Nothing taught yet: Teach in Solve this ink remembers a symbol it misread',
-            ui.setButton('Forget', () => { forget(); if (app.toast) app.toast('Forgot the symbols you taught'); if (ui.showSettings) ui.showSettings('inkmath'); }))),
+          ui.setRow('Your handwriting', n ? `${n} sample${n > 1 ? 's' : ''} of ${new Set(learned().map(t => t.ch)).size} symbols, taught on this device` : 'Nothing taught yet. Write each symbol a few times so it reads your hand',
+            el('div', { class: 'set-actions' },
+              ui.setButton('Train…', () => train(app), true),
+              n ? ui.setButton('Forget', () => { forget(); if (app.toast) app.toast('Forgot the symbols you taught'); if (ui.showSettings) ui.showSettings('inkmath'); }) : null))),
         ui.setNote('Select handwriting and long-press it — or use the bar over the selection — for Solve this ink. Reading happens on this device; nothing is sent anywhere.')
       ];
     }
@@ -1907,13 +2183,13 @@
 
 
   D.ext.on('ready', app => { reset(app); watchPen(); });
-  D.ext.on('board', app => { closePop(); reset(app); });
+  D.ext.on('board', app => { closePop(); closeTrainer(); reset(app); });
   D.ext.on('stroke', onStroke);
   D.ext.on('change', follow);
 
   D.inkmath = {
     read, classify: (strokes, H) => classify(strokes.map(s => s.xy ? s : feature(s)), H), feature, namesIn,
-    teach, forget, learned: () => learned().length, flush, solve, reset,
+    teach, forget, learned: () => learned().length, flush, solve, reset, train, closeTrainer, TEACHABLE,
     get state() { return S; },
     GLYPHS, LABELS, _cloud: cloud, _spline: spline, _gather: gather, _eq: rememberEq, _pairs: pairs
   };

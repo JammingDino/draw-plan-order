@@ -671,3 +671,74 @@ test('not sure enough to answer: a "?" with its best guess; "Show why" says why 
   assert.equal(IM.state.marks.size, 0, 'and the notes go with the board');
 });
 
+
+/* ── a hand of its own ───────────────────────────────────────────────
+   Shapes the built-in templates and rules get wrong, written the same
+   way each time: a 1 leaning like a slash, a 9 with a curled tail, a z
+   with a bar through it. Taught a few times, they are read as taught —
+   even where a rule, not the matcher, had the say — and the ordinary
+   hand is hardly touched. */
+const QUIRK = {
+  '1': [[0.62, 0, 0.05, 1]],
+  '9': [[0.5, 0.2, 0.3, 0.0, 0.08, 0.15, 0.1, 0.4, 0.3, 0.5, 0.5, 0.35, 0.5, 0.15, 0.5, 0.15, 0.5, 0.8, 0.35, 1.0, 0.1, 0.9]],
+  'z': small([[0.0, 0.0, 0.6, 0.0, 0.0, 1.0, 0.6, 1.0], [0.1, 0.5, 0.5, 0.5]])
+};
+function quirkRate(seed, n = 20) {
+  const r = rng(seed), out = {};
+  for (const ch in QUIRK) {
+    let ok = 0;
+    for (let k = 0; k < n; k++) { const size = 24 + r() * 50; if (IM.classify(pen(QUIRK[ch], { r, size, x: 100, y: 100 }), size)[0].ch === ch) ok++; }
+    out[ch] = ok / n;
+  }
+  return out;
+}
+
+test('taught symbols are read as taught, ahead of the rules, and the ordinary hand barely moves', () => {
+  IM.forget();
+  const before = quirkRate(3);
+  assert.ok(before['1'] < 0.5, `a slanted 1 reads as a / untaught (${before['1']})`);
+  const r = rng(99);
+  for (const ch in QUIRK) for (let k = 0; k < 4; k++) IM.teach(pen(QUIRK[ch], { r, size: 30 + r() * 40 }).map(IM.feature), ch);
+  const after = quirkRate(5);
+  for (const ch in QUIRK) assert.ok(after[ch] >= 0.85, `${ch}: ${after[ch]} once taught`);
+  assert.ok(accuracy(7).rate > 0.97, 'the ordinary hand still reads');
+  IM.forget();
+});
+
+test('the training pad teaches each symbol from what is written on it, and Try it reads it back', () => {
+  IM.forget();
+  const app = board();
+  const t = IM.train(app, ['1', '9']);
+  const r = rng(12);
+  for (let k = 0; k < 3; k++) { t.write(pen(QUIRK['1'], { r, size: 120, x: 40, y: 30 })); t.take(); }
+  assert.equal(IM.learned(), 3, 'three samples of the 1');
+  assert.equal(t.st.i, 1, 'then on to the 9');
+  t.st.k = 2;
+  t.write(pen(QUIRK['9'], { r, size: 120, x: 40, y: 30 })); t.take();
+  assert.equal(t.st.mode, 'try', 'the end of the list: over to Try it');
+  // Try it: a misreading is put right by tapping what it really is
+  t.write(pen(QUIRK['z'], { r, size: 80, x: 40, y: 70 }));
+  t.pickSym('z');
+  assert.equal(IM.learned(), 5);
+  IM.closeTrainer();
+  IM.forget();
+});
+
+test('Solve this ink: a symbol chip is taught by picking what it really is', async () => {
+  IM.forget();
+  const app = board();
+  app.opts.inkmath.auto = false;
+  const ink = inkOf(['8', '+', '1', '='], 31);
+  draw(app, ink);
+  const p = IM.solve(app, ink, { sx: 100, sy: 100 });
+  await D.math.ready();
+  p.work();
+  const chips = p.el.children.find(c => c.className === 'inkmath-chips');
+  assert.ok(chips && chips.children.length >= 3, 'a chip for each symbol');
+  chips.children[2].onclick();
+  const pick = p.el.children.find(c => c.className === 'inkmath-pick');
+  assert.equal(pick.hidden, false, 'tapping a chip offers every symbol');
+  assert.equal(pick.children.length, IM.TEACHABLE.length);
+  assert.ok(IM.TEACHABLE.includes('/'), 'a slash can be taught, though only a rule reads one');
+  IM.forget();
+});
