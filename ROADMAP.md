@@ -1,6 +1,6 @@
 # Roadmap
 
-What is planned next for Draw · Plan · Order, and what is known to be
+What is planned next for Workings, and what is known to be
 missing. Newest decisions at the top of each section. Open an issue for
 anything you pick up, so two people do not build the same thing.
 
@@ -117,18 +117,20 @@ Roughly in order of how much each would help a student working with a pen.
   `nz.co.aec.drawplanorder` and keep reading `.dpo` files, or installed
   copies stop updating and old boards stop opening.
 
-## A new name
+## The name
 
-Checked in October 2026 with web searches only, not a trademark search.
+The app is **Workings** from 0.6.0 ("show your workings"), chosen in
+October 2026 from the shortlist below, which was checked with web searches
+only, not a trademark search. What still says Draw Plan Order, on purpose:
 
-| Name | What already uses it |
-| --- | --- |
-| **Workings** ("show your workings") | Nothing similar found. The nearest is innovaphone's *Working App*, a time-tracking tool. Best candidate. |
-| **Sketch & Solve** | Nothing found with this name. DoodleSense and Sketchalyze do similar things. |
-| **Freebody** | An old physics teaching program called *FreeBody*, and WPI's *Free-Body Diagram* app. Same audience, so likely to be confused. |
-| **Quire** | Quire, a project-management tool. Different category, but well known. |
-| **Tute** | *Tute App*, a tutoring marketplace. |
-| **Margin** | *MarginNote*, a study app, and *Margin*, a Markdown notes app. Taken. |
-| **Inkwell** | Apple's handwriting recognition and a current iPad notes app. Taken. |
-| **Napkin** | Napkin AI, a diagramming tool, and a Copilot whiteboard plugin. Taken. |
-| **Slate**, **Chalk**, **Scratchpad** | All crowded with whiteboard and notes apps. |
+- `productName` in `src-tauri/tauri.conf.json`, so the Windows installer
+  updates the app where it is instead of installing a second copy; the
+  Start-menu entry keeps the old name until this moves, with an installer
+  that removes the old copy.
+- The updater identifier `nz.co.aec.drawplanorder`, the `.dpo` files, the
+  `draw-plan-order` tag in exported boards, the PWA `id`, the GitHub repo,
+  and the Obsidian plugin, so installs keep updating and old boards open.
+
+Also checked: Sketch & Solve, Inkulate and Proofpad (nothing found);
+Freebody, Quire, Tute (in use nearby); Margin, Inkwell, Napkin, Slate,
+Chalk, Scratchpad (taken).

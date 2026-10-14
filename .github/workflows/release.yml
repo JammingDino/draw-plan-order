@@ -100,7 +100,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
-          releaseName: Draw · Plan · Order v__VERSION__
+          releaseName: Workings v__VERSION__
           releaseCommitish: ${{ needs.version.outputs.sha }}
           releaseBody: |
             **New install:** download the `_x64-setup.exe` below and run it. It installs for you alone, so no admin prompt.

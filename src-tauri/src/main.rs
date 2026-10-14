@@ -1,4 +1,4 @@
-// Draw · Plan · Order — desktop shell.
+// Workings (formerly Draw · Plan · Order) — desktop shell.
 // The whole app is the web build in dist/; this opens a window for it,
 // using the WebView2 runtime Windows already ships (so pen input, pressure
 // and coalesced pointer events behave exactly as they do in Edge).
@@ -608,7 +608,7 @@ fn open_window(app: &AppHandle) -> tauri::Result<()> {
     // replaces Tauri's own default arguments, so they are repeated here
     let browser_args = format!("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection {gpu}");
     tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-        .title("Draw · Plan · Order")
+        .title("Workings")
         .inner_size(1440.0, 920.0)
         .min_inner_size(640.0, 460.0)
         .resizable(true)
@@ -644,7 +644,7 @@ fn main() {
             dpo_close
         ])
         .run(tauri::generate_context!())
-        .expect("failed to start Draw · Plan · Order");
+        .expect("failed to start Workings");
 }
 
 #[cfg(test)]
