@@ -303,6 +303,22 @@ readable) or is set by hand; the whole edit is one undo step. Its panel
 zooms x in and out and fits y again. A graph moves, resizes, turns and
 exports to SVG and PDF like anything else.
 
+**Prompted, and by pen.** Anything you enter that is a function of x
+offers to graph itself: write `y = x² − 3` (or `x² − 3 =`) with the pen
+and a **📈 Graph** chip appears beside it; type `x^2/4 − 3` in the
+calculator and it offers *Graph y = …* where it would have said x is
+undefined; a calc-block line like that puts a *Graph* button on the
+editing bar. In the graph editor, the pen button by each function (and
+*Write one*) opens a pad to write it on — it is read as you write, into a
+field to put right with a tap — the calculator's keypad types into the
+function last tapped, and the x range has one-tap presets (±1, ±10,
+±100, 0…10, ±2π, 0…2π).
+
+The same pad is on the calculator (*Write*) and on a calc block's editing
+bar (*Write*, several lines at once). And **To calc block**, on the
+long-press menu or the action bar over selected writing, reads it a line
+at a time into a calc block beside it.
+
 ### Handwritten maths
 
 Write a sum with the pen, finish it with **=**, and lift the pen for a
