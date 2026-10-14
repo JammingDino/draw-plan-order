@@ -1,0 +1,99 @@
+/* Pages on the board (js/frames.js): sizes, order, picking only by the
+   edge, the lasso going all the way round, selecting with contents, and
+   Page Up / Page Down. */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { load, inked } from './harness.mjs';
+
+function rig() {
+  const D = load('util.js', 'freehand.js', 'recognize.js', 'scene.js', 'camera.js', 'render.js',
+    'editor.js', 'taps.js', 'tools.js', 'frames.js', g => {
+      g.DPO.store = { init: () => new Promise(() => {}), setLast() {} };
+      const q = g.document.querySelector;
+      g.document.querySelector = sel => sel === '#sheet' ? { hidden: true } : q(sel);
+    }, 'press.js', 'app.js');
+  const app = D.app;
+  app.ui = { toast() {}, hideToast() {}, refresh() {}, palette: () => [], sheetKey: () => false };
+  app.toast = () => {};
+  app.saveDebounced = () => {}; app.warmSave = () => {}; app.savePrefs = () => {}; app.saveView = () => {};
+  app.setBoard({ id: 'b', name: 'B', doc: { items: [] } });
+  return { D, app, scene: app.scene, F: D.frames };
+}
+
+test('page sizes: A4 upright is 210 × 297 mm at 96 to the inch; on its side, the other way round; a slide is 16:9', () => {
+  const { F } = rig();
+  // (objects from the app's realm: compared by value)
+  const wh = o => [o.w, o.h];
+  assert.deepEqual(wh(F.dims('A4', 'portrait')), [794, 1123]);
+  assert.deepEqual(wh(F.dims('A4', 'landscape')), [1123, 794]);
+  const s = F.dims('Slide', 'portrait');
+  assert.ok(Math.abs(s.w / s.h - 16 / 9) < 0.01 && s.w > s.h, 'a slide stays on its side');
+});
+
+test('pages go behind the ink, in the order they were added, and are named by it', () => {
+  const { D, app, scene, F } = rig();
+  const ink = scene.add(D.make.stroke({ pts: inked([10, 10, 50, 50]) }));
+  const a = F.addAfter(app, null);
+  const b = F.addAfter(app, a);
+  assert.deepEqual([...F.list(scene).map(f => f.id)], [a.id, b.id]);
+  assert.ok(scene.items.indexOf(b) < scene.items.indexOf(ink), 'behind what is written');
+  assert.equal(b.x, a.x); assert.ok(b.y > a.y + a.h, 'the next one below');
+  assert.equal(F.nameOf(scene, b), 'Page 2');
+  b.name = 'Free-body diagrams';
+  assert.equal(F.nameOf(scene, b), 'Free-body diagrams');
+});
+
+test('a page is picked by its edge or its name, never from the middle', () => {
+  const { app, scene, F } = rig();
+  const f = F.addAfter(app, null);
+  const mid = { x: f.x + f.w / 2, y: f.y + f.h / 2 };
+  assert.equal(scene.hitTest(mid.x, mid.y, 4), null, 'the middle is for writing on');
+  assert.equal(scene.hitTest(f.x + 1, mid.y, 4), f, 'the edge');
+  assert.equal(scene.hitTest(f.x + 20, f.y - F.labelSize(f) * 0.8, 4), f, 'the name');
+});
+
+test('a lasso takes a page only all the way round; select-with-contents takes it and its ink', () => {
+  const { D, app, scene, F } = rig();
+  const f = F.addAfter(app, null);
+  const ink = scene.add(D.make.stroke({ pts: inked([f.x + 100, f.y + 100, f.x + 200, f.y + 150]) }));
+  const off = scene.add(D.make.stroke({ pts: inked([f.x + f.w + 300, f.y, f.x + f.w + 350, f.y + 20]) }));
+  const ring = (x1, y1, x2, y2) => [x1, y1, x2, y1, x2, y2, x1, y2];
+  const inner = scene.itemsInLasso(ring(f.x + 50, f.y + 50, f.x + f.w - 50, f.y + f.h - 50));
+  assert.ok(inner.includes(ink) && !inner.includes(f), 'round the middle: the ink, not the page');
+  const outer = scene.itemsInLasso(ring(f.x - 10, f.y - 10, f.x + f.w + 10, f.y + f.h + 10));
+  assert.ok(outer.includes(f), 'all the way round: the page too');
+  F.selectWithContents(app, f);
+  assert.ok(app.selection.includes(f) && app.selection.includes(ink) && !app.selection.includes(off));
+});
+
+test('resizing a page by hand makes it a page of its own size', () => {
+  const { app, scene, F } = rig();
+  const f = F.addAfter(app, null);
+  scene.scaleItem(f, { x: f.x, y: f.y }, 1.5, 1);
+  assert.equal(f.size, 'custom');
+  assert.equal(Math.round(f.w), Math.round(794 * 1.5));
+});
+
+test('Page Down and Page Up step through the pages', () => {
+  const { app, F, D } = rig();
+  const a = F.addAfter(app, null), b = F.addAfter(app, a), c = F.addAfter(app, b);
+  F.go(app, a);
+  const key = k => D.ext.emit('key', app, { key: k, ctrlKey: false, metaKey: false, altKey: false, preventDefault() {} });
+  assert.equal(key('PageDown'), true);
+  assert.equal(F.current(app), b);
+  key('PageDown'); key('PageDown');
+  assert.equal(F.current(app), c, 'stops at the last');
+  key('PageUp');
+  assert.equal(F.current(app), b);
+});
+
+test('pages save, load and undo like anything else', () => {
+  const { app, scene, F, D } = rig();
+  const f = F.addAfter(app, null);
+  const doc = JSON.parse(JSON.stringify(scene.toJSON()));
+  assert.equal(doc.items[0].type, 'frame');
+  app.undo();
+  assert.equal(F.list(scene).length, 0);
+  const s2 = new D.Scene(doc);
+  assert.equal(F.list(s2).length, 1);
+});
