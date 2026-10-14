@@ -120,3 +120,13 @@
 .inkmath-sample:hover i{color:#e5484d;border-color:#e5484d}
 .inkmath-link{border:0;background:none;padding:6px 4px;min-height:32px;color:var(--accent);font:inherit;font-size:12.5px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .inkmath-taught{display:flex;flex-wrap:wrap;gap:4px}
+
+/* the write pad: write with the pen, read into a field */
+.inkmath-write{z-index:46}
+.inkmath-wpad{height:150px}
+.inkmath-wpad.tall{height:230px}
+.inkmath-wfield{height:auto;min-height:84px;padding:8px 12px;resize:vertical;font-size:17px;line-height:1.4}
+/* "Graph" beside a handwritten function of x */
+.inkmath-ask.graph{font:600 13px/1 "Segoe UI",system-ui,sans-serif;opacity:.9;padding:0 10px;border-radius:20px;
+  background:var(--accent-soft);color:var(--accent);min-height:32px}
+.inkmath-ask.graph:hover{opacity:1;background:var(--accent);color:#fff}

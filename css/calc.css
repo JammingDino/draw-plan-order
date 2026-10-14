@@ -132,3 +132,6 @@
 /* the block's own style panel */
 .calc-actions{display:flex;flex-wrap:wrap;gap:4px}
 .calc-actions .btn{flex:1 1 auto;justify-content:center;min-height:44px;padding:0 8px}
+
+/* "A function of x: Graph y = …", where the calculator could not answer */
+.calc-graph{min-height:36px;margin-left:6px;padding:0 12px;border-radius:10px;font-size:13px}

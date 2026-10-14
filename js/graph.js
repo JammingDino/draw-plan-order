@@ -96,6 +96,39 @@
     return it._lines;
   }
 
+  /**
+   * Whether `src` is something to graph: a function of x — written bare
+   * (x^2 − 3), as "y = …" or "f(x) = …" — whose other names are all
+   * known (constants, or the variables in `scope`), and which gives real
+   * numbers somewhere between −10 and 10. Gives the function to plot, or
+   * null. What the prompts to graph go by: an equation in x the
+   * calculator, a calc block or the pen could not answer.
+   */
+  function graphable(src, scope) {
+    if (!D.math.loaded || !src) return null;
+    let s = String(src).trim().replace(/=\s*$/, '').trim();
+    const def = /^\s*(?:y|f\s*\(\s*x\s*\))\s*=(?!=)\s*(.+)$/i.exec(s);
+    if (def) s = def[1].trim();
+    if (!s || /=/.test(s)) return null;                   // an equation to solve, not a function
+    if (!/(^|[^A-Za-z_θ])x([^A-Za-z_(]|$)/.test(s)) return null;
+    if (scope && scope.has && scope.has('x') && !def) return null;   // x is a number here: answered, not graphed
+    let code;
+    try { code = D.math.lib.compile(D.math.preprocess(s)); } catch (_) { return null; }
+    const was = D.math.config.angle;
+    D.math.config.angle = 'rad';
+    const sc = scope && scope.child ? scope.child() : D.math.scope();
+    let real = 0;
+    try {
+      for (let i = 0; i <= 12; i++) {
+        sc.set('x', -10 + i * 20 / 12 + 0.013);
+        let y;
+        try { y = toNum(code.evaluate(sc)); } catch (_) { y = NaN; }
+        if (isFinite(y)) real++;
+      }
+    } finally { D.math.config.angle = was; }
+    return real >= 3 ? s : null;
+  }
+
   /* ── ticks ─────────────────────────────────────────────────────── */
   function ticks(a, b, want) {
     const span = b - a;
@@ -260,6 +293,7 @@
   let pop = null;
   function close() {
     if (!pop) return;
+    if (D.calc && D.calc.typeInto) D.calc.typeInto(null);
     const { app, it, box } = pop;
     box.remove();
     removeEventListener('pointerdown', pop.away, true);
@@ -291,13 +325,20 @@
         const f = el('input', { class: 'graph-fn', type: 'text', spellcheck: 'false', autocomplete: 'off', placeholder: 'x^2 − 3', 'aria-label': `Function ${k + 1}` });
         f.value = src;
         f.addEventListener('input', () => { it.fns = it.fns.slice(); it.fns[k] = f.value; changed(); });
+        // the calculator's keys type into whichever function was last tapped
+        f.addEventListener('focus', () => { if (D.calc && D.calc.typeInto) D.calc.typeInto(f); });
+        const write = el('button', { class: 'icon graph-w', type: 'button', title: 'Write it with the pen', 'aria-label': 'Write this function with the pen',
+          html: '<svg viewBox="0 0 24 24"><path d="M4 20l4.5-1.2L20 7.3a2 2 0 0 0 0-2.8l-.5-.5a2 2 0 0 0-2.8 0L5.2 15.5z"/><path d="M14.5 6.5l3 3"/></svg>',
+          onclick: () => D.inkmath && D.inkmath.writePad(app, { title: `Write y${it.fns.length > 1 ? ' ' + (k + 1) : ''} =`, start: f.value, near: box,
+            use: text => { f.value = text.replace(/^\s*y\s*=\s*/i, ''); f.dispatchEvent(new Event('input')); } }) });
         return el('div', { class: 'graph-row' },
-          el('span', { class: 'graph-sw', style: `background:${COLOURS[k % COLOURS.length]}` }), el('span', { class: 'graph-y' }, 'y ='), f,
+          el('span', { class: 'graph-sw', style: `background:${COLOURS[k % COLOURS.length]}` }), el('span', { class: 'graph-y' }, 'y ='), f, write,
           el('button', { class: 'icon graph-x', type: 'button', title: 'Remove', 'aria-label': 'Remove this function', onclick: () => { it.fns = it.fns.filter((_, i) => i !== k); changed(); rows(); },
             html: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>' }));
       }));
     };
     rows();
+    let x0f, x1f;
     const yFrom = field('y from', it.y0, v => { it.y0 = v; }), yTo = field('y to', it.y1, v => { it.y1 = v; });
     const yRow = el('div', { class: 'graph-range' }, el('span', {}, 'y from'), yFrom, el('span', {}, 'to'), yTo);
     const showY = () => { yRow.hidden = it.yAuto !== false; };
@@ -317,8 +358,20 @@
         el('button', { class: 'icon', type: 'button', title: 'Done', 'aria-label': 'Done', onclick: () => close(),
           html: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' })),
       list,
-      el('button', { class: 'btn graph-add', type: 'button', onclick: () => { it.fns = it.fns.concat(''); changed(); rows(); const fs = list.querySelectorAll('.graph-fn'); if (fs.length) fs[fs.length - 1].focus(); } }, '+ Another function'),
-      el('div', { class: 'graph-range' }, el('span', {}, 'x from'), field('x from', it.x0, v => { it.x0 = v; }), el('span', {}, 'to'), field('x to', it.x1, v => { it.x1 = v; })),
+      el('div', { class: 'graph-acts' },
+        el('button', { class: 'btn graph-add', type: 'button', onclick: () => { it.fns = it.fns.concat(''); changed(); rows(); const fs = list.querySelectorAll('.graph-fn'); if (fs.length) fs[fs.length - 1].focus(); } }, '+ Another'),
+        D.inkmath ? el('button', { class: 'btn graph-add', type: 'button', onclick: () => D.inkmath.writePad(app, { title: 'Write y =', near: box,
+          use: text => { it.fns = it.fns.filter(s => s.trim()).concat(text.replace(/^\s*y\s*=\s*/i, '')); changed(); rows(); } }) }, '✎ Write one') : null,
+        D.calc ? el('button', { class: 'btn graph-add', type: 'button', onclick: () => {
+          D.calc.open();
+          const fs = list.querySelectorAll('.graph-fn'), f = fs[fs.length - 1];
+          if (f) { f.focus(); D.calc.typeInto(f); }
+        } }, 'Keypad') : null),
+      el('div', { class: 'graph-range' }, el('span', {}, 'x from'), x0f = field('x from', it.x0, v => { it.x0 = v; }), el('span', {}, 'to'), x1f = field('x to', it.x1, v => { it.x1 = v; })),
+      // the usual ranges, a tap each, so the pen need not write numbers
+      el('div', { class: 'graph-presets' }, ...PRESETS.map(([label, a, b]) => el('button', { class: 'btn', type: 'button', onclick: () => {
+        it.x0 = a; it.x1 = b; x0f.value = fmtRange(a); x1f.value = fmtRange(b); x0f.classList.remove('bad'); x1f.classList.remove('bad'); changed();
+      } }, label))),
       el('div', { class: 'graph-opts' },
         seg([[true, 'y: fit'], [false, 'y: set']], it.yAuto !== false, v => {
           if (!v && it._lines) { it.y0 = +it._lines.y0.toPrecision(3); it.y1 = +it._lines.y1.toPrecision(3); yFrom.value = it.y0; yTo.value = it.y1; }
@@ -337,7 +390,8 @@
     box.style.top = U.clamp(a.y, 64, Math.max(64, innerHeight - 420)) + 'px';
     pop = {
       app, it, box,
-      away: e => { if (!box.contains(e.target)) close(); },
+      // the keypad and the writing pad work for the editor: pressing them does not close it
+      away: e => { if (!box.contains(e.target) && !(e.target.closest && e.target.closest('#calc-panel, .inkmath-write'))) close(); },
       key: e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
     };
     setTimeout(() => { if (pop && pop.box === box) { addEventListener('pointerdown', pop.away, true); addEventListener('keydown', pop.key, true); } }, 0);
@@ -345,6 +399,9 @@
     if (app.pointerType === 'mouse') setTimeout(() => { const f = list.querySelector('.graph-fn'); if (f) f.focus(); }, 30);
     return { el: box, close };
   }
+
+  const PRESETS = [['±1', -1, 1], ['±10', -10, 10], ['±100', -100, 100], ['0…10', 0, 10], ['±2π', -2 * Math.PI, 2 * Math.PI], ['0…2π', 0, 2 * Math.PI]];
+  const fmtRange = v => Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : Math.abs(Math.abs(v) - 2 * Math.PI) < 1e-9 ? (v < 0 ? '-2pi' : '2pi') : String(+v.toFixed(4));
 
   /** the x range, zoomed about its middle (k < 1 in, > 1 out) */
   function zoomX(it, k) {
@@ -415,5 +472,11 @@
 
   D.ext.on('board', () => { if (pop) { pop.box.remove(); removeEventListener('pointerdown', pop.away, true); removeEventListener('keydown', pop.key, true); pop = null; } });
 
-  D.graph = { sample, parts, make, add, edit, close, ticks, COLOURS };
+  /** a graph of `fn` beside a box (world units), as the prompts to graph make one */
+  function beside(app, box, fn) {
+    const at = { x: box.x2 + 40 + 260, y: box.y + box.h / 2 };
+    return add(app, at, { fns: [fn] }, { edit: false });
+  }
+
+  D.graph = { sample, parts, make, add, edit, close, ticks, graphable, beside, COLOURS };
 })(window.DPO);

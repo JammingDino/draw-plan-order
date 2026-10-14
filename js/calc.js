@@ -315,7 +315,16 @@
       }, 0));
 
       this.msg = el('span', { class: 'calc-bar-msg' });
-      this.bar = el('div', { class: 'calc-bar' }, this.msg,
+      this.graphB = el('button', { class: 'btn', type: 'button', hidden: true, onclick: () => this.graphLine(), html: '📈 Graph' });
+      this.bar = el('div', { class: 'calc-bar' }, this.msg, this.graphB,
+        D.inkmath ? el('button', { class: 'btn', type: 'button', title: 'Write lines with the pen', html: svg('M4 20l4.5-1.2L20 7.3a2 2 0 0 0 0-2.8l-.5-.5a2 2 0 0 0-2.8 0L5.2 15.5z|M14.5 6.5l3 3') + 'Write',
+          onclick: () => D.inkmath.writePad(app, { title: 'Write lines for the calc block', multi: true, near: this.bar, use: text => {
+            const t = this.ta;
+            if (!t) return;
+            const at = t.selectionStart, before = t.value.slice(0, at);
+            t.setRangeText((before && !/\n$/.test(before) ? '\n' : '') + text, at, t.selectionEnd, 'end');
+            this.changed(); t.focus();
+          } }) }) : null,
         el('button', { class: 'btn', type: 'button', onclick: () => { open(); this.ta && this.ta.focus(); }, html: svg(ICON.calc) + 'Keypad' }),
         el('button', { class: 'btn primary', type: 'button', onclick: () => this.close() }, 'Done'));
       this.bar.addEventListener('pointerdown', e => { e.stopPropagation(); if (e.target.closest('button')) e.preventDefault(); });
@@ -382,6 +391,24 @@
         this.msg.classList.toggle('err', !!(r && r.kind === 'err' && !hint && r.error !== 'The expression is not finished'));
       }
       this.msg.textContent = text;
+      // the caret's line is a function of x it could not answer: offer to graph it
+      if (this.graphB) {
+        const src = this.ta ? this.ta.value.split('\n')[this.line] || '' : '';
+        const r = this.results && this.results[this.line];
+        const fn = D.graph && (!r || r.kind === 'err') ? D.graph.graphable(src.replace(/^[^:=]*:\s*/, '')) : null;
+        this.graphB.hidden = !fn;
+        this.graphB.dataset.fn = fn || '';
+        if (fn) this.graphB.title = 'Graph y = ' + fn;
+      }
+    },
+
+    /** the caret's line, graphed beside the block */
+    graphLine() {
+      const fn = this.graphB && this.graphB.dataset.fn, it = this.item, app = this.app;
+      if (!fn || !it) return;
+      const L = layout(it);
+      this.close();
+      D.graph.beside(app, U.box(it.x, it.y, it.x + L.w, it.y + L.h), fn);
     },
 
     /** keep the textarea and the strip glued to the block as the camera moves */
@@ -600,7 +627,8 @@
       const foot = el('footer', { class: 'calc-foot' },
         B('btn', 'Put this on the board as a calc block, with the lines its variables come from', svg(ICON.block) + 'Insert block', () => this.insertBlock()),
         B('btn', 'Put this on the board as text', svg(ICON.text) + 'Insert text', () => this.insertText()),
-        B('btn', 'Plot this as y = f(x) on the board', svg('M4 4v16h16|M6.5 15c2-6 3.5-8 5.5-8s3 4 4.5 4 2-2 2.5-3') + 'Plot', () => this.plot()));
+        B('btn', 'Plot this as y = f(x) on the board', svg('M4 4v16h16|M6.5 15c2-6 3.5-8 5.5-8s3 4 4.5 4 2-2 2.5-3') + 'Plot', () => this.plot()),
+        B('btn', 'Write the sum with the pen instead of the keys', svg('M4 20l4.5-1.2L20 7.3a2 2 0 0 0 0-2.8l-.5-.5a2 2 0 0 0-2.8 0L5.2 15.5z|M14.5 6.5l3 3') + 'Write', () => this.write()));
       this.body = el('div', { class: 'calc-body' }, this.vars, this.tabs, this.pad, foot);
       this.root = el('section', { class: 'glass calc-panel', id: 'calc-panel', role: 'dialog', 'aria-label': 'Calculator', hidden: '' },
         head, this.hist, this.line, this.out, this.into, this.body);
@@ -748,19 +776,23 @@
     }
 
     /* ── typing ── */
-    /** where the keys go: the calc block being edited, or the panel's own line */
-    field() { return editor.active ? editor.ta : this.input; }
+    /** where the keys go: a field a feature lent (a graph's function), the calc block being edited, or the panel's own line */
+    field() {
+      if (this.ext && !this.ext.isConnected) this.ext = null;
+      return this.ext || (editor.active ? editor.ta : this.input);
+    }
 
     /** say which it is */
     target() {
-      const into = editor.active;
+      const ext = this.field() === this.ext && this.ext, into = editor.active || !!ext;
       this.root.classList.toggle('into-block', into);
-      this.into.textContent = into ? 'Keys type into the calc block' : '';
+      this.into.textContent = ext ? 'Keys type into the graph' : into ? 'Keys type into the calc block' : '';
     }
 
     press(key) {
       const f = this.field(), into = f !== this.input;
       if (key.act === 'eval') {
+        if (f === this.ext) return;                 // a graph's function plots as it is typed
         if (into) this.insert(f, '\n');
         else this.commit();
         return;
@@ -815,6 +847,7 @@
 
     typed(f) {
       if (f === this.input) this.changed();
+      else if (f === this.ext) f.dispatchEvent(new Event('input'));
       else editor.changed();
     }
 
@@ -861,6 +894,7 @@
         this.out.append(el('span', { class: 'eq' }, '= '), r.pretty);
         if (hint) this.out.append(el('small', {}, hint));
       } else if (hint) this.say(hint, 'tip');
+      else if (this.offerGraph(src)) return;
       else if (r.error && r.error !== 'The expression is not finished') this.say(r.error, 'tip');
       else this.say('');
     }
@@ -871,7 +905,7 @@
       if (!D.math.loaded) { this.say('Loading the maths engine…', 'tip'); return; }
       const s = session(this.app);
       const r = D.math.evaluate(src, s.scope);
-      if (!r.ok) { this.say(r.error, 'err'); return; }
+      if (!r.ok) { if (!this.offerGraph(src)) this.say(r.error, 'err'); return; }
       if (r.empty) return;
       s.history.push({ src, pretty: r.pretty, alt: r.alt, rows: r.rows, value: r.value, name: r.name });
       if (s.history.length > 200) s.history.shift();
@@ -932,13 +966,34 @@
      * the selected calc block, if one is selected; otherwise a new one in
      * the middle of the view.
      */
+    /** the pen instead of the keys: what is written goes into the line (or the calc block) */
+    write() {
+      if (!D.inkmath || !D.inkmath.writePad) return;
+      const f = this.field(), block = editor.active && f === editor.ta;
+      D.inkmath.writePad(this.app, {
+        title: block ? 'Write lines for the calc block' : 'Write a sum', multi: block, near: this.root,
+        use: text => { f.focus(); this.insert(f, block && f.value && !/\n$/.test(f.value.slice(0, f.selectionStart)) ? '\n' + text : text); }
+      });
+    }
+
+    /** a function of x the calculator cannot answer: offer to graph it instead */
+    offerGraph(src) {
+      const fn = D.graph && D.graph.graphable(src, session(this.app).scope);
+      if (!fn) return false;
+      this.out.textContent = '';
+      this.out.className = 'calc-preview tip';
+      this.out.append(el('span', {}, 'A function of x: '),
+        el('button', { class: 'btn primary calc-graph', type: 'button', onclick: () => this.plot() }, '📈 Graph y = ' + fn));
+      return true;
+    }
+
     /** the line as a graph of y against x, beside the panel (js/graph.js) */
     plot() {
       const app = this.app, src = this.current();
       if (!src) { app.toast('Type a function of x first, like sin(x) or x^2 − 3'); return; }
       if (!D.graph) return;
       if (!/(^|[^A-Za-z_])x([^A-Za-z_(]|$)/.test(src)) app.toast('No x in that: it plots as a flat line');
-      D.graph.add(app, this.clearSpot(), { fns: [src.replace(/^\s*y\s*=\s*/, '')] }, { edit: false });
+      D.graph.add(app, this.clearSpot(), { fns: [(D.graph.graphable(src) || src).replace(/^\s*y\s*=\s*/, '')] }, { edit: false });
     }
 
     insertBlock() {
@@ -1166,6 +1221,12 @@
 
   D.calc = {
     open, close, toggle,
+    /** lend the keypad a field to type into (null to take it back); it gets an input event per key */
+    typeInto(f) {
+      if (!panel) { if (!f) return; panel = new CalcPanel(D.app); }
+      panel.ext = f || null;
+      panel.target();
+    },
     get isOpen() { return !!(panel && panel.open); },
     newBlock, recalc, layout,
     edit: (app, it) => editor.open(app, it),

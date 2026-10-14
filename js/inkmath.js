@@ -1246,6 +1246,8 @@
       unmark(e.key);
       const r = read([...left, ...eqf, ...right], e.ids);
       e.reading = r; e.why = 'right';
+      // "y = x² − 3": not a number to keep, a curve to offer
+      if (r.ok && r.eq === 'mid' && r.lhs === 'y' && offerGraph(e, r.rhs, right)) { dropDef(e.key, changed); return; }
       if (r.ok && r.eq === 'mid' && NAME.test(r.lhs) && r.rhs) {
         const was = S.defs.get(e.key);
         const def = { key: e.key, name: r.lhs, rhs: r.rhs, src: [...left, ...eqf, ...right].map(f => f.id), cy: e.cy, x: e.x };
@@ -1283,6 +1285,8 @@
     const out = r.shaped ? work1(app, r.expr, uses, e.cy, around(U.box(e.x, e.cy, e.x2, e.cy), e.L)) : null;
     if (!r.ok || !out) {
       unanswer(app, e.key);
+      // "x² − 3 =" with no x defined above: a function of x, to graph rather than answer
+      if (!out && r.ok && uses.includes('x') && offerGraph(e, r.expr, null)) return;
       /* Not sure enough to write an answer, but it is a sum that works
          out, of numbers alone: a faint "?" by the "=" says it was seen,
          and a tap puts the best guess in Solve this ink. Lines with
@@ -1293,6 +1297,23 @@
     }
     note(e, 'answered', r);
     answer(app, e, eqf, left, r, out, uses);
+  }
+
+  /**
+   * A line that is a function of x — "y = x² − 3", or "x² − 3 =" with no
+   * x above — gets a chip beside it that puts a graph of it on the board.
+   * True if it did. `right`: the ink after the "=", for where the chip goes.
+   */
+  function offerGraph(e, fn, right) {
+    const scope = scopeAbove(e.cy);
+    if (scope.has('x') || !D.graph || !D.math.loaded) return false;
+    const g = D.graph.graphable(fn);
+    if (!g) return false;
+    e.graph = g;
+    e.gx = right && right.length ? Math.max(...right.map(f => f.x2)) : null;
+    e.why = 'graph';
+    mark(e, 'graph', e.reading, false);
+    return true;
   }
 
   /* A bare number before an "=" ("Step 2 =") is not a sum; anything with
@@ -1449,6 +1470,7 @@
     'not-a-sum': 'Nothing to work out: no operator',
     shape: 'Read, but not as a sum that makes sense',
     eval: 'Read, but it does not work out — a letter nothing defines?',
+    graph: 'A function of x — tap to graph it',
     unsure: 'Not sure of the reading — tap to check it'
   };
   function note(e, why, r, guess = false) {
@@ -1474,8 +1496,9 @@
     const said = (WHY[why] || why) + (r && r.text ? ' (read as ' + r.text + (r.worst != null ? ', ' + r.worst.toFixed(2) : '') + ')' : '');
     m.el.title = said;
     m.el.setAttribute('aria-label', said);
-    m.el.classList.toggle('why', !guess);
-    m.el.textContent = guess ? '?' : '?  ' + why;
+    m.el.classList.toggle('why', !guess && why !== 'graph');
+    m.el.classList.toggle('graph', why === 'graph');
+    m.el.textContent = why === 'graph' ? '📈 Graph' : guess ? '?' : '?  ' + why;
     placeMark(m);
     if (S.app && S.app.requestDrawLive) S.app.requestDrawLive();
   }
@@ -1490,15 +1513,20 @@
   function placeMark(m) {
     const app = S.app, cam = app && app.camera;
     if (!cam || !cam.toScreen) return;
-    const e = m.e, p = cam.toScreen(e.x2 + 0.3 * e.L, e.cy);
+    const e = m.e, p = cam.toScreen((m.why === 'graph' && e.gx != null ? e.gx : e.x2) + 0.3 * e.L, e.cy);
     const px = U.clamp(e.L * cam.zoom * 0.7, 13, 26);
     m.el.style.left = p.x + 'px'; m.el.style.top = p.y + 'px';
     m.el.style.fontSize = px + 'px';
   }
   function placeMarks() { for (const m of S.marks.values()) placeMark(m); }
-  /** a "?" tapped: Solve this ink, on what it was read as */
+  /** a "?" tapped: Solve this ink, on what it was read as; a "Graph" chip: the graph */
   function ask(m) {
     const app = S.app;
+    if (m.why === 'graph' && app && m.e.graph) {
+      const e = m.e, x2 = e.gx != null ? e.gx : e.x2;
+      D.graph.beside(app, U.box(e.x, e.cy - e.L, x2, e.cy + e.L), m.e.graph);
+      return;
+    }
     if (!app || !m.reading) return;
     const items = m.reading.syms.flatMap(s => s.strokes.map(f => app.scene.get(f.id))).filter(Boolean);
     const b = m.el.getBoundingClientRect ? m.el.getBoundingClientRect() : null;
@@ -1926,6 +1954,155 @@
     return n;
   }
 
+  /**
+   * Ink that may run to several lines → one reading per line, top to
+   * bottom. A new line starts where there is a clear gap below the last
+   * (a third of a line's height), so a fraction's top, bar and bottom stay
+   * one line. Each: { text, reading }, text as the calculator takes it —
+   * "x = 2", "3x² + 2" (an "=" at the end dropped).
+   */
+  function readLines(items) {
+    const strokes = items.map(s => s.xy ? s : feature(s)).filter(s => s.xy.length >= 2);
+    if (!strokes.length) return [];
+    const H = lineHeight(strokes);
+    const byTop = strokes.slice().sort((a, b) => a.y - b.y);
+    const lines = [];
+    let cur = null, bottom = -Infinity;
+    for (const s of byTop) {
+      if (!cur || s.y > bottom + H * 0.33) { cur = []; lines.push(cur); bottom = s.y2; }
+      cur.push(s); bottom = Math.max(bottom, s.y2);
+    }
+    return lines.map(ln => {
+      const r = read(ln);
+      const text = r.eq === 'mid' ? r.lhs + ' = ' + r.rhs : r.expr || r.text || '';
+      return { text, reading: r };
+    }).filter(l => l.text);
+  }
+
+  /* ══ the write pad ═══════════════════════════════════════════════════
+     For a pen with no keyboard: write a sum, a function or a few lines on
+     a pad and it is read as you go — into a field to put right with one
+     tap — then Use puts it where it was wanted: a graph's function, the
+     calculator's line, a calc block. Several lines when `multi`. */
+  let writer = null;
+  function closeWriter() {
+    if (!writer) return;
+    clearTimeout(writer.timer);
+    writer.el.remove();
+    if (typeof removeEventListener === 'function') {
+      removeEventListener('pointerdown', writer.away, true);
+      removeEventListener('keydown', writer.key, true);
+    }
+    writer = null;
+  }
+  function writePad(app, opts = {}) {
+    closeWriter();
+    const st = { ink: [], live: null, timer: 0 };
+    const pad = el('canvas', { class: 'inkmath-pad inkmath-wpad' + (opts.multi ? ' tall' : ''), 'aria-label': 'Write here' });
+    const field = opts.multi
+      ? el('textarea', { class: 'inkmath-field inkmath-wfield', rows: '3', spellcheck: 'false', 'aria-label': 'Read as' })
+      : el('input', { class: 'inkmath-field', type: 'text', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Read as' });
+    field.value = opts.start || '';
+    const useB = el('button', { class: 'btn primary', type: 'button' }, opts.useLabel || 'Use');
+    const undoB = el('button', { class: 'btn', type: 'button' }, 'Undo stroke');
+    const clearB = el('button', { class: 'btn', type: 'button' }, 'Clear');
+    const box = el('div', { class: 'inkmath-pop inkmath-write', role: 'dialog', 'aria-label': opts.title || 'Write' },
+      el('div', { class: 'inkmath-head' }, el('span', {}, opts.title || 'Write it'),
+        el('button', { class: 'icon', type: 'button', title: 'Close', 'aria-label': 'Close', onclick: () => closeWriter(),
+          html: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>' })),
+      pad, field, el('div', { class: 'inkmath-acts' }, undoB, clearB, useB),
+      el('p', { class: 'inkmath-note' }, opts.multi ? 'One line under another. Tap the text to put a misreading right.' : 'Tap the text to put a misreading right.'));
+    document.body.appendChild(box);
+    // beside what it is for, else in the middle
+    const nr = opts.near && opts.near.getBoundingClientRect ? opts.near.getBoundingClientRect() : null;
+    const W = Math.min(380, innerWidth - 16);
+    let x = innerWidth / 2 - W / 2, y = 80;
+    if (nr) {
+      x = nr.right + 12 + W < innerWidth - 8 ? nr.right + 12 : nr.left - 12 - W >= 8 ? nr.left - 12 - W : U.clamp(nr.left, 8, innerWidth - W - 8);
+      y = U.clamp(nr.top, 64, Math.max(64, innerHeight - (opts.multi ? 470 : 380)));
+    }
+    box.style.left = U.clamp(x, 8, Math.max(8, innerWidth - W - 8)) + 'px';
+    box.style.top = y + 'px';
+    box.style.width = W + 'px';
+
+    const ctx = pad.getContext('2d');
+    let Wp = 340, Hp = 160;
+    const size = () => {
+      const r = pad.getBoundingClientRect ? pad.getBoundingClientRect() : null;
+      Wp = (r && r.width) || 340; Hp = (r && r.height) || 160;
+      const dpr = devicePixelRatio || 1;
+      pad.width = Math.round(Wp * dpr); pad.height = Math.round(Hp * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paint();
+    };
+    const paint = () => {
+      ctx.clearRect(0, 0, Wp, Hp);
+      const css = getComputedStyle(box), ink = css.getPropertyValue('--text').trim() || '#222';
+      ctx.strokeStyle = css.getPropertyValue('--stroke').trim() || '#8886'; ctx.lineWidth = 1;
+      const rows = opts.multi ? 3 : 1;
+      for (let i = 1; i <= rows; i++) { const yy = Hp * i / rows - Hp * 0.18 / rows; ctx.beginPath(); ctx.moveTo(10, yy); ctx.lineTo(Wp - 10, yy); ctx.stroke(); }
+      ctx.strokeStyle = ink; ctx.lineWidth = 2.6; ctx.lineCap = ctx.lineJoin = 'round';
+      for (const s of st.live ? st.ink.concat([st.live]) : st.ink) {
+        ctx.beginPath();
+        for (let i = 0; i < s.length; i += 3) i ? ctx.lineTo(s[i], s[i + 1]) : ctx.moveTo(s[i], s[i + 1]);
+        if (s.length === 3) ctx.lineTo(s[0] + 0.1, s[1]);
+        ctx.stroke();
+      }
+    };
+    const readNow = () => {
+      const strokes = st.ink.filter(p => p.length >= 3).map(pts => feature({ id: U.uid(), pts }));
+      if (!strokes.length) { field.value = opts.start || ''; return; }
+      field.value = opts.multi ? readLines(strokes).map(l => l.text).join('\n') : (readLines(strokes)[0] || { text: '' }).text;
+    };
+    let pid = null;
+    const at = e => { const r = pad.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top, e.pressure || 0.5]; };
+    pad.addEventListener('pointerdown', e => {
+      if (pid != null) return;
+      e.preventDefault(); pid = e.pointerId;
+      try { pad.setPointerCapture(pid); } catch (_) { }
+      clearTimeout(st.timer);
+      st.live = at(e); paint();
+    });
+    pad.addEventListener('pointermove', e => {
+      if (e.pointerId !== pid || !st.live) return;
+      const all = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      for (const c of all.length ? all : [e]) st.live.push(...at(c));
+      paint();
+    });
+    const up = e => {
+      if (e.pointerId !== pid) return;
+      pid = null;
+      if (st.live) st.ink.push(st.live);
+      st.live = null; paint();
+      st.timer = setTimeout(readNow, 450);
+    };
+    pad.addEventListener('pointerup', up);
+    pad.addEventListener('pointercancel', up);
+    undoB.onclick = () => { st.ink.pop(); paint(); readNow(); };
+    clearB.onclick = () => { st.ink = []; paint(); field.value = opts.start || ''; };
+    useB.onclick = () => {
+      clearTimeout(st.timer);
+      if (st.ink.length && field.value === (opts.start || '')) readNow();
+      const text = field.value.trim();
+      closeWriter();
+      if (text && opts.use) opts.use(text);
+    };
+    field.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && !opts.multi) { e.preventDefault(); useB.onclick(); } });
+    writer = {
+      el: box, timer: 0,
+      away: ev => { if (!box.contains(ev.target)) closeWriter(); },
+      key: ev => { if (ev.key === 'Escape') { ev.stopPropagation(); closeWriter(); } },
+      /** for tests: lay strokes on the pad as if written there, and read them */
+      write(strokes) { st.ink.push(...strokes.map(s => s.pts.slice())); readNow(); },
+      field, use: () => useB.onclick()
+    };
+    Object.defineProperty(writer, 'timer', { get: () => st.timer });
+    setTimeout(() => { if (writer && writer.el === box && typeof addEventListener === 'function') { addEventListener('pointerdown', writer.away, true); addEventListener('keydown', writer.key, true); } }, 0);
+    requestAnimationFrame(size);
+    D.math.ready().catch(() => {});
+    return writer;
+  }
+
   /** strokes as a little SVG, fitted to a `px` square */
   function thumb(strokes, px) {
     const b = boxOf(strokes), k = (px - 4) / Math.max(b.w, b.h, 1);
@@ -2233,6 +2410,28 @@
     }
   });
 
+  D.ext.pressActions.push({
+    id: 'inkmath-block', label: 'To calc block', icon: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z|M7.5 9h5|M7.5 14.5h4|M15.5 8.2h2|M15.5 13.7h2', order: 63,
+    when: ctx => {
+      const sel = ctx.selection || [], ink = strokesOf(ctx);
+      return !!D.calc && ink.length > 0 && ink.length <= 600 && sel.every(i => isInk(i) || i.type === 'inkresult');
+    },
+    /* The selected writing, read a line at a time, as a calc block beside
+       it: the lines it was read as, worked out, ready to change by keypad,
+       by pen, or by hand. */
+    run: ctx => {
+      const app = ctx.app, ink = strokesOf(ctx);
+      const lines = readLines(ink).map(l => l.text.replace(/\s*=\s*$/, '')).filter(Boolean);
+      if (!lines.length) { app.toast('Could not read any lines there'); return; }
+      let b = null;
+      for (const it of ink) b = U.unionBox(b, app.scene.bbox(it));
+      D.math.ready().then(() => {
+        D.calc.newBlock(app, { x: b.x2 + 40, y: b.y }, lines.join('\n'));
+        app.toast(`A calc block of ${lines.length} line${lines.length > 1 ? 's' : ''}: double-tap it to change one`);
+      });
+    }
+  });
+
   D.ext.settings.push({
     id: 'inkmath', title: 'Handwritten maths', sub: 'Answers for sums written with the pen', icon: ICON.ink,
     render(ui) {
@@ -2293,14 +2492,15 @@
 
 
   D.ext.on('ready', app => { reset(app); watchPen(); });
-  D.ext.on('board', app => { closePop(); closeTrainer(); reset(app); });
+  D.ext.on('board', app => { closePop(); closeTrainer(); closeWriter(); reset(app); });
   D.ext.on('stroke', onStroke);
   D.ext.on('change', follow);
 
   D.inkmath = {
     read, classify: (strokes, H) => classify(strokes.map(s => s.xy ? s : feature(s)), H), feature, namesIn,
+    readLines, writePad, closeWriter,
     teach, forget, undoTeach, forgetSymbol, forgetSample, samplesOf, learned: () => learned().length, flush, solve, reset, train, closeTrainer, TEACHABLE,
     get state() { return S; },
-    GLYPHS, LABELS, _cloud: cloud, _spline: spline, _gather: gather, _eq: rememberEq, _pairs: pairs
+    GLYPHS, LABELS, _cloud: cloud, _spline: spline, _gather: gather, _eq: rememberEq, _pairs: pairs, _ask: m => ask(m)
   };
 })(window.DPO);

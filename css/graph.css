@@ -37,3 +37,8 @@
 .graph-note{margin:0;font-size:12px;line-height:1.45;color:var(--muted)}
 .graph-acts{display:flex;flex-wrap:wrap;gap:6px}
 .graph-acts .btn{flex:1 1 auto;min-height:40px;justify-content:center}
+
+.graph-w{flex:0 0 auto;width:40px;height:40px}
+.graph-acts .graph-add{flex:1 1 auto}
+.graph-presets{display:flex;flex-wrap:wrap;gap:4px}
+.graph-presets .btn{flex:1 1 auto;min-height:36px;padding:0 8px;font-size:12.5px;border-radius:9px;justify-content:center}

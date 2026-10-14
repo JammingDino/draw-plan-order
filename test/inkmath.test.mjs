@@ -25,7 +25,7 @@ const storage = g => {
   g.localStorage = { getItem: k => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
 };
 
-const D = load('util.js', storage, mathjs, 'freehand.js', 'recognize.js', 'scene.js', 'camera.js', 'render.js', 'tools.js', 'math.js', 'calc.js', 'inkmath.js');
+const D = load('util.js', storage, mathjs, 'freehand.js', 'recognize.js', 'scene.js', 'camera.js', 'render.js', 'tools.js', 'math.js', 'calc.js', 'inkmath.js', 'graph.js');
 await D.math.ready();
 const IM = D.inkmath;
 
@@ -318,7 +318,8 @@ test('lines of working, in that hand: read whole', () => {
    in the order the core emits them. */
 function board() {
   const app = fakeApp(D, {
-    opts: { inkmath: { auto: true, places: 'auto', color: 'accent' }, general: {} },
+    opts: { inkmath: { auto: true, places: 'auto', color: 'accent' }, general: {}, calc: { size: 16 } },
+    setTool() {}, select(items) { this.selection = items; },
     selection: [], camera: new D.Camera(), pointerType: 'pen',
     afterEdit() { D.ext.emit('change', this); },
     requestDraw() {}, markDirty() { this.dirtied = (this.dirtied || 0) + 1; }, toast(m) { this.toasted = m; },
@@ -785,4 +786,56 @@ test('the trainer: Undo takes back the last sample and asks for it again; Start 
   t.reset();
   assert.equal(IM.learned(), 0);
   IM.closeTrainer();
+});
+
+test('readLines: several lines of writing, read top to bottom; a fraction stays one line', () => {
+  const r = rng(77);
+  const a = write(['x', '=', '2'], { r, size: 36, base: 100 });
+  const b = write(['3', 'x', { sup: ['2'] }, '+', '1'], { r, size: 36, base: 200 });
+  const c = write([{ frac: [['1'], ['2']] }, '+', '3'], { r, size: 36, base: 320 });
+  const lines = IM.readLines([...c, ...a, ...b]);
+  assert.deepEqual([...lines.map(l => l.text)], ['x = 2', '3x^2+1', '1/2+3']);
+});
+
+test('a handwritten function of x gets a Graph chip, and the chip puts a graph beside it', async () => {
+  const app = board();
+  draw(app, inkOf(['x', { sup: ['2'] }, '−', '3', '='], 91));
+  await IM.flush(app);
+  assert.equal(answers(app).length, 0, 'no number for it');
+  const marks = [...IM.state.marks.values()];
+  assert.equal(marks.length, 1);
+  assert.equal(marks[0].why, 'graph');
+  assert.equal(marks[0].e.graph, 'x^2−3');
+  marks[0].el.listeners = marks[0].el.listeners || null;
+  // tapping it: the same path a click takes
+  const before = app.scene.items.length;
+  IM._ask(marks[0]);
+  const g = app.scene.items.find(i => i.type === 'graph');
+  assert.ok(g, 'a graph on the board'); assert.equal(app.scene.items.length, before + 1);
+  assert.deepEqual([...g.fns], ['x^2−3']);
+});
+
+test('the write pad reads what is written into its field, and Use hands it over', () => {
+  const app = board();
+  let got = null;
+  const w = IM.writePad(app, { title: 'Write y =', use: t => { got = t; } });
+  w.write(write(['2', 'x', '+', '1'], { r: rng(5), size: 40, base: 80, x: 20 }));
+  assert.equal(w.field.value, '2x+1');
+  w.use();
+  assert.equal(got, '2x+1');
+});
+
+test('To calc block: selected writing becomes a calc block of its lines', async () => {
+  const app = board();
+  const a = write(['x', '=', '2'], { r: rng(3), size: 36, base: 100 });
+  const b = write(['3', 'x', '+', '1', '='], { r: rng(4), size: 36, base: 200 });
+  draw(app, [...a, ...b]);
+  const act = D.ext.pressActions.find(p => p.id === 'inkmath-block');
+  const ctx = { app, selection: [...a, ...b] };
+  assert.ok(act.when(ctx));
+  act.run(ctx);
+  await D.math.ready(); await new Promise(r => setTimeout(r, 0));
+  const blk = app.scene.items.find(i => i.type === 'calc');
+  assert.ok(blk, 'a calc block');
+  assert.equal(blk.text, 'x = 2\n3x+1');
 });
