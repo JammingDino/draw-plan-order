@@ -1009,6 +1009,13 @@
 
     itemsInLasso(poly) {
       return this.near(U.boxFromPoints(poly, 2, 1)).filter(it => {
+        // a type that asks to be gone all the way round (a page): every corner of its outline inside
+        const xt = XT[it.type];
+        if (xt && xt.enclose) {
+          const o = this.outlinePoints(it);
+          for (let i = 0; i < o.length; i += 2) if (!U.pointInPolygon(o[i], o[i + 1], poly)) return false;
+          return true;
+        }
         const b = this.bbox(it);
         const c = U.boxCenter(b);
         if (U.pointInPolygon(c.x, c.y, poly)) return true;

@@ -167,6 +167,24 @@ more **spaces them evenly** across or down, keeping the outermost where
 they are. A group moves as one piece, and connectors follow what they
 join.
 
+### Pages
+
+The page tool (<kbd>F</kbd>) lays a sheet on the board: tap for A4, A3,
+A5, Letter or a 16:9 slide, upright or on its side, or drag out a page
+of your own size. A page can be plain or ruled with dots, a 5 mm grid,
+lines and a margin, or an engineering pad (5 mm squares, every fifth
+heavier). Pages sit behind everything and are picked only by their edge
+or their name, so you write, box-select and lasso on them as on the
+board — a lasso takes the page itself only when it goes all the way
+round. *Select with what is on it* (in its panel, its long-press menu,
+or a double-tap on its edge) picks up the page with its contents, to
+move them together.
+
+The **Pages** button in the zoom bar lists the pages, jumps to one,
+and adds the next, laid below the last (beside it, for one on its
+side). <kbd>Page Down</kbd> and <kbd>Page Up</kbd> step through them.
+Pages are what **Export PDF** prints, one sheet each, in their order.
+
 ### PDFs
 
 Drag a PDF onto the canvas (or ☰ → **Add a PDF**) and its pages are laid out
@@ -332,7 +350,7 @@ most of the rest, against one in twelve before; the notes themselves —
 
 `V` select · `G` lasso · `P` pen · `H` highlighter · `E` eraser · `R` rectangle ·
 `O` ellipse · `L` line · `A` arrow · `D` diamond · `T` text · `K` sticky ·
-`N` node · `C` connector · `M` measure (hold its button for dimensions) ·
+`N` node · `C` connector · `M` measure (hold its button for dimensions) · `F` page ·
 `Q` laser · `Space` pan · `Enter` finishes a polyline or a measured path
 
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
@@ -384,6 +402,7 @@ toast. Hiding the tab also forces a full save.
 | `js/cad.js` | Engineering drawing: dimensions, measuring, scale, snapping |
 | `js/press.js` | The long-press menu and the selection action bar |
 | `js/inkmath.js` | Handwritten maths, recognised and answered |
+| `js/frames.js` | Pages: sheets on the board, their rulings and the Pages list |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after
