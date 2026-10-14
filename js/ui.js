@@ -208,7 +208,7 @@
       for (const b of menu.querySelectorAll('[data-export]')) {
         b.onclick = () => {
           menu.hidden = true;
-          ({ png: () => app.exportPNG(), svg: () => app.exportSVG(), board: () => app.exportJSON() })[b.dataset.export]();
+          ({ pdf: () => D.exportPdf && D.exportPdf(app), png: () => app.exportPNG(), svg: () => app.exportSVG(), board: () => app.exportJSON() })[b.dataset.export]();
         };
       }
       const t = $('#board-title');
