@@ -55,9 +55,11 @@
       /* Extend the smoothed copy rather than rebuilding it: filtering the
          whole stroke on every sample is quadratic, and a pen at 240Hz makes
          that felt well before the stroke looks long. */
+      // the Smoothing setting pulls harder while the pen is slow, where a shaky hand shows
+      const amount = FH.liveAmount(this.opt.smooth || 0, n >= 3 ? U.dist(this.raw[n - 3], this.raw[n - 2], ev.x, ev.y) * this.app.camera.zoom : 0);
       if (this.raw.length <= 6) { this.sm = null; this.item.pts = this.raw.slice(); }
-      else if (!this.sm || this.sm.length + 3 !== this.raw.length) this.item.pts = this.sm = FH.smooth(this.raw);
-      else this.item.pts = FH.smoothStep(this.raw, this.sm);
+      else if (!this.sm || this.sm.length + 3 !== this.raw.length) this.item.pts = this.sm = FH.smooth(this.raw, amount);
+      else this.item.pts = FH.smoothStep(this.raw, this.sm, amount);
       this.item._path = null; this.item._lod = null; this.item._b = null;
       return true;
     }
@@ -134,6 +136,12 @@
 
       if (U.pathLength(RG.xy(item.pts)) < 1.2 && item.pts.length <= 6) {
         // a tap: leave a dot rather than nothing
+      }
+      /* Steadied once the pen lifts: the live filter can only look back,
+         this looks both ways, and finishes where the pen actually stopped. */
+      if (o.smooth > 0 && this.raw.length >= 15) {
+        const pts = FH.relax(this.raw, (1.5 + o.smooth * FH.RELAX_PX) / app.camera.zoom);
+        item.pts = pts; item._path = null; item._lod = null; item._b = null;
       }
       scene.begin('draw'); scene.add(item); scene.commit();
       app.afterEdit();

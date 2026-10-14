@@ -549,6 +549,7 @@
         this.group('Size', this.sizes(sizeList, o.size, s => o.size = s, o.color)),
         this.slider('Opacity', o.alpha, 0.1, 1, 0.05, v => o.alpha = v, v => Math.round(v * 100) + '%'),
         kind === 'pen' ? this.slider('Pressure', o.thinning, 0, 0.95, 0.05, v => o.thinning = v, v => Math.round(v * 100) + '%') : null,
+        this.slider('Smoothing', o.smooth || 0, 0, 1, 0.05, v => o.smooth = v, v => v ? Math.round(v * 100) + '%' : 'Off'),
         kind === 'pen' ? this.group('Behaviour',
           this.check('Hold to snap shapes', this.app.opts.general.holdToSnap, v => this.app.opts.general.holdToSnap = v),
           this.check('Scribble to erase', this.app.opts.general.scribbleErase, v => this.app.opts.general.scribbleErase = v)) : null
