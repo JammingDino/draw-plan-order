@@ -247,11 +247,24 @@ To check a reading, select the ink (lasso or marquee) and long-press
 it, or use the selection's action bar: **Solve this ink** shows what the
 strokes were read as, in a field to correct with one tap, with the
 answer, and **Insert result**, **Open in calculator** and **Teach**.
-Teach makes each symbol you corrected in place a template of your own,
-kept on this device (at most twelve per symbol), so the next one you
-write that way is read right. Double-tap an answer for the same panel.
-**Settings → Handwritten maths** turns solving as you write off, sets
-the decimal places and the answer colour, and forgets what you taught.
+Under the field, each symbol is shown with its own ink: tap one that was
+misread and pick what it really is, and it is learnt on the spot. Teach
+does the same for a correction typed into the field. Double-tap an
+answer for the same panel.
+
+**Train** (in that panel, or **Settings → Handwritten maths → Train…**)
+opens a pad that walks through every symbol, asking for each three
+times, and takes a sample when the pen rests; tap a symbol in its strip
+to jump to it. **Try it** reads whatever you write on the pad and says
+what it saw — tap the right symbol if it is wrong. Whatever you teach is
+a template of your own, kept on this device (at most twelve per symbol),
+and it comes first: ahead of the built-in shapes and even of the rules
+that settle the look-alikes, so a 1 you lean like a slash is read as a
+1 once you have taught it. It only takes over when it is plainly the
+closer match, so teaching a few odd symbols leaves the rest of your
+writing read as before. **Settings → Handwritten maths** also turns
+solving as you write off, sets the decimal places and the answer colour,
+and forgets what you taught.
 
 It keeps out of the way. Nothing is read until the pen rests; a line
 that uses a letter nothing defines, or does not work out, is left

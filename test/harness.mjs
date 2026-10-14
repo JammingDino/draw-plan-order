@@ -57,6 +57,8 @@ function stubElement(tag) {
     addEventListener() {}, removeEventListener() {},
     append(...k) { el.children.push(...k); },
     appendChild(k) { el.children.push(k); return k; },
+    replaceChildren(...k) { el.children = k; },
+    prepend(...k) { el.children.unshift(...k); },
     remove() { el.removed = true; },
     /* the overlay builds itself from an innerHTML string, so hand back a
        fresh stub for whatever it asks for rather than parsing the markup */
