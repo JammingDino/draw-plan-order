@@ -148,6 +148,25 @@ drawings, and for a pen alone — nothing needs a key held down.
 Long-press anywhere for *Measure from here*; on a line, *Dimension this*
 and *Set drawing scale…*.
 
+### Turning and lining things up
+
+Drag the ring on a stalk above any selection to **turn** it about its
+middle; it settles on 15° steps as it passes them (always, with Shift),
+and the angle rides beside the pen. **Ctrl+R** turns a quarter
+clockwise, **Ctrl+Shift+R** back, and the style panel's *Turn* row and
+the action bar's turn button do the same with a pen. One selected box
+has a **Turn** field beside W, H, X and Y, anticlockwise like every
+other angle on the board. Ink, lines and arrows have their points
+turned; shapes, text, notes, nodes, pictures and PDF pages keep the
+angle and are drawn, picked, erased, snapped to and exported turned.
+
+With two or more things selected, **Align** (in the style panel, or
+*Align…* on the action bar and the long-press menu) lines up their left
+edges, centres, right edges, tops, middles or bottoms, and with three or
+more **spaces them evenly** across or down, keeping the outermost where
+they are. A group moves as one piece, and connectors follow what they
+join.
+
 ### PDFs
 
 Drag a PDF onto the canvas (or ☰ → **Add a PDF**) and its pages are laid out
@@ -317,7 +336,7 @@ most of the rest, against one in twelve before; the notes themselves —
 `Q` laser · `Space` pan · `Enter` finishes a polyline or a measured path
 
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
-`Ctrl+G` group · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
+`Ctrl+G` group · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+0` reset zoom · `Shift+1` zoom to fit · `Ctrl+'` cycle grid ·
 `Ctrl+M` boards · `Alt`+drag duplicates · `Shift` constrains (15° steps
 for lines; square or circle for shapes) · `Alt` draws from the centre

@@ -1035,6 +1035,7 @@
           case 'v': return;                       // handled by the paste event
           case 'd': e.preventDefault(); this.duplicate(); return;
           case 'g': e.preventDefault(); this.toggleGroup(); return;
+          case 'r': if (this.selection.length) { e.preventDefault(); this.rotateSelection(e.shiftKey ? -90 : 90); } return;
           case 's': e.preventDefault(); this.saveNow(false, true); this.toast('Saved'); return;
           case 'm': e.preventDefault(); this.ui.openSheet(); return;
           case ',': e.preventDefault(); this.ui.openSettings(); return;
@@ -1376,6 +1377,77 @@
       if (!this.selection.length) return;
       this.scene.reorder(this.selection, mode);
       this.afterEdit();
+    }
+
+    /**
+     * Turn the selection by `deg` degrees, clockwise on screen, about the
+     * middle of its box: one undo step. An arrow end attached to
+     * something outside the selection lets go, as it does in a drag.
+     */
+    rotateSelection(deg) {
+      const sel = this.selection;
+      if (!sel.length) return;
+      const c = U.boxCenter(this.selectionBounds()), ids = new Set(sel.map(i => i.id));
+      this.scene.begin('turn');
+      for (const it of sel) {
+        this.scene.touch(it);
+        if (it.bind1 && !ids.has(it.bind1.id)) delete it.bind1;
+        if (it.bind2 && !ids.has(it.bind2.id)) delete it.bind2;
+        this.scene.rotateItem(it, c, deg * Math.PI / 180);
+      }
+      this.scene.commit();
+      this.afterEdit();
+    }
+
+    /**
+     * Line the selection up, or share out the space between it, as one
+     * undo step. A group moves as one piece; connectors are left to follow
+     * what they join. `mode`: left, hcentre, right, top, vcentre, bottom —
+     * against the selection's own box — or hspace, vspace, which keep the
+     * outermost pieces where they are and make the gaps between all of
+     * them equal.
+     */
+    alignSelection(mode) {
+      const units = this.alignUnits();
+      if (units.length < 2 || ((mode === 'hspace' || mode === 'vspace') && units.length < 3)) return;
+      const B = units.reduce((b, u) => U.unionBox(b, u.box), null);
+      const moves = new Map();
+      if (mode === 'hspace' || mode === 'vspace') {
+        const h = mode === 'hspace', lo = h ? 'x' : 'y', size = h ? 'w' : 'h';
+        units.sort((a, b) => (a.box[lo] + a.box[size] / 2) - (b.box[lo] + b.box[size] / 2));
+        const used = units.reduce((s, u) => s + u.box[size], 0);
+        const gap = (B[size] - used) / (units.length - 1);
+        let at = B[lo];
+        for (const u of units) { moves.set(u, h ? [at - u.box.x, 0] : [0, at - u.box.y]); at += u.box[size] + gap; }
+      } else {
+        for (const u of units) {
+          const b = u.box;
+          const dx = mode === 'left' ? B.x - b.x : mode === 'right' ? B.x2 - b.x2 : mode === 'hcentre' ? (B.x + B.w / 2) - (b.x + b.w / 2) : 0;
+          const dy = mode === 'top' ? B.y - b.y : mode === 'bottom' ? B.y2 - b.y2 : mode === 'vcentre' ? (B.y + B.h / 2) - (b.y + b.h / 2) : 0;
+          moves.set(u, [dx, dy]);
+        }
+      }
+      this.scene.begin('align');
+      for (const [u, [dx, dy]] of moves) {
+        if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) continue;
+        for (const it of u.items) this.scene.translate(it, dx, dy);
+      }
+      this.scene.commit();
+      this.afterEdit();
+    }
+
+    /** the selection as pieces that move together: a group is one, connectors are none */
+    alignUnits() {
+      const byGroup = new Map(), units = [];
+      for (const it of this.selection) {
+        if (it.type === 'edge') continue;
+        const key = it.group || it.id;
+        let u = byGroup.get(key);
+        if (!u) { u = { items: [], box: null }; byGroup.set(key, u); units.push(u); }
+        u.items.push(it);
+        u.box = U.unionBox(u.box, this.scene.bbox(it));
+      }
+      return units;
     }
 
     toggleGroup() {

@@ -10,7 +10,24 @@
      just the path data. */
   const iconOf = s => !s ? '' : /^\s*</.test(s) ? s : svg(s);
 
+  /* the Align row, in order: [mode, title] (App.alignSelection) */
+  const ALIGNS = [
+    ['left', 'Align left edges'], ['hcentre', 'Align centres, across'], ['right', 'Align right edges'],
+    ['top', 'Align tops'], ['vcentre', 'Align middles, up and down'], ['bottom', 'Align bottoms'],
+    ['hspace', 'Space evenly across'], ['vspace', 'Space evenly up and down']
+  ];
   const ICON = {
+    turnL: svg('M4.5 9.5A8 8 0 1 1 6 17|M4.5 4.5v5h5'),
+    turnR: svg('M19.5 9.5A8 8 0 1 0 18 17|M19.5 4.5v5h-5'),
+    turnH: svg('M5 12a7 7 0 0 1 13.4-2.8|M19 4.5v5h-5|M19 12a7 7 0 0 1-13.4 2.8|M5 19.5v-5h5'),
+    al_left: svg('M4 3.5v17|M7 7h11v3.5H7z|M7 13.5h7V17H7z'),
+    al_hcentre: svg('M12 3.5v17|M6 7h12v3.5H6z|M8.5 13.5h7V17h-7z'),
+    al_right: svg('M20 3.5v17|M6 7h11v3.5H6z|M10 13.5h7V17h-7z'),
+    al_top: svg('M3.5 4h17|M7 7h3.5v11H7z|M13.5 7H17v7h-3.5z'),
+    al_vcentre: svg('M3.5 12h17|M7 6h3.5v12H7z|M13.5 8.5H17v7h-3.5z'),
+    al_bottom: svg('M3.5 20h17|M7 6h3.5v11H7z|M13.5 10H17v7h-3.5z'),
+    al_hspace: svg('M3.5 4v16|M20.5 4v16|M7 8h3v8H7z|M14 8h3v8h-3z'),
+    al_vspace: svg('M4 3.5h16|M4 20.5h16|M8 7h8v3H8z|M8 14h8v3H8z'),
     select: svg('M5.5 3.2l13 7.6-5.9 1.7-2.6 5.6z'),
     lasso: svg('M12 4.6c4.1 0 7.5 2 7.5 4.5s-3.4 4.5-7.5 4.5-7.5-2-7.5-4.5S7.9 4.6 12 4.6z|M9.4 13.4c-.7 2 0 3.4 1.4 4.1|M10.9 17.5a1.4 1.4 0 1 1-1.5 2.2 1.4 1.4 0 0 1 1.5-2.2z'),
     pen: svg('M4 20l4.5-1.2L20 7.3a2 2 0 0 0 0-2.8l-.5-.5a2 2 0 0 0-2.8 0L5.2 15.5z|M14.5 6.5l3 3'),
@@ -751,10 +768,16 @@
       const g = D.geomBox(scene, it);
       const cx = g.x + g.w / 2, cy = g.y + g.h / 2;
       const norm = () => { if (it.w < 0) { it.x += it.w; it.w = -it.w; } if (it.h < 0) { it.y += it.h; it.h = -it.h; } };
+      // turned anticlockwise, as angles are read everywhere else; `rot` itself is clockwise on screen
+      const turn = it.rot ? -it.rot * 180 / Math.PI : 0;
       return this.group('Size and position',
         el('div', { class: 'num-pair' },
           len('W', g.w, w => { norm(); it.w = Math.max(w, 1e-6); }, { min: 1e-6 }),
           len('H', g.h, h => { norm(); it.h = Math.max(h, 1e-6); }, { min: 1e-6 })),
+        this.num('Turn', Math.round(turn * 100) / 100 || 0, { unit: '°', prec: 2, step: 15, wrap: 360, items, apply: d => {
+          const r = Math.atan2(Math.sin(-d * Math.PI / 180), Math.cos(-d * Math.PI / 180));
+          if (Math.abs(r) < 1e-9) delete it.rot; else it.rot = r;
+        } }),
         el('div', { class: 'num-pair' },
           this.num('X', cx * k, { unit, prec, step: C.stepFor(Math.max(g.w, g.h) * k), items, apply: x => { norm(); it.x = x / k - it.w / 2; } }),
           this.num('Y ↑', -cy * k, { unit, prec, step: C.stepFor(Math.max(g.w, g.h) * k), items, apply: y => { norm(); it.y = -y / k - it.h / 2; } })));
@@ -767,16 +790,28 @@
       return D.cad.calibrateGroup(this, Math.hypot(b.x - a.x, b.y - a.y));
     }
 
-    /** front, back, duplicate, group and delete, for whatever is selected */
+    /** front, back, duplicate, group and delete, for whatever is selected; turn; and align, for several */
     arrangeGroup(sel) {
       const app = this.app, grouped = sel.some(i => i.group);
-      return this.group('Arrange', el('div', { class: 'actions' },
-        iconBtn(ICON.front, 'Bring to front · ]', () => app.arrange('front')),
-        iconBtn(ICON.back, 'Send to back · [', () => app.arrange('back')),
-        iconBtn(ICON.dup, 'Duplicate · Ctrl+D', () => app.duplicate()),
-        grouped ? iconBtn(ICON.ungroup, 'Ungroup · Ctrl+Shift+G', () => app.toggleGroup())
-                : iconBtn(ICON.group, 'Group · Ctrl+G', () => app.toggleGroup()),
-        iconBtn(ICON.trash, 'Delete · Del', () => app.deleteSelection(), 'danger')));
+      const units = app.alignUnits ? app.alignUnits().length : 0;
+      return el('div', {},
+        this.group('Arrange', el('div', { class: 'actions' },
+          iconBtn(ICON.front, 'Bring to front · ]', () => app.arrange('front')),
+          iconBtn(ICON.back, 'Send to back · [', () => app.arrange('back')),
+          iconBtn(ICON.dup, 'Duplicate · Ctrl+D', () => app.duplicate()),
+          grouped ? iconBtn(ICON.ungroup, 'Ungroup · Ctrl+Shift+G', () => app.toggleGroup())
+                  : iconBtn(ICON.group, 'Group · Ctrl+G', () => app.toggleGroup()),
+          iconBtn(ICON.trash, 'Delete · Del', () => app.deleteSelection(), 'danger'))),
+        this.group('Turn', el('div', { class: 'actions' },
+          iconBtn(ICON.turnL, 'Turn 90° anticlockwise · Ctrl+Shift+R', () => app.rotateSelection(-90)),
+          iconBtn(ICON.turnR, 'Turn 90° clockwise · Ctrl+R', () => app.rotateSelection(90)),
+          iconBtn(ICON.turnH, 'Turn half way round', () => app.rotateSelection(180)))),
+        units >= 2 ? this.group('Align', el('div', { class: 'actions' },
+          ...ALIGNS.map(([k, title]) => {
+            const b = iconBtn(ICON['al_' + k], title, () => app.alignSelection(k));
+            if ((k === 'hspace' || k === 'vspace') && units < 3) b.disabled = true;
+            return b;
+          }))) : null);
     }
 
     /* ── boards sheet ────────────────────────────────────────────── */

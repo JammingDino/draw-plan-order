@@ -155,6 +155,30 @@
   /* The rectangle a thing really occupies, as opposed to its bbox, which
      is padded for the stroke and the shadow. Snap points and box-relative
      attachments are measured against this. */
+  /** points [x,y,…] turned by `ang` radians about (cx, cy) */
+  function turnPoints(pts, cx, cy, ang) {
+    const c = Math.cos(ang), s = Math.sin(ang), out = new Array(pts.length);
+    for (let i = 0; i < pts.length; i += 2) {
+      const dx = pts[i] - cx, dy = pts[i + 1] - cy;
+      out[i] = cx + dx * c - dy * s; out[i + 1] = cy + dx * s + dy * c;
+    }
+    return out;
+  }
+  /** an angle in (−π, π], with a whisker either side of a right angle let go */
+  function normAngle(a) {
+    a = Math.atan2(Math.sin(a), Math.cos(a));
+    const q = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
+    return Math.abs(a - q) < 1e-9 ? Math.atan2(Math.sin(q), Math.cos(q)) : a;
+  }
+  /** turned by an angle about its own centre, rather than by its points */
+  const BOX_TYPES = new Set(['text', 'note', 'node', 'image', 'pdfpage']);
+  function rotatesAsBox(it) {
+    if (it.type === 'shape') return !isLine(it);
+    if (BOX_TYPES.has(it.type)) return true;
+    const xt = XT[it.type];
+    return !!xt && xt.rotate === 'box';
+  }
+
   function geomBox(scene, it) {
     if (it.type === 'shape' || it.type === 'node' || it.type === 'note' || it.type === 'image' || it.type === 'pdfpage')
       return U.box(it.x, it.y, it.x + (it.w || 0), it.y + (it.h || 0));
@@ -639,6 +663,14 @@
           if (!(b.w >= 0 && b.h >= 0)) b = U.emptyBox();
         }
       }
+      /* A turned box is boxed by its turned corners; the box it was
+         turned from stays on the result as `local`, about whose centre
+         everything — painting, hit tests, outlines, snaps — turns it. */
+      if (item.rot && rotatesAsBox(item)) {
+        const c = U.boxCenter(b), L = b;
+        b = U.boxFromPoints(turnPoints([b.x, b.y, b.x2, b.y, b.x2, b.y2, b.x, b.y2], c.x, c.y, item.rot), 2, 0);
+        b.local = L;
+      }
       if (item.type !== 'edge') item._ends = refsOf(item).length ? this._edgeEnds(item) : undefined;
       item._b = b;
       return b;
@@ -725,6 +757,15 @@
      * says it cannot be attached to.
      */
     snapPoints(it, depth = 0) {
+      const out = this._snapPoints(it, depth), b = it.rot ? this.bbox(it) : null;
+      if (b && b.local) {
+        const c = U.boxCenter(b.local);
+        for (const p of out) { const q = turnPoints([p.x, p.y], c.x, c.y, it.rot); p.x = q[0]; p.y = q[1]; }
+      }
+      return out;
+    }
+
+    _snapPoints(it, depth) {
       const out = [];
       const P = (k, x, y, t) => out.push({ k, x, y, t });
       const rect = g => {
@@ -871,7 +912,16 @@
     }
 
     /* ── hit testing ──────────────────────────────────────────────── */
-    outlinePoints(item) {
+    /** the item's outline in board space; `local`: before a turned box is turned */
+    outlinePoints(item, local) {
+      const pts = this._outline(item);
+      const b = !local && item.rot ? this.bbox(item) : null;
+      if (!b || !b.local) return pts;
+      const c = U.boxCenter(b.local);
+      return turnPoints(pts, c.x, c.y, item.rot);
+    }
+
+    _outline(item) {
       switch (item.type) {
         case 'stroke': return D.recognize.xy(item.pts);
         case 'edge': return this.edgePath(item);
@@ -902,11 +952,19 @@
     }
 
     hitItem(item, x, y, tol) {
-      const b = this.bbox(item);
+      let b = this.bbox(item);
       if (!U.pointInBox(x, y, U.growBox(b, tol))) return false;
+      // a turned box: the point is turned back, and tested against the box as it was
+      const turned = !!b.local;
+      if (turned) {
+        b = b.local;
+        const c = U.boxCenter(b), p = turnPoints([x, y], c.x, c.y, -item.rot);
+        x = p[0]; y = p[1];
+        if (!U.pointInBox(x, y, U.growBox(b, tol))) return false;
+      }
       if (item.type === 'text' || item.type === 'note' || item.type === 'node' || item.type === 'image' || item.type === 'pdfpage') return true;
       if (item.type === 'shape' && item.fill && item.fill !== 'none' && !isOpen(item))
-        return U.pointInPolygon(x, y, this.outlinePoints(item));
+        return U.pointInPolygon(x, y, this.outlinePoints(item, turned));
       const xt = XT[item.type];
       if (xt) {
         // the scene comes last, for a type that is drawn where its attachments put it
@@ -915,7 +973,7 @@
         return true;                                   // inside the box, which is all it asked
       }
       const w = (item.size || 2) / 2 + tol;
-      return U.pointNearPolyline(x, y, this.outlinePoints(item), w);
+      return U.pointNearPolyline(x, y, this.outlinePoints(item, turned), w);
     }
 
     /** candidate items overlapping `box`, back → front */
@@ -1032,6 +1090,45 @@
           if (sx * sy < 0) item.sweep = -(item.sweep ?? 270);
         }
       }
+    }
+
+    /**
+     * Turn an item by `ang` radians (clockwise on screen, as y runs down)
+     * about `origin`. Ink, lines and a connector's loose ends have their
+     * points turned; a box — a shape, text, note, node, picture or page —
+     * is carried round by its centre and keeps the angle in `rot`, about
+     * that centre. A feature's type turns itself (`rotate`), turns as a
+     * box (`rotate: 'box'`), or is only carried round.
+     */
+    rotateItem(item, origin, ang) {
+      this.touch(item);
+      const ox = origin.x, oy = origin.y;
+      if (item.type === 'stroke') {
+        const p = item.pts, c = Math.cos(ang), s = Math.sin(ang);
+        for (let i = 0; i < p.length; i += 3) {
+          const dx = p[i] - ox, dy = p[i + 1] - oy;
+          p[i] = ox + dx * c - dy * s; p[i + 1] = oy + dx * s + dy * c;
+        }
+        return;
+      }
+      if (item.type === 'edge') {
+        for (const e of [item.from, item.to]) if (!e.id) { const q = turnPoints([e.x, e.y], ox, oy, ang); e.x = q[0]; e.y = q[1]; }
+        return;
+      }
+      if (isLine(item)) {
+        const q = turnPoints([item.x, item.y, item.x + item.w, item.y + item.h], ox, oy, ang);
+        item.x = q[0]; item.y = q[1]; item.w = q[2] - q[0]; item.h = q[3] - q[1];
+        if (item.via) item.via = turnPoints(item.via, ox, oy, ang);
+        return;
+      }
+      const xt = XT[item.type];
+      if (xt && typeof xt.rotate === 'function') { xt.rotate(item, origin, ang, this); return; }
+      const b = this.bbox(item), c = U.boxCenter(b.local || b);
+      const q = turnPoints([c.x, c.y], ox, oy, ang);
+      this.translate(item, q[0] - c.x, q[1] - c.y);
+      if (!rotatesAsBox(item)) return;
+      const r = normAngle((item.rot || 0) + ang);
+      if (Math.abs(r) < 1e-9) delete item.rot; else item.rot = r;
     }
 
     contentBounds() {
@@ -1266,6 +1363,8 @@
   D.nearestAlong = nearestAlong;
   D.refsOf = refsOf;
   D.geomBox = geomBox;
+  D.turnPoints = turnPoints;
+  D.rotatesAsBox = rotatesAsBox;
   D.FONT_STACK = FONT_STACK;
   D.HAND_STACK = HAND_STACK;
   D.clone = clone;
