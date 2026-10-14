@@ -10,6 +10,9 @@ write `=`, and drawing tools with real arrowheads, dimensions, a drawing
 scale and snapping. Every part of it works with only a stylus or a finger
 — press and hold anywhere for a menu.
 
+What is planned next, and what is known to be missing, is in
+[ROADMAP.md](ROADMAP.md).
+
 ## Running it
 
 Double-click **`start.cmd`**. It serves the folder on <http://localhost:5273>
