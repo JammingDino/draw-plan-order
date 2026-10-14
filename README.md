@@ -148,6 +148,19 @@ drawings, and for a pen alone — nothing needs a key held down.
 Long-press anywhere for *Measure from here*; on a line, *Dimension this*
 and *Set drawing scale…*.
 
+### Circuit and mechanics symbols
+
+The symbol tool (<kbd>S</kbd>) has a picker of resistors (zigzag and
+IEC), capacitors, inductors, diodes, DC, AC and current sources, a
+battery, a switch, ground, a junction dot and an op-amp; and pin and
+roller supports, a fixed wall, springs, dampers, a mass and a pulley.
+Tap to place one — the tool stays out for the next. Every terminal is a
+snap point: draw a line, arrow or polyline from one terminal to another
+and it stays attached, following the parts as they move or turn, so a
+circuit is parts and then wires. A selected symbol takes a label
+(`R1 = 4.7 kΩ`) that stays upright however the part is turned, and can
+be changed for another part in place.
+
 ### Turning and lining things up
 
 Drag the ring on a stalk above any selection to **turn** it about its
@@ -364,7 +377,7 @@ most of the rest, against one in twelve before; the notes themselves —
 
 `V` select · `G` lasso · `P` pen · `H` highlighter · `E` eraser · `R` rectangle ·
 `O` ellipse · `L` line · `A` arrow · `D` diamond · `T` text · `K` sticky ·
-`N` node · `C` connector · `M` measure (hold its button for dimensions) · `F` page · `Y` graph ·
+`N` node · `C` connector · `M` measure (hold its button for dimensions) · `F` page · `Y` graph · `S` symbols ·
 `Q` laser · `Space` pan · `Enter` finishes a polyline or a measured path
 
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
@@ -427,6 +440,7 @@ toast. Hiding the tab also forces a full save.
 | `js/frames.js` | Pages: sheets on the board, their rulings and the Pages list |
 | `js/exportpdf.js` | Export to PDF, a sheet per page, written by hand |
 | `js/graph.js` | Graphs of y = f(x), plotted through the maths engine |
+| `js/symbols.js` | Circuit and mechanics symbols, with terminals to wire to |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after
