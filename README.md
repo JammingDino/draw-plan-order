@@ -167,6 +167,10 @@ be changed for another part in place.
 
 ### Turning and lining things up
 
+The selection box turns with what it holds: select a turned box (or
+several turned alike) and it is framed at its angle, with its handles on
+its turned corners, and resizing stretches it along its own sides; turn
+a selection and its box goes round with it rather than growing.
 Drag the ring on a stalk above any selection to **turn** it about its
 middle; it settles on 15° steps as it passes them (always, with Shift),
 and the angle rides beside the pen. **Ctrl+R** turns a quarter

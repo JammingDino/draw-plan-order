@@ -142,3 +142,41 @@ test('Ctrl+R turns the selection a quarter clockwise, Ctrl+Shift+R back', () => 
   key('R', { shiftKey: true });
   assert.equal(n.rot, undefined);
 });
+
+test('the selection box turns with what it holds, rather than growing', () => {
+  const { D, app, made: [r, s] } = rig(D => [
+    D.make.shape({ kind: 'rect', x: 0, y: 0, w: 200, h: 20, size: 0 }),
+    D.make.shape({ kind: 'rect', x: 0, y: 100, w: 200, h: 20, size: 0, rot: 0.5 })
+  ]);
+  app.select([r]);
+  app.rotateSelection(30);
+  let f = app.selectionFrame();
+  assert.ok(near(f.rot, Math.PI / 6) && near(f.w, 200) && near(f.h, 20), `framed at its angle, its own size: ${f.w} × ${f.h}`);
+  // picked up again later, a turned box is framed at its angle
+  app.select([]); app.select([s]);
+  f = app.selectionFrame();
+  assert.ok(near(f.rot, 0.5) && near(f.w, 200) && near(f.h, 20));
+  // two turned differently: square again
+  app.select([app.scene.get(r.id), s]);
+  assert.equal(app.selectionFrame().rot, 0);
+});
+
+test('a turned box resizes along its own sides, and stays a turned box', () => {
+  const { D, app, made: [r] } = rig(D => [D.make.shape({ kind: 'rect', x: 0, y: 0, w: 100, h: 40, size: 0, rot: Math.PI / 4 })]);
+  app.setTool('select');
+  app.select([r]);
+  app.camera.x = 0; app.camera.y = 0; app.camera.zoom = 1;
+  const box = app.renderer.drawSelection(app.selection, {});
+  app.selBox = box;
+  const e = app.renderer.handleRects(box).find(h => h.k === 'e');
+  const tool = app.tools.select, at = (x, y) => ({ x, y, sx: x, sy: y, samples: [] });
+  const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
+  tool.down(at(ex, ey));
+  assert.equal(tool.mode, 'resize');
+  // drag the east handle 50 further along the box's own length (45° down-right)
+  const d = 50 / Math.SQRT2;
+  tool.move(at(ex + d, ey + d)); tool.up(at(ex + d, ey + d));
+  const it = app.scene.get(r.id);
+  assert.ok(near(it.rot, Math.PI / 4), 'still at its angle');
+  assert.ok(Math.abs(it.w - 150) < 0.5 && Math.abs(it.h - 40) < 0.5, `longer, not fatter: ${it.w} × ${it.h}`);
+});
