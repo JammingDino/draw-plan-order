@@ -72,7 +72,7 @@
       obj(p + 1, '<< >>', enc.encode(`q ${w} 0 0 ${h} 0 0 cm /Im0 Do Q`));
       obj(p + 2, `<< /Type /XObject /Subtype /Image /Width ${s.img.w} /Height ${s.img.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /${s.img.filter} >>`, s.img.data);
     });
-    obj(info0, `<< /Title ${pdfText(info.title || 'Board')} /Producer ${pdfText(info.producer || 'Draw Plan Order')} >>`);
+    obj(info0, `<< /Title ${pdfText(info.title || 'Board')} /Producer ${pdfText(info.producer || 'Workings')} >>`);
     const xref = len;
     let x = `xref\n0 ${info0 + 1}\n0000000000 65535 f \n`;
     for (let i = 1; i <= info0; i++) x += String(offsets[i]).padStart(10, '0') + ' 00000 n \n';

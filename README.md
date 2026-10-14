@@ -1,4 +1,6 @@
-# Draw · Plan · Order
+# Workings
+
+*Show your workings.* (Formerly Draw · Plan · Order.)
 
 An endless canvas for pen, keyboard and decision trees. Plain HTML/CSS/JS —
 no build step, no dependencies, no account. Everything lives on your machine.
@@ -50,7 +52,7 @@ handling dropped images itself.
 The desktop app saves boards as plain files in a folder you choose under
 **Settings → Saving** (<kbd>Ctrl</kbd>+<kbd>,</kbd>), one `.dpo` file per
 board. Point it at an Obsidian vault and it uses the Draw · Plan · Order
-plugin's layout and folder, so the same boards open in either. Until a
+Obsidian plugin's layout and folder, so the same boards open in either. Until a
 folder is chosen, boards live in the app's own WebView2 profile, and they
 are copied into the folder the first time one is set. The browser keeps its
 own boards; move work across with ↧ Export .board / ↥ Import.
