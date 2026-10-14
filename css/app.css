@@ -474,3 +474,7 @@ body.fold-view #viewbar-tab{display:grid}
   letter-spacing: .1px;
 }
 #perf canvas { display: block; border-radius: 3px; background: #ffffff0f; }
+
+/* a field a pen writes into through the app's own pad (U.penField): no
+   system handwriting panel over it */
+.pen-field{touch-action:none}

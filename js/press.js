@@ -361,7 +361,11 @@
       if (b.sel !== app.selection || b.ver !== app.scene.version) this.buildBar();
       if (!b.w) { this.hideBar(); return; }
 
-      let y = box.y - BAR_GAP - b.h;
+      /* above the selection, and above its turn handle too — over it, the
+         bar hid the one handle that has nowhere else to be */
+      let top = box.y;
+      if (app.renderer.handleRects) for (const h of app.renderer.handleRects(box)) if (h.y < top) top = h.y;
+      let y = top - BAR_GAP - b.h;
       if (y < BAR_TOP) {
         y = box.y + box.h + BAR_GAP;
         // a selection that fills the window: inside its top edge instead

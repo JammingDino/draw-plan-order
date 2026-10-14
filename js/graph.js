@@ -104,11 +104,15 @@
    * null. What the prompts to graph go by: an equation in x the
    * calculator, a calc block or the pen could not answer.
    */
-  function graphable(src, scope) {
+  function graphable(src, scope, opts = {}) {
     if (!D.math.loaded || !src) return null;
     let s = String(src).trim().replace(/=\s*$/, '').trim();
     const def = /^\s*(?:y|f\s*\(\s*x\s*\))\s*=(?!=)\s*(.+)$/i.exec(s);
     if (def) s = def[1].trim();
+    /* Only a curve that was asked for: "y = 3x", "f(x) = 3x". A bare
+       "12x" is a sum waiting for its x, not a graph. (`bare` lets the
+       Plot button, which was asked, take one.) */
+    else if (!opts.bare) return null;
     if (!s || /=/.test(s)) return null;                   // an equation to solve, not a function
     if (!/(^|[^A-Za-z_θ])x([^A-Za-z_(]|$)/.test(s)) return null;
     if (scope && scope.has && scope.has('x') && !def) return null;   // x is a number here: answered, not graphed
@@ -312,6 +316,7 @@
     const field = (label, value, set, cls) => {
       const f = el('input', { class: 'graph-num' + (cls ? ' ' + cls : ''), type: 'text', inputmode: 'decimal', spellcheck: 'false', 'aria-label': label });
       f.value = String(value);
+      if (D.inkmath) U.penField(f, () => D.inkmath.writePad(app, { title: label, start: f.value, near: f, use: t => { f.value = t; f.dispatchEvent(new Event('input')); } }));
       f.addEventListener('input', () => {
         const v = D.math.loaded ? D.math.evaluate(f.value, D.math.scope(), { angle: 'rad' }) : { ok: true, value: +f.value };
         const n = v && v.ok ? toNum(v.value) : NaN;
@@ -327,6 +332,8 @@
         f.addEventListener('input', () => { it.fns = it.fns.slice(); it.fns[k] = f.value; changed(); });
         // the calculator's keys type into whichever function was last tapped
         f.addEventListener('focus', () => { if (D.calc && D.calc.typeInto) D.calc.typeInto(f); });
+        if (D.inkmath) U.penField(f, () => D.inkmath.writePad(app, { title: 'Write y =', start: f.value, near: box,
+          use: text => { f.value = text.replace(/^\s*y\s*=\s*/i, ''); f.dispatchEvent(new Event('input')); } }));
         const write = el('button', { class: 'icon graph-w', type: 'button', title: 'Write it with the pen', 'aria-label': 'Write this function with the pen',
           html: '<svg viewBox="0 0 24 24"><path d="M4 20l4.5-1.2L20 7.3a2 2 0 0 0 0-2.8l-.5-.5a2 2 0 0 0-2.8 0L5.2 15.5z"/><path d="M14.5 6.5l3 3"/></svg>',
           onclick: () => D.inkmath && D.inkmath.writePad(app, { title: `Write y${it.fns.length > 1 ? ' ' + (k + 1) : ''} =`, start: f.value, near: box,
@@ -361,7 +368,7 @@
       el('div', { class: 'graph-acts' },
         el('button', { class: 'btn graph-add', type: 'button', onclick: () => { it.fns = it.fns.concat(''); changed(); rows(); const fs = list.querySelectorAll('.graph-fn'); if (fs.length) fs[fs.length - 1].focus(); } }, '+ Another'),
         D.inkmath ? el('button', { class: 'btn graph-add', type: 'button', onclick: () => D.inkmath.writePad(app, { title: 'Write y =', near: box,
-          use: text => { it.fns = it.fns.filter(s => s.trim()).concat(text.replace(/^\s*y\s*=\s*/i, '')); changed(); rows(); } }) }, '✎ Write one') : null,
+          use: text => { it.fns = it.fns.filter(s => s.trim()).concat(text.replace(/^\s*y\s*=\s*/i, '')); changed(); rows(); } }), html: PEN_SVG + '<span>Write one</span>' }) : null,
         D.calc ? el('button', { class: 'btn graph-add', type: 'button', onclick: () => {
           D.calc.open();
           const fs = list.querySelectorAll('.graph-fn'), f = fs[fs.length - 1];
@@ -400,6 +407,7 @@
     return { el: box, close };
   }
 
+  const PEN_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 20l4.5-1.2L20 7.3a2 2 0 0 0 0-2.8l-.5-.5a2 2 0 0 0-2.8 0L5.2 15.5z"/><path d="M14.5 6.5l3 3"/></svg>';
   const PRESETS = [['±1', -1, 1], ['±10', -10, 10], ['±100', -100, 100], ['0…10', 0, 10], ['±2π', -2 * Math.PI, 2 * Math.PI], ['0…2π', 0, 2 * Math.PI]];
   const fmtRange = v => Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : Math.abs(Math.abs(v) - 2 * Math.PI) < 1e-9 ? (v < 0 ? '-2pi' : '2pi') : String(+v.toFixed(4));
 

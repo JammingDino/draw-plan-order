@@ -74,15 +74,16 @@ test('a graph is a box: boxed, turned, exported, and re-sampled when its formula
   assert.ok(it.rot, 'turns as a box');
 });
 
-test('graphable: a function of x — bare, "y =" or "f(x) =" — but not a sum, an equation, or x where x is known', () => {
-  assert.equal(G.graphable('x^2 - 3'), 'x^2 - 3');
+test('graphable: only a curve asked for — "y =" or "f(x) =" — and never a sum, an equation, or x where x is known', () => {
   assert.equal(G.graphable('y = sin(x)'), 'sin(x)');
   assert.equal(G.graphable('f(x) = 3x² − 2 ='), '3x² − 2');
-  assert.equal(G.graphable('2 + 3'), null, 'no x');
-  assert.equal(G.graphable('2x + 3 = 11'), null, 'an equation to solve');
-  assert.equal(G.graphable('max(x)'), 'max(x)');
-  assert.equal(G.graphable('sqrt(-1 - x^2)'), null, 'no real values anywhere');
+  assert.equal(G.graphable('x^2 - 3'), null, 'bare: a sum waiting for its x');
+  assert.equal(G.graphable('12x ='), null);
+  assert.equal(G.graphable('x^2 - 3', null, { bare: true }), 'x^2 - 3', 'unless Plot asked');
+  assert.equal(G.graphable('y = 2 + 3'), null, 'no x');
+  assert.equal(G.graphable('2x + 3 = 11', null, { bare: true }), null, 'an equation to solve');
+  assert.equal(G.graphable('y = sqrt(-1 - x^2)'), null, 'no real values anywhere');
   const scope = D.math.scope(); scope.set('x', 4);
-  assert.equal(G.graphable('x^2', scope), null, 'x is a number there: it gets an answer');
+  assert.equal(G.graphable('x^2', scope, { bare: true }), null, 'x is a number there: it gets an answer');
   assert.equal(G.graphable('y = x^2', scope), 'x^2', 'unless it says y =');
 });

@@ -14,7 +14,8 @@
      drops one at its usual size.
    · Wire (in the strip, or W) draws wires: drag from a terminal to a
      terminal and a right-angled wire joins them, attached at both ends,
-     its corner moving as the parts move.
+     its corner moving as the parts move. Where three or more conductors
+     meet — a T, or two wires on one terminal — a junction dot is drawn.
    · A strip of the parts sits along the bottom while the tool is out:
      one tap picks the next part, no panel to hunt through.
    · Parts are named as they are placed — R1, R2, C1, V1, k1 — and a
@@ -332,6 +333,7 @@
     closeLabel();
     const input = el('input', { class: 'symbol-label', type: 'text', spellcheck: 'false', autocomplete: 'off', placeholder: (SYMBOLS[it.kind] || {}).prefix ? nextName(app.scene, it.kind) + ' = …' : 'Label' });
     input.value = it.label || '';
+    if (D.inkmath) U.penField(input, () => D.inkmath.writePad(app, { title: 'Write the label', start: input.value, near: input, use: t => { input.value = t; closeLabel(); } }));
     input.addEventListener('keydown', e => {
       e.stopPropagation();
       if (e.key === 'Enter') { e.preventDefault(); closeLabel(); }
@@ -388,7 +390,7 @@
       if (o.mode === 'wire') {
         if (!b) return null;
         return D.make.shape({ kind: 'line', x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y, size: o.size || 2, color: o.color || 'ink',
-          head1: 'none', head2: 'none', elbow: this.dir || 'h', ...(a.ref ? { bind1: a.ref } : {}), ...(b.ref ? { bind2: b.ref } : {}) });
+          head1: 'none', head2: 'none', elbow: this.dir || 'h', wire: true, ...(a.ref ? { bind1: a.ref } : {}), ...(b.ref ? { bind2: b.ref } : {}) });
       }
       const S = SYMBOLS[o.kind] || SYMBOLS.resistor;
       if (b && two(S)) return spanning(app, o.kind, a, b);
@@ -423,6 +425,50 @@
       }
     }
   }
+
+  /* ── junctions ──────────────────────────────────────────────────
+     Where three or more conductors meet, a wiring diagram puts a dot:
+     three wire ends together, two wires on a part's terminal (its lead is
+     the third), or a wire ending on the middle of another (that one runs
+     on both ways). Two wires end to end, or one on a terminal, are only a
+     corner or a connection, and get none. Worked out from the board once
+     each time it changes, and drawn by the wires themselves. */
+  const NEAR = 0.75;
+  let jmemo = { scene: null, ver: -1, map: new Map() };
+  const isWire = it => it.type === 'shape' && D.isLine(it) && (it.wire || it.elbow);
+  function junctions(scene) {
+    if (jmemo.scene === scene && jmemo.ver === scene.version) return jmemo.map;
+    const wires = scene.items.filter(isWire);
+    const paths = new Map(wires.map(w => [w, scene.linePath(w)]));
+    const terms = [];
+    for (const it of scene.items) if (it.type === 'symbol') for (const p of scene.snapPoints(it)) if (p.t === 'end') terms.push(p);
+    const ends = [];
+    for (const w of wires) { const p = paths.get(w), n = p.length; ends.push({ w, x: p[0], y: p[1] }, { w, x: p[n - 2], y: p[n - 1] }); }
+    const map = new Map();
+    for (const e of ends) {
+      let count = 1;
+      for (const o of ends) if (o !== e && Math.abs(o.x - e.x) < NEAR && Math.abs(o.y - e.y) < NEAR) count++;
+      for (const t of terms) if (Math.abs(t.x - e.x) < NEAR && Math.abs(t.y - e.y) < NEAR) count++;
+      // on the middle of another wire: it carries on both sides
+      for (const w of wires) {
+        if (w === e.w) continue;
+        const p = paths.get(w);
+        if (Math.hypot(p[0] - e.x, p[1] - e.y) < NEAR || Math.hypot(p[p.length - 2] - e.x, p[p.length - 1] - e.y) < NEAR) continue;
+        if (U.pointNearPolyline(e.x, e.y, p, NEAR)) count += 2;
+      }
+      if (count >= 3) {
+        if (!map.has(e.w)) map.set(e.w, []);
+        map.get(e.w).push({ x: e.x, y: e.y });
+      }
+    }
+    jmemo = { scene, ver: scene.version, map };
+    return map;
+  }
+  D.wires = {
+    dotsOf: (scene, w) => junctions(scene).get(w) || [],
+    dotR: w => Math.max(2.6, (w.size || 2) * 1.7),
+    junctions
+  };
 
   /* ── the strip: the parts, along the bottom, while the tool is out ── */
   const STRIP = {
