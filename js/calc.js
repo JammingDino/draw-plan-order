@@ -599,7 +599,8 @@
       this.into = el('div', { class: 'calc-into' });
       const foot = el('footer', { class: 'calc-foot' },
         B('btn', 'Put this on the board as a calc block, with the lines its variables come from', svg(ICON.block) + 'Insert block', () => this.insertBlock()),
-        B('btn', 'Put this on the board as text', svg(ICON.text) + 'Insert text', () => this.insertText()));
+        B('btn', 'Put this on the board as text', svg(ICON.text) + 'Insert text', () => this.insertText()),
+        B('btn', 'Plot this as y = f(x) on the board', svg('M4 4v16h16|M6.5 15c2-6 3.5-8 5.5-8s3 4 4.5 4 2-2 2.5-3') + 'Plot', () => this.plot()));
       this.body = el('div', { class: 'calc-body' }, this.vars, this.tabs, this.pad, foot);
       this.root = el('section', { class: 'glass calc-panel', id: 'calc-panel', role: 'dialog', 'aria-label': 'Calculator', hidden: '' },
         head, this.hist, this.line, this.out, this.into, this.body);
@@ -931,6 +932,15 @@
      * the selected calc block, if one is selected; otherwise a new one in
      * the middle of the view.
      */
+    /** the line as a graph of y against x, beside the panel (js/graph.js) */
+    plot() {
+      const app = this.app, src = this.current();
+      if (!src) { app.toast('Type a function of x first, like sin(x) or x^2 − 3'); return; }
+      if (!D.graph) return;
+      if (!/(^|[^A-Za-z_])x([^A-Za-z_(]|$)/.test(src)) app.toast('No x in that: it plots as a flat line');
+      D.graph.add(app, this.clearSpot(), { fns: [src.replace(/^\s*y\s*=\s*/, '')] }, { edit: false });
+    }
+
     insertBlock() {
       const app = this.app, src = this.current();
       if (!src) { app.toast('Type a sum first'); return; }
