@@ -195,7 +195,9 @@
     setBoard(board) {
       if (this.board && this.board.id !== board.id) { D.pdf.clear(); this.renderer.forgetPictures(); this._assets = new Map(); }
       this.board = board;
-      this.scene.load(board.doc);
+      const doc = board.doc;
+      this.scene.load(doc);
+      if (this.scene.loaded.newer) this.keepNewer(board, doc);
       this.movePicturesOut();
       this.camera.load(readView(board.id) || board.camera);
       $('#board-title').value = board.name;
@@ -1893,6 +1895,25 @@
       });
     }
 
+    /* A board saved by a newer version of the app (format.js). It opens
+       and its items survive, but a field whose meaning changed could be
+       saved back wrong — so before anything here writes over it, the
+       board as it arrived is kept as a board of its own. Once a session:
+       reopening it must not pile up copies. */
+    keepNewer(board, doc) {
+      const kept = this._keptNewer || (this._keptNewer = new Set());
+      if (kept.has(board.id)) return;
+      kept.add(board.id);
+      const copy = Object.assign({}, board, {
+        id: U.uid(), name: `${board.name} (as saved by a newer version)`,
+        doc: JSON.parse(JSON.stringify(doc))
+      });
+      delete copy.file;
+      D.store.save(copy).catch(err => console.error('[dpo] keeping the newer board', err));
+      setTimeout(() => this.toast(
+        `This board was saved by a newer version of Workings. Update to edit it safely — a copy as it was is kept as “${copy.name}”.`), 700);
+    }
+
     importFile(file) {
       const fr = new FileReader();
       fr.onload = async () => {
@@ -1900,9 +1921,10 @@
           const j = JSON.parse(fr.result);
           const doc = j.doc || j;
           const b = D.store.newBoard(j.name || file.name.replace(/\.[^.]+$/, ''));
-          /* meta carries the drawing scale (see Scene.meta); a board
-             without one saves without the key, so keep it that way */
-          b.doc = doc.meta ? { v: 1, meta: doc.meta, items: doc.items || [] } : { v: 1, items: doc.items || [] };
+          /* the doc as it came, version and all: Scene.load brings an
+             older one up to date (format.js) and keeps a newer one's keys */
+          b.doc = Object.assign({}, doc, { items: doc.items || [] });
+          if (!b.doc.v) b.doc.v = 1;
           b.assets = [];
           for (const [id, a] of Object.entries(j.assets || {})) {
             await D.store.putAsset(id, D.store.fromB64(a.b64), { name: a.name, type: a.type });

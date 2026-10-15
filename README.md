@@ -468,6 +468,23 @@ mirrored to `localStorage` on the way out (synchronous, so it always
 completes) and replayed on the next start, with a *Recovered N unsaved items*
 toast. Hiding the tab also forces a full save.
 
+### The saved format
+
+A board is saved as plain JSON, `{ v, meta, items }`, and `v` says which
+version of that shape it is. When a change would make an older copy of
+the app misread a board — a field that changes meaning, a unit, an item
+type renamed — the version goes up and an upgrade step is added in
+`js/format.js`, so every board ever saved still opens: it is brought up to
+date as it loads. Adding an optional field or a new kind of item is not
+such a change. `test/fixtures/boards/` keeps a board as each version
+saved it, with one of every kind of item, and the tests open, draw and
+save every one. The comment at the top of `js/format.js` has the steps.
+
+A board saved by a *newer* version still opens, with nothing it does not
+understand thrown away. The app says so, and keeps the board as it
+arrived as a separate board, *… (as saved by a newer version)*, before
+anything is written over it.
+
 ## Layout of the code
 
 | File | Role |
@@ -476,6 +493,7 @@ toast. Hiding the tab also forces a full save.
 | `js/ext.js` | The extension registry, `D.ext`: how features plug into the core |
 | `js/freehand.js` | Pressure → stroke outline (one filled polygon per stroke) |
 | `js/recognize.js` | Shape recognition and scribble detection |
+| `js/format.js` | The saved format's version, and the steps that upgrade an old board |
 | `js/scene.js` | Document model, undo/redo, bounding boxes, edge routing |
 | `js/camera.js` | Infinite-canvas viewport |
 | `js/render.js` | Canvas painting and SVG export |
