@@ -83,8 +83,8 @@ Roughly in order of how much each would help a student working with a pen.
 
 ### PDF export
 
-- Vector output, with ink, shapes and text as paths and text, for smaller
-  files that stay sharp at any zoom. Today each sheet is a 200 dpi picture.
+- Shapes, connectors and text boxes as vector too (ink and imported PDF
+  pages are vector now; the rest is still painted at 200 dpi).
 
 ### Graphs
 
