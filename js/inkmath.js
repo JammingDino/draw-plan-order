@@ -629,6 +629,7 @@
       if (have == null || d < have) best.set(t.ch, d);
       if (d < bound) bound = d;
     }
+    /** @type {any} the candidates, best first, carrying the cloud they were matched as */
     const out = [...best].map(([ch, d]) => ({ ch, d: d + sizePenalty(ch, box, H) })).sort((a, b) => a.d - b.d);
     // a shape no template comes near in proportion (a long wavy line): an unknown, never an empty answer
     if (!out.length) out.push({ ch: '?', d: UNKNOWN });

@@ -24,7 +24,8 @@
 (function (D) {
   'use strict';
   const U = D.util, el = U.el;
-  const CAD = D.cad = {};
+  const CAD = {};
+  D.cad = CAD;
   let APP = null;                       // the app, once a tool has been made for it
 
   /* ── units and scale ──────────────────────────────────────────────── */
@@ -474,6 +475,7 @@
     mctx.font = `${ts}px ${D.FONT_STACK}`;
     const tw = mctx.measureText(s).width;
     const lines = [], heads = [];
+    /** @type {any} where the words go; given its middle (cx, cy, hw, hh) once placed */
     let text;
     const ext = (p, q) => {
       const l = U.dist(p.x, p.y, q.x, q.y);

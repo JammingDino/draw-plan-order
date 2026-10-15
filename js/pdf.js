@@ -25,7 +25,8 @@
 (function (D) {
   'use strict';
   const U = D.util;
-  const P = D.pdf = {};
+  const P = {};
+  D.pdf = P;
 
   /* ── budgets ─────────────────────────────────────────────────────
      Sized for a laptop, not a workstation. The sharp cache holds the

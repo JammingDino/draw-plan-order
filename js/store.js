@@ -186,7 +186,8 @@
     return n;
   }
 
-  const S = D.store = {};
+  const S = {};
+  D.store = S;
   S.migrated = 0;
 
   S.init = async () => {

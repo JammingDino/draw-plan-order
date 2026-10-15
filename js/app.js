@@ -12,6 +12,9 @@
       this.perf = D.Perf ? new D.Perf(this) : null;   // ?perf or Ctrl+Shift+P
       this.selection = [];
       this.clipboard = [];
+      /* set once the app is built (see the bottom of this file) */
+      /** @type {any} a debounced save, with cancel() */ this.saveDebounced = null;
+      /** @type {() => void} */ this.saveViewDebounced = null;
       this.pointer = null;
       this.pointers = new Map();
       this.spaceDown = false;
@@ -185,8 +188,9 @@
         b.hidden = false;
         b.onclick = async () => {
           b.hidden = true;
-          this.installPrompt.prompt();
-          await this.installPrompt.userChoice;
+          const ask = /** @type {any} */ (this.installPrompt);
+          ask.prompt();
+          await ask.userChoice;
           this.installPrompt = null;
         };
       });
@@ -1536,7 +1540,7 @@
     syncThemeInk() {
       const dark = document.documentElement.dataset.theme === 'dark';
       // the installed app paints its title bar with this
-      const meta = document.getElementById('theme-color');
+      const meta = /** @type {HTMLMetaElement} */ (document.getElementById('theme-color'));
       if (meta) meta.content = dark ? '#0e1014' : '#f6f6f8';
       const wasInk = ['#14161c', '#f2f4f8'];
       for (const key of ['pen', 'shape', 'text', 'node']) {
@@ -1564,7 +1568,7 @@
       this._hint = h;
     }
     hideHint() { if (this._hint) { this._hint.remove(); this._hint = null; } }
-    focusCanvas() { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
+    focusCanvas() { const a = /** @type {HTMLElement} */ (document.activeElement); if (a && a.blur) a.blur(); }
 
     /* ── persistence ──────────────────────────────────────────────── */
     afterEdit() { this.markDirty(); this.requestDraw(); if (this.ui) this.ui.refresh(); D.ext.emit('change', this); }
@@ -1924,7 +1928,7 @@
       const fr = new FileReader();
       fr.onload = async () => {
         try {
-          const j = JSON.parse(fr.result);
+          const j = JSON.parse(/** @type {string} */ (fr.result));
           const doc = j.doc || j;
           const b = D.store.newBoard(j.name || file.name.replace(/\.[^.]+$/, ''));
           /* the doc as it came, version and all: Scene.load brings an

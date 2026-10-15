@@ -47,8 +47,8 @@
   class Renderer {
     constructor(app) {
       this.app = app;
-      this.base = document.getElementById('base');
-      this.live = document.getElementById('live');
+      this.base = /** @type {HTMLCanvasElement} */ (document.getElementById('base'));
+      this.live = /** @type {HTMLCanvasElement} */ (document.getElementById('live'));
       this.bctx = this.base.getContext('2d');
       /* The live layer, and #ahead over it, ask for a desynchronized
          context: on Chromium (Edge, WebView2) that lets their pixels reach
@@ -58,13 +58,14 @@
          graphics driver that tears with it (Settings → Pen and touch,
          read at start-up because a context cannot change once made). */
       const fast = lowLatencyWanted();
-      const attrs = fast ? { desynchronized: true } : undefined;
+      /** @type {CanvasRenderingContext2DSettings} */
+      const attrs = fast ? { desynchronized: true } : {};
       this.lctx = this.live.getContext('2d', attrs);
       /* Where the pen is about to be: the pointer's predicted positions,
          drawn past the end of the stroke and wiped every frame, so the
          ink seems to stay under the nib. Its own canvas, because the live
          layer is drawn to incrementally and cannot take anything back. */
-      this.ahead = document.getElementById('ahead');
+      this.ahead = /** @type {HTMLCanvasElement} */ (document.getElementById('ahead'));
       this.actx = this.ahead ? this.ahead.getContext('2d', attrs) : null;
       this._aheadDirty = false;
       const got = this.lctx.getContextAttributes ? this.lctx.getContextAttributes() : null;

@@ -11,12 +11,14 @@
     "app:build": "tauri build",
     "app:dev": "tauri dev",
     "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc -p jsconfig.json",
     "bench": "node test/bench.mjs",
     "bench:app": "node test/bench-app.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
-    "playwright-core": "^1.47.2"
+    "playwright-core": "^1.47.2",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "mathjs": "15.2.0",

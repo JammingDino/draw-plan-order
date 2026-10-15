@@ -23,7 +23,7 @@
 
   class Taps {
     /**
-     * @param app  { camera, undo(), redo(), requestDraw(), flash(text) }
+     * @param {object} app  camera, undo(), redo(), requestDraw(), flash(text)
      *             undo() and redo() return what they did, or null
      */
     constructor(app, now = () => performance.now()) {
@@ -141,10 +141,10 @@
 
   class Hold {
     /**
-     * @param on     { ring(h), fire(h), abort(h) } — ring when the ring
+     * @param {object} on     ring(h), fire(h), abort(h) — ring when the ring
      *               should appear, abort if it was showing and the hold
      *               came to nothing. h is { id, type, x, y, t0, delay }.
-     * @param clock  { now(), set(fn, ms), clear(id) }, for the tests;
+     * @param {object} [clock]  now(), set(fn, ms), clear(id), for the tests;
      *               the real timers otherwise
      */
     constructor(on, clock) {

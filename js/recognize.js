@@ -5,7 +5,8 @@
 (function (D) {
   'use strict';
   const U = D.util;
-  const R = D.recognize = {};
+  const R = {};
+  D.recognize = R;
 
   /** strip pressure: [x,y,p,…] → [x,y,…] */
   R.xy = pts => {
@@ -33,8 +34,8 @@
 
   /**
    * @param  raw  flat [x,y,p,…]
-   * @param  opt  {snapAngle:true}
-   * @return null | {kind, box|x1..y2, rotate?}
+   * @param {object} opt  snapAngle: true
+   * @return {object|null}  kind, box (or x1..y2), rotate?
    */
   R.recognise = (raw, opt = {}) => {
     const p = R.xy(raw);
