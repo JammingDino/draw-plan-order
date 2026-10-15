@@ -23,6 +23,8 @@
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d');
       this.onOpen = onOpen;
+      /** @type {(() => void) | null} called after each paint (the board list hides its still) */
+      this.onPaint = null;
       this.camera = new D.Camera();
       this.camera.min = 0.02;
       this.scene = null;

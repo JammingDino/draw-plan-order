@@ -469,7 +469,7 @@
     /** put the caret in a field of the style panel, once it has been built */
     focusField(id) {
       setTimeout(() => {
-        const f = document.getElementById('f-' + id);
+        const f = /** @type {HTMLInputElement} */ (document.getElementById('f-' + id));
         if (f) { f.focus(); if (f.select) f.select(); }
       }, 30);
     }
@@ -825,7 +825,7 @@
       $('#sheet-close').onclick = () => this.closeSheet();
       $('#sheet-backdrop').onclick = () => { this.closeSheet(); this.closeSettings(); };
       $('#settings-close').onclick = () => this.closeSettings();
-      for (const a of document.querySelectorAll('[data-link]')) {
+      for (const a of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('[data-link]'))) {
         a.onclick = e => { e.preventDefault(); D.desktop.open(D.desktop.links[a.dataset.link]); };
       }
       $('#act-new').onclick = () => app.newBoard();

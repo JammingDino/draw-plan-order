@@ -5,7 +5,8 @@
 (function (D) {
   'use strict';
   const U = D.util;
-  const F = D.freehand = {};
+  const F = {};
+  D.freehand = F;
 
   /* Low-pass filter on raw pointer samples. Removes the jitter a
      digitiser produces without adding the lag of a big moving average. */
@@ -164,7 +165,7 @@
    * instead of darkening everywhere it overlaps itself.
    *
    * @param rawPts flat [x,y,pressure,…]
-   * @param o      {size, thinning, taper, cap}
+   * @param {object} o  size, thinning, taper, cap
    * @returns      array of flat [x,y,…] closed polygons
    */
   F.shapes = (rawPts, o) => {

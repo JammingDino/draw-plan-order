@@ -660,7 +660,7 @@
     }
     hide() {
       // keys go back to the board, not to a line nobody can see
-      if (this.root.contains(document.activeElement)) document.activeElement.blur();
+      if (this.root.contains(document.activeElement)) /** @type {HTMLElement} */ (document.activeElement).blur();
       this.root.hidden = true;
       this.open = false;
       const b = document.getElementById('btn-calc');

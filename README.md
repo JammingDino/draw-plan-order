@@ -494,6 +494,7 @@ anything is written over it.
 | `js/ext.js` | The extension registry, `D.ext`: how features plug into the core |
 | `js/freehand.js` | Pressure → stroke outline (one filled polygon per stroke) |
 | `js/recognize.js` | Shape recognition and scribble detection |
+| `types/globals.d.ts` | What the type check is told about `window` |
 | `js/format.js` | The saved format's version, and the steps that upgrade an old board |
 | `js/scene.js` | Document model, undo/redo, bounding boxes, edge routing |
 | `js/camera.js` | Infinite-canvas viewport |
@@ -642,6 +643,18 @@ key and installed copies can no longer be updated, only reinstalled.
 npm test        the geometry, document and ink layers, plus the PDF cache
 npm run bench   the numbers behind the performance work
 ```
+
+```
+npm run typecheck   TypeScript reads js/ as it is, with no build step
+```
+
+The source stays plain JavaScript. `jsconfig.json` has TypeScript check it
+as it stands — class fields, DOM calls, JSDoc types — and CI runs it with
+the tests. It checks each file on its own terms: the `D.*` namespace that
+joins the files is untyped for now (`types/globals.d.ts`), so a call into
+another file is not checked yet. Write `@param {type} name  what it is`
+when a comment gives a type; braces straight after the name are read as
+a type too, so `@param o {size, …}` breaks the check.
 
 `test/harness.mjs` runs the browser-global modules under node with a small
 DOM stub, so the source needs no build step and no module loader to be

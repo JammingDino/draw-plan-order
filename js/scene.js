@@ -786,6 +786,7 @@
     }
 
     _snapPoints(it, depth) {
+      /** @type {any} the points, and `ink` when they are a stroke's */
       const out = [];
       const P = (k, x, y, t) => out.push({ k, x, y, t });
       const rect = g => {
