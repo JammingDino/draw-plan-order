@@ -95,7 +95,6 @@ the last row: answer less often when unsure, and be right when it does.
 
 - Move what is written on a page when the page itself is dragged, without
   *Select with what is on it* first.
-- Reorder pages by dragging them in the Pages list.
 - Page numbers and a header or footer on export.
 - More page templates: Cornell notes, an engineering drawing title block,
   graph paper with axes.
