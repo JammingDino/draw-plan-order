@@ -38,13 +38,37 @@
   const zoomBucket = z => Math.round(Math.log2(z) * 3);
   const bucketZoom = b => 2 ** (b / 3);
 
+  /* Settings → Pen and touch → Low-latency ink, mirrored to localStorage
+     by the app because the canvases are made before the prefs are read. */
+  function lowLatencyWanted() {
+    try { return localStorage.getItem('dpo:lowLatency') !== '0'; } catch (_) { return true; }
+  }
+
   class Renderer {
     constructor(app) {
       this.app = app;
       this.base = document.getElementById('base');
       this.live = document.getElementById('live');
       this.bctx = this.base.getContext('2d');
-      this.lctx = this.live.getContext('2d');
+      /* The live layer, and #ahead over it, ask for a desynchronized
+         context: on Chromium (Edge, WebView2) that lets their pixels reach
+         the screen without waiting on the page's compositor, which is a
+         frame or so off the time from nib to ink. It is a hint — where it
+         is not honoured nothing changes — and it can be turned off, for a
+         graphics driver that tears with it (Settings → Pen and touch,
+         read at start-up because a context cannot change once made). */
+      const fast = lowLatencyWanted();
+      const attrs = fast ? { desynchronized: true } : undefined;
+      this.lctx = this.live.getContext('2d', attrs);
+      /* Where the pen is about to be: the pointer's predicted positions,
+         drawn past the end of the stroke and wiped every frame, so the
+         ink seems to stay under the nib. Its own canvas, because the live
+         layer is drawn to incrementally and cannot take anything back. */
+      this.ahead = document.getElementById('ahead');
+      this.actx = this.ahead ? this.ahead.getContext('2d', attrs) : null;
+      this._aheadDirty = false;
+      const got = this.lctx.getContextAttributes ? this.lctx.getContextAttributes() : null;
+      this.lowLatency = !!(got && got.desynchronized);
       this.dpr = 1;
       this.w = 0; this.h = 0;
       this.grid = 'dots';
@@ -55,7 +79,8 @@
     resize() {
       const dpr = this.dpr = Math.min(devicePixelRatio || 1, 2.5);
       const w = this.w = innerWidth, h = this.h = innerHeight;
-      for (const c of [this.base, this.live]) {
+      for (const c of [this.base, this.live, this.ahead]) {
+        if (!c) continue;
         c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
         c.style.width = w + 'px'; c.style.height = h + 'px';
       }
@@ -879,6 +904,31 @@
       const ctx = this.lctx;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, this.live.width, this.live.height);
+      this.clearAhead();
+    }
+
+    clearAhead() {
+      if (!this.actx || !this._aheadDirty) return;
+      this.actx.setTransform(1, 0, 0, 1, 0, 0);
+      this.actx.clearRect(0, 0, this.ahead.width, this.ahead.height);
+      this._aheadDirty = false;
+    }
+
+    /**
+     * The stroke carried on to where the pen is predicted to be: `pts`
+     * ([x, y, p, …], world) is the end of the stroke followed by the
+     * predicted points. Drawn as the stroke would be, on #ahead, which is
+     * wiped first — the next frame replaces it with real ink.
+     */
+    paintAhead(item, pts) {
+      this.clearAhead();
+      if (!this.actx || pts.length < 6) return;
+      const ctx = this.actx;
+      this.worldTransform(ctx);
+      ctx.globalAlpha = item.alpha ?? 1;
+      ctx.fillStyle = U.color(item.color);
+      ctx.fill(FH.path(FH.shapes(pts, { size: item.size, thinning: item.thinning })));
+      this._aheadDirty = true;
     }
 
     liveWorld() { const ctx = this.lctx; this.worldTransform(ctx); return ctx; }
