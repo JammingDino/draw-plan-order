@@ -5,6 +5,7 @@
   /* Item types registered by feature files (see ext.js). Looked up only
      where a built-in type would have fallen through. */
   const XT = D.ext.items;
+  const FMT = D.format;      // format.js: the saved version and its upgrades
 
   const FONT_STACK = '"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif';
   const HAND_STACK = '"Segoe Print","Bradley Hand","Comic Sans MS",cursive';
@@ -255,6 +256,12 @@
          board and undone like an edit to an item. */
       this.meta = {};
       this.metaRev = 0;                // moves whenever meta does, for what formats with it
+      /* The board's format version (format.js), and any top-level keys
+         this copy of the app does not know — a newer version's — kept so
+         that saving here does not drop them. A board from a newer version
+         keeps its own number, so that version does not upgrade it twice. */
+      this.v = FMT ? FMT.VERSION : 1;
+      this.extra = null;
       this.undoStack = [];
       this.redoStack = [];
       this.tx = null;
@@ -1161,7 +1168,20 @@
 
     /* ── serialisation ────────────────────────────────────────────── */
     toJSON() {
-      return this.hasMeta() ? { v: 1, meta: clone(this.meta), items: this.items.map(strip) } : { v: 1, items: this.items.map(strip) };
+      const doc = { v: this.v };
+      if (this.hasMeta()) doc.meta = clone(this.meta);
+      if (this.extra) Object.assign(doc, clone(this.extra));
+      doc.items = this.items.map(strip);
+      return doc;
+    }
+
+    /** what docBytes() writes ahead of the items: everything but them, in toJSON's order */
+    _docHead() {
+      if (this.v === 1 && !this.extra && !this.hasMeta()) return DOC_HEAD;
+      const head = { v: this.v };
+      if (this.hasMeta()) head.meta = this.meta;
+      if (this.extra) Object.assign(head, this.extra);
+      return ENCODER.encode(JSON.stringify(head).slice(0, -1) + ',"items":[');
     }
 
     hasMeta() { for (const _ in this.meta) return true; return false; }
@@ -1185,7 +1205,7 @@
       const items = this.items, n = items.length;
       const parts = new Array(n);
       // a board with settings of its own says so ahead of its items, as toJSON does
-      const head = this.hasMeta() ? ENCODER.encode('{"v":1,"meta":' + JSON.stringify(this.meta) + ',"items":[') : DOC_HEAD;
+      const head = this._docHead();
       let size = head.length + DOC_TAIL.length + Math.max(0, n - 1);
       for (let i = 0; i < n; i++) size += (parts[i] = itemBytes(items[i])).length;
       const out = new Uint8Array(size);
@@ -1217,7 +1237,21 @@
       this._warm = 0;
       return true;
     }
+    /**
+     * Open a saved doc. It is brought up to this version's format first
+     * (format.js); `this.loaded` says what it was, for the app to warn
+     * about a board from a newer version.
+     */
     load(doc) {
+      const up = FMT ? FMT.upgrade(doc) : { doc, from: 1, newer: false };
+      doc = up.doc;
+      this.loaded = { from: up.from, newer: up.newer };
+      this.v = up.newer ? up.from : (FMT ? FMT.VERSION : 1);
+      this.extra = null;
+      for (const k in doc) {
+        if (k === 'v' || k === 'meta' || k === 'items') continue;
+        (this.extra || (this.extra = {}))[k] = clone({ k: doc[k] }).k;
+      }
       this.items = []; this.byId.clear();
       this.meta = doc.meta && typeof doc.meta === 'object' ? clone(doc.meta) : {};
       this.metaRev++;
