@@ -1228,7 +1228,11 @@
         this.setToggle('Scribble to erase', 'Scribble back and forth over ink to rub it out', g.scribbleErase, v => set('scribbleErase', v)),
         this.setToggle('Snap to grid', 'Shapes, notes and nodes line up with the paper', g.snapGrid, v => set('snapGrid', v)),
         this.setToggle('Fingers pan and zoom', 'A finger moves the board instead of drawing, so a resting hand leaves no marks', g.touchPan, v => set('touchPan', v)),
-        this.setToggle('Keep the tool', 'Stay on the shape, note or node tool after making one', g.stickyTools, v => set('stickyTools', v)))];
+        this.setToggle('Keep the tool', 'Stay on the shape, note or node tool after making one', g.stickyTools, v => set('stickyTools', v)),
+        this.setToggle('Low-latency ink', 'Draws a few milliseconds ahead of the pen, and lets the ink skip a step on its way to the screen. Turn off if the ink flickers or tears; the second part changes the next time the app starts', g.lowLatency !== false, v => {
+          set('lowLatency', v);
+          try { localStorage.setItem('dpo:lowLatency', v ? '1' : '0'); } catch (_) { }
+        }))];
     }
 
     setUpdates(cfg) {

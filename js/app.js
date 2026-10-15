@@ -21,7 +21,7 @@
       this.anim = false;
 
       this.opts = {
-        general: { holdToSnap: true, scribbleErase: true, snapGrid: false, touchPan: true, stickyTools: true },
+        general: { holdToSnap: true, scribbleErase: true, snapGrid: false, touchPan: true, stickyTools: true, lowLatency: true },
         pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.6, smooth: 0.5 },
         highlighter: { color: '#ffe066', size: 22, alpha: 0.4, smooth: 0.5 },
         eraser: { mode: 'object', size: 26 },
@@ -847,6 +847,12 @@
       const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       for (const s of (list.length ? list : [e])) samples.push(this.mkEv(s));
       const ev = this.mkEv(e, samples);
+      /* where the pen is about to be, for the pen tool to draw ahead of
+         the ink (Renderer.paintAhead); never part of the stroke itself */
+      if (e.getPredictedEvents && this.opts.general.lowLatency !== false) {
+        const ahead = e.getPredictedEvents();
+        if (ahead.length) ev.predicted = ahead.map(p => this.mkEv(p));
+      }
       this.pointer = ev;
 
       /* armed: inside the slop it waits; past it a selection begins, and
