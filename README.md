@@ -305,6 +305,27 @@ the block or change the settings they were made under. `D.math` (in
 `js/math.js`) and `D.calc` (in `js/calc.js`) are documented at the top of
 each file, for anything else that wants an answer worked out.
 
+### Typeset maths
+
+Write `$…$` in a text box or a sticky note and what is between is set as
+maths — `$\sigma = \frac{F}{A}$`, `$x^2 + y^2 = r^2$`,
+`$\sqrt{b^2 - 4ac}$` — and `$$…$$` sets it in display style, over several
+lines if you like (`\begin{aligned} … \end{aligned}`). Editing shows the
+source; the board shows it set, and the SVG export keeps it vector. A
+dollar is maths only the way Pandoc reads it, so "$5 and $10" stays money;
+`\$` is always a dollar sign.
+
+Select a calc block, a handwritten answer or a graph and the action bar
+(or the long-press menu) offers **Copy as LaTeX**, for a report, and
+**Typeset beside it**, which sets it on the board next to the original. A
+calc block comes out as aligned working — `M &= F\cdot L = 6~\mathrm{kN}\cdot\mathrm{m}` —
+with the names it sets written as variables, not the units math.js
+would take them for.
+
+The typesetter is MathJax 3 (Apache-2.0, vendored under `vendor/mathjax`
+with every TeX extension built in, so nothing is fetched), loaded the
+first time a board shows some maths.
+
 ### Graphs
 
 The graph tool (<kbd>Y</kbd>), *New graph here* on the long-press menu,
@@ -543,6 +564,7 @@ anything is written over it.
 | `js/recognize.js` | Shape recognition and scribble detection |
 | `types/globals.d.ts` | What the type check is told about `window` |
 | `js/merge.js` | Two copies of a board, changed on two machines, merged item by item |
+| `js/tex.js` | Typeset maths in text boxes and notes; LaTeX out of calc blocks and answers |
 | `js/format.js` | The saved format's version, and the steps that upgrade an old board |
 | `js/scene.js` | Document model, undo/redo, bounding boxes, edge routing |
 | `js/camera.js` | Infinite-canvas viewport |

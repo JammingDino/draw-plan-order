@@ -722,8 +722,26 @@
       ctx.textBaseline = 'alphabetic';
       ctx.textAlign = it.align || 'left';
       const w = it.autoWidth ? L.width : it.w;
+      if (L.rich) { this.drawRich(ctx, L, it.x, it.y, w, it.align, U.color(it.color), it.size || 18); return; }
       const ax = it.align === 'center' ? it.x + w / 2 : it.align === 'right' ? it.x + w : it.x;
       L.lines.forEach((ln, i) => ctx.fillText(ln, ax, it.y + i * L.lh + L.base));
+    }
+
+    /* Lines of words and typeset maths (tex.js): words as text, maths as
+       its picture once the typesetter has made it, and as its source,
+       faintly, until then. `bottom` stops before a line that would not fit. */
+    drawRich(ctx, L, x, y, w, align, colour, size, bottom = Infinity) {
+      ctx.textAlign = 'left';
+      for (const ln of L.rich) {
+        if (y + ln.top + ln.h > bottom) break;
+        const off = align === 'center' ? (w - ln.w) / 2 : align === 'right' ? w - ln.w : 0;
+        for (const r of ln.runs) {
+          if (r.s != null) { ctx.fillText(r.s, x + off + r.x, y + ln.y); continue; }
+          const pic = D.tex.picture(r.tex, size, r.display, colour);
+          if (pic) ctx.drawImage(pic, x + off + r.x, y + ln.y - r.asc, r.w, r.asc + r.desc);
+          else { ctx.save(); ctx.globalAlpha *= 0.4; ctx.fillText(r.tex, x + off + r.x, y + ln.y); ctx.restore(); }
+        }
+      }
     }
 
     drawNote(ctx, it) {
@@ -738,6 +756,7 @@
       const t = { text: it.text, x: it.x + pad, y: it.y + pad, w: it.w - pad * 2, size: it.size, color: it.textColor || '#22252c', align: it.align, font: it.font };
       const L = this.app.scene.layout(t);
       ctx.font = L.font; ctx.fillStyle = U.color(t.color); ctx.textBaseline = 'alphabetic'; ctx.textAlign = t.align || 'left';
+      if (L.rich) { this.drawRich(ctx, L, t.x, t.y, t.w, t.align, U.color(t.color), t.size || 16, it.y + it.h); return; }
       const ax = t.align === 'center' ? t.x + t.w / 2 : t.align === 'right' ? t.x + t.w : t.x;
       L.lines.forEach((ln, i) => { if (t.y + (i + 1) * L.lh < it.y + it.h) ctx.fillText(ln, ax, t.y + i * L.lh + L.base); });
     }
@@ -1467,6 +1486,22 @@
     const w = it.autoWidth ? L.width : it.w;
     const anchor = it.align === 'center' ? 'middle' : it.align === 'right' ? 'end' : 'start';
     const ax = it.align === 'center' ? it.x + w / 2 : it.align === 'right' ? it.x + w : it.x;
+    if (L.rich) {
+      // words as text, maths as the typesetter's own SVG, so it stays vector
+      const colour = U.color(it.color), size = it.size || 18;
+      let out = '';
+      for (const ln of L.rich) {
+        const off = it.align === 'center' ? (w - ln.w) / 2 : it.align === 'right' ? w - ln.w : 0;
+        for (const r of ln.runs) {
+          const x = U.round(it.x + off + r.x, 1), y = U.round(it.y + ln.y, 1);
+          if (r.s != null) { out += `<text x="${x}" y="${y}" font-family="${family}" font-size="${size}" fill="${colour}" xml:space="preserve">${U.escapeXml(r.s)}</text>`; continue; }
+          const svg = D.tex.svg(r.tex, size, r.display, colour);
+          out += svg ? svg.replace('<svg', `<svg x="${x}" y="${U.round(it.y + ln.y - r.asc, 1)}"`)
+            : `<text x="${x}" y="${y}" font-family="${family}" font-size="${size}" fill="${colour}" opacity="0.4">${U.escapeXml(r.tex)}</text>`;
+        }
+      }
+      return `<g${op}>${out}</g>`;
+    }
     return `<g${op}>` + L.lines.map((ln, i) =>
       `<text x="${U.round(ax, 1)}" y="${U.round(it.y + i * L.lh + L.base, 1)}" text-anchor="${anchor}" font-family="${family}" font-size="${it.size}" fill="${U.color(it.color)}" xml:space="preserve">${U.escapeXml(ln)}</text>`).join('') + '</g>';
   }
