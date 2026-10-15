@@ -285,6 +285,11 @@
     frame() {
       const r = this.renderer;
       if (this.perf) this.perf.frameStart();
+      const t0 = this.active || this.tool, inking = !!(t0.incremental && t0.item);
+      /* The ink layer holds a stroke in board space: a view that moves
+         under it makes it wrong, so it goes at once when nothing is being
+         written — and a finished stroke goes when its frames are up. */
+      if (!inking && r.inkRetire && (this.needPan || this.needZoom)) r.clearInk();
       if (this.needBase || this.needPan || this.needZoom) {
         const full = this.needBase, zoom = this.needZoom && !full;
         this.needBase = this.needPan = this.needZoom = false;
@@ -338,6 +343,9 @@
           }
         }
         if (this.perf) this.perf.mark('live');
+      }
+      if (r.inkRetire && !inking) {
+        if (--r.inkRetire <= 0) r.clearInk(); else this.schedule();
       }
       if (this.editor.active) this.editor.place();
       if (this.perf) this.perf.frameEnd();
@@ -853,12 +861,6 @@
       const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       for (const s of (list.length ? list : [e])) samples.push(this.mkEv(s));
       const ev = this.mkEv(e, samples);
-      /* where the pen is about to be, for the pen tool to draw ahead of
-         the ink (Renderer.paintAhead); never part of the stroke itself */
-      if (e.getPredictedEvents && this.opts.general.lowLatency !== false) {
-        const ahead = e.getPredictedEvents();
-        if (ahead.length) ev.predicted = ahead.map(p => this.mkEv(p));
-      }
       this.pointer = ev;
 
       /* armed: inside the slop it waits; past it a selection begins, and
