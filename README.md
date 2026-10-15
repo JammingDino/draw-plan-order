@@ -469,6 +469,25 @@ mirrored to `localStorage` on the way out (synchronous, so it always
 completes) and replayed on the next start, with a *Recovered N unsaved items*
 toast. Hiding the tab also forces a full save.
 
+### A board changed on two machines
+
+Boards saved as files (the desktop app's **Settings → Saving**) are often
+in a synced folder — OneDrive, Dropbox, an Obsidian vault — and the same
+board can be changed on two machines between syncs. The desktop app
+remembers each board file as it last read or wrote it, and will not save
+over one that has changed since. Instead it reads the other copy and
+merges the two, item by item, against the board as both started
+(`js/merge.js`): what either side added, moved or rubbed out is kept, and
+a toast says how much came in. Where the same thing was changed both
+ways, yours stays on the board and theirs is kept as a separate board,
+*… (changed elsewhere, date)*, so nothing is lost. Coming back to the
+window checks too, so a board changed on the laptop is up to date on the
+Surface before you write on it. After a merge that changed anything, undo
+starts again.
+
+The browser keeps boards in its own storage, which nothing else writes
+to, so this is the desktop app's alone.
+
 ### The saved format
 
 A board is saved as plain JSON, `{ v, meta, items }`, and `v` says which
@@ -495,6 +514,7 @@ anything is written over it.
 | `js/freehand.js` | Pressure → stroke outline (one filled polygon per stroke) |
 | `js/recognize.js` | Shape recognition and scribble detection |
 | `types/globals.d.ts` | What the type check is told about `window` |
+| `js/merge.js` | Two copies of a board, changed on two machines, merged item by item |
 | `js/format.js` | The saved format's version, and the steps that upgrade an old board |
 | `js/scene.js` | Document model, undo/redo, bounding boxes, edge routing |
 | `js/camera.js` | Infinite-canvas viewport |

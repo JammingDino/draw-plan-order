@@ -138,7 +138,10 @@
           board.file ? { 'dpo-file': encodeURIComponent(board.file) } : {})
       }),
       del: k => invoke('dpo_del', { key: k }),
-      keys: () => invoke('dpo_keys')
+      keys: () => invoke('dpo_keys'),
+      /* changed on disk by something else since this window read or wrote
+         it: another machine, through the sync, or the Obsidian plugin */
+      changed: id => invoke('dpo_board_changed', { id })
     };
   }
 
@@ -273,16 +276,31 @@
 
   S.load = async id => backend.get('b:' + id);
 
-  /** `force` also brings the board's card in the index up to date */
+  /**
+   * `force` also brings the board's card in the index up to date.
+   *
+   * A board whose file was changed elsewhere since it was read (see
+   * dpo_board_changed in the desktop shell) is not written over: this
+   * throws an error with `conflict` set, for the app to merge the two
+   * (App.mergeElsewhere) and save again.
+   */
   S.save = async (board, force) => {
     board.updated = Date.now();
     const key = 'b:' + board.id;
-    if (!texts.has(board)) await backend.set(key, board);
-    else if (backend.setBytes) await backend.setBytes(key, S.boardBytes(board), board);
-    else if (backend.setText) await backend.setText(key, S.boardText(board));
-    else await backend.set(key, board);
+    try {
+      if (!texts.has(board)) await backend.set(key, board);
+      else if (backend.setBytes) await backend.setBytes(key, S.boardBytes(board), board);
+      else if (backend.setText) await backend.setText(key, S.boardText(board));
+      else await backend.set(key, board);
+    } catch (err) {
+      if (String(err && err.message || err).startsWith('dpo-conflict')) throw Object.assign(new Error('changed elsewhere'), { conflict: true });
+      throw err;
+    }
     await S.touchIndex(board, force);
   };
+
+  /** has this board's file been changed by something else since it was read? Only files can be */
+  S.changed = async id => backend.changed ? !!(await backend.changed(id)) : false;
 
   /* ── boards whose contents are already serialised ─────────────────
      The open board's contents come from Scene.docBytes(), which is cheap

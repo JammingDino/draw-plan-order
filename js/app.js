@@ -202,6 +202,7 @@
       const doc = board.doc;
       this.scene.load(doc);
       if (this.scene.loaded.newer) this.keepNewer(board, doc);
+      this.keepBase();
       this.movePicturesOut();
       this.camera.load(readView(board.id) || board.camera);
       $('#board-title').value = board.name;
@@ -537,8 +538,9 @@
       // pagehide/beforeunload only leave time for the synchronous mirror.
       addEventListener('visibilitychange', () => {
         if (document.hidden) { if (this._dirty) this.saveNow(false, true); }
-        else this.requestDraw();          // PDF pages that stalled while hidden get another go
+        else { this.requestDraw(); this.checkElsewhere(); }   // PDF pages that stalled while hidden get another go
       });
+      addEventListener('focus', () => this.checkElsewhere());
       addEventListener('pagehide', () => this.writeRescue());
       addEventListener('beforeunload', () => this.writeRescue());
     }
@@ -1612,14 +1614,25 @@
     async saveNow(force, listToo) {
       if (!this.board) return;
       this.saveDebounced.cancel?.();
-      const edits = this._edits;
+      let edits = this._edits;
       $('#save-state').textContent = 'saving…';
       this.snapshot();
       // the board's picture: always when leaving the board, otherwise now and then
       const board = this.board;
       const shot = force ? this.captureThumb() : null;
       if (!force && Date.now() - (this._thumbAt || 0) > 6000) this.queueThumb();
-      await D.store.save(board, force || listToo);
+      /* changed on another machine since we read it: merge, then save the
+         two together (a few goes, in case it changes again meanwhile) */
+      for (let tries = 0; ; tries++) {
+        try { await D.store.save(board, force || listToo); break; }
+        catch (err) {
+          if (!err.conflict || tries >= 3 || board !== this.board) { $('#save-state').textContent = 'not saved'; throw err; }
+          await this.mergeElsewhere();
+          this.snapshot();
+          edits = this._edits;        // the merge is in what is about to be written
+        }
+      }
+      this.keepBase(this._sent);
       if (shot) await this.storeThumb(board, shot);
       // an edit made while that was writing is not in it: still unsaved
       if (this._edits !== edits) { $('#save-state').textContent = 'unsaved'; return; }
@@ -1696,7 +1709,8 @@
 
     /** copy the live scene into the board record */
     snapshot() {
-      D.store.setDocBytes(this.board, this.scene.docBytes(), this.scene.items.length);
+      const bytes = this._sent = this.scene.docBytes();
+      D.store.setDocBytes(this.board, bytes, this.scene.items.length);
       this.board.camera = this.camera.toJSON();
       this.board.name = $('#board-title').value || 'Untitled board';
       this.board.updated = Date.now();
@@ -1903,6 +1917,80 @@
         else if (f.type.startsWith('image/') || /\.svg$/i.test(f.name)) this.insertImageFile(f, p);
         else this.importFile(f);
       });
+    }
+
+    /* ── changed elsewhere ───────────────────────────────────────────
+       A board in a synced folder can be changed on another machine while
+       it is open here. The desktop shell refuses to save over a file that
+       changed since this window read it (dpo_board_changed); the two are
+       then merged item by item against `_base` — the board as it was when
+       this window last read or wrote it — by js/merge.js, and saved. */
+
+    /** remember the board as it now is on disk: the copy a merge starts from */
+    keepBase(bytes) {
+      this._base = bytes || this.scene.docBytes();
+      this._baseName = this.board.name;
+    }
+
+    /** on coming back to the window: bring the board up to date if it changed meanwhile */
+    async checkElsewhere() {
+      const board = this.board;
+      if (!board || this._checking || !D.store.changed) return;
+      this._checking = true;
+      try {
+        if (!(await D.store.changed(board.id)) || board !== this.board) return;
+        const dirty = this._dirty;
+        await this.mergeElsewhere();
+        if (dirty) await this.saveNow(false, true);
+      } catch (err) { console.error('[dpo] checking for changes elsewhere', err); }
+      finally { this._checking = false; }
+    }
+
+    /**
+     * Read the board as it is on disk now and fold it into the one on
+     * screen. What both sides changed differently keeps ours, and theirs
+     * is kept as a board of its own, so neither is lost. Undo starts
+     * again after a merge that changed anything: the steps before it
+     * were taken on a board that is not there any more.
+     */
+    async mergeElsewhere() {
+      const board = this.board;
+      const disk = await D.store.load(board.id);
+      if (!disk || board !== this.board) return;
+      const base = this._base ? JSON.parse(new TextDecoder().decode(this._base)) : null;
+      const ours = JSON.parse(this.scene.docText());
+      const theirs = D.format.upgrade(disk.doc).doc;
+      const r = D.merge.three(base, ours, theirs);
+
+      if (r.changed) {
+        // nothing of ours to add: their copy as it is, so no need to save it back
+        const justTheirs = D.merge.canon(r.doc) === D.merge.canon(theirs);
+        const view = this.camera.toJSON();
+        this.scene.load(JSON.parse(JSON.stringify(r.doc)));   // its own copy: the scene hangs caches on items
+        this.movePicturesOut();
+        this.camera.load(view);
+        this.selection = [];
+        if (this.press) this.press.reset();
+        this.requestDraw();
+        if (this.ui) this.ui.refresh();
+        D.ext.emit('board', this, board);
+        if (!justTheirs) this.markDirty();
+      }
+      // a rename made there and not here
+      const title = $('#board-title');
+      if (disk.name && disk.name !== this._baseName && title.value === this._baseName) { title.value = disk.name; board.name = disk.name; }
+      this.keepBase(new TextEncoder().encode(JSON.stringify(theirs)));
+
+      const clashed = r.lost.items.length + Object.keys(r.lost.meta).length;
+      if (clashed) {
+        const when = new Date().toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        const copy = Object.assign({}, disk, { id: U.uid(), name: `${disk.name || board.name} (changed elsewhere, ${when})` });
+        delete copy.file;
+        await D.store.save(copy).catch(err => console.error('[dpo] keeping the other copy', err));
+        this.toast(`This board was changed on another device too. Both sets of changes are in; where the same thing was changed both ways, theirs is kept as “${copy.name}”.`);
+      } else if (r.changed) {
+        this.toast(`Brought in ${r.changed} change${r.changed > 1 ? 's' : ''} made on another device`);
+      }
     }
 
     /* A board saved by a newer version of the app (format.js). It opens

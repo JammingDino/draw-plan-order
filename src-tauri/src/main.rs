@@ -25,7 +25,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::ipc::{InvokeBody, Request, Response};
@@ -48,6 +50,43 @@ struct Ctx {
     vault: Mutex<Vault>,
     /// what this launch was asked to open: board, pdf, file, name, page
     launch: Mutex<Map<String, Value>>,
+    /// each board file as this window last read or wrote it (see Seen)
+    seen: Mutex<HashMap<String, Seen>>,
+}
+
+/* ── changed elsewhere ────────────────────────────────────────────────
+   A board kept in a synced folder can be changed on another machine (or
+   by the Obsidian plugin) while it is open here. Saving over that copy
+   would lose its work without a word. So the window remembers each board
+   file as it last read or wrote it, and a save first checks the file is
+   still that one; if it is not, the save is refused with CONFLICT and the
+   page merges the two (js/merge.js) and saves again.
+
+   Size and modified time first, so the usual save costs one stat; only
+   when either moved is the file read and its content compared, because a
+   sync client touches the time of files it has not changed. */
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Seen { len: u64, modified: Option<std::time::SystemTime>, hash: u64 }
+
+const CONFLICT: &str = "dpo-conflict: the board was changed elsewhere";
+
+fn hash_bytes(b: &[u8]) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    b.hash(&mut h);
+    h.finish()
+}
+
+fn seen_of(path: &Path, bytes: &[u8]) -> Seen {
+    let md = fs::metadata(path).ok();
+    Seen { len: bytes.len() as u64, modified: md.and_then(|m| m.modified().ok()), hash: hash_bytes(bytes) }
+}
+
+/// Is the file at `path` still what `was` recorded? A file that is gone
+/// counts as unchanged: writing it again loses nothing.
+fn unchanged(path: &Path, was: &Seen) -> bool {
+    let Ok(md) = fs::metadata(path) else { return true };
+    if md.len() == was.len && md.modified().ok() == was.modified { return true; }
+    match fs::read(path) { Ok(b) => hash_bytes(&b) == was.hash, Err(_) => true }
 }
 
 /* ── paths ────────────────────────────────────────────────────────── */
@@ -331,7 +370,24 @@ async fn dpo_get_board(ctx: State<'_, Ctx>, id: String) -> Result<Response, Stri
             None => return Ok(Response::new(Vec::new())),
         }
     };
-    Ok(Response::new(fs::read(path).unwrap_or_default()))
+    let bytes = fs::read(&path).unwrap_or_default();
+    if !bytes.is_empty() { ctx.seen.lock().unwrap().insert(id, seen_of(&path, &bytes)); }
+    Ok(Response::new(bytes))
+}
+
+/// Has the open board's file been changed by something other than this
+/// window since it last read or wrote it? Asked when the window comes
+/// back to the front, so a board changed on another machine is brought
+/// up to date before anything is drawn on the old one.
+#[tauri::command]
+async fn dpo_board_changed(ctx: State<'_, Ctx>, id: String) -> Result<bool, String> {
+    let path = {
+        let v = ctx.vault.lock().unwrap();
+        let idx = v.read_index()?;
+        match idx["paths"].get(&id).and_then(|p| p.as_str()) { Some(p) => v.abs(p)?, None => return Ok(false) }
+    };
+    let was = ctx.seen.lock().unwrap().get(&id).copied();
+    Ok(match was { Some(w) => !unchanged(&path, &w), None => false })
 }
 
 /// An asset's bytes as a raw ArrayBuffer: no JSON array of numbers and no
@@ -356,7 +412,7 @@ async fn dpo_set(ctx: State<'_, Ctx>, key: String, value: Value) -> Result<(), S
         "prefs" => { idx.insert("prefs".into(), value); }
         k if k.starts_with("b:") => {
             let body = to_json(&value)?;
-            put_board(&v, &mut idx, &k[2..], value.get("name").and_then(|n| n.as_str()).unwrap_or(""),
+            put_board(&v, &ctx.seen, &mut idx, &k[2..], value.get("name").and_then(|n| n.as_str()).unwrap_or(""),
                 value.get("file").and_then(|f| f.as_str()), body.as_bytes())?
         }
         _ => return Err(format!("cannot set {key}")),
@@ -380,7 +436,7 @@ async fn dpo_put_board(ctx: State<'_, Ctx>, request: Request<'_>) -> Result<(), 
     let body = pretty_json(bytes);                    // before taking the lock
     let v = ctx.vault.lock().unwrap();
     let mut idx = v.read_index()?;
-    put_board(&v, &mut idx, &id, &name, file.as_deref(), &body)?;
+    put_board(&v, &ctx.seen, &mut idx, &id, &name, file.as_deref(), &body)?;
     v.write_index(&idx)
 }
 
@@ -418,7 +474,7 @@ fn pretty_json(src: &[u8]) -> Vec<u8> {
     out
 }
 
-fn put_board(v: &Vault, idx: &mut Map<String, Value>, id: &str, name: &str, file: Option<&str>, body: &[u8]) -> Result<(), String> {
+fn put_board(v: &Vault, seen: &Mutex<HashMap<String, Seen>>, idx: &mut Map<String, Value>, id: &str, name: &str, file: Option<&str>, body: &[u8]) -> Result<(), String> {
     let name = safe_name(name);
     let wanted = match file {
         Some(f) => norm(f),
@@ -426,6 +482,13 @@ fn put_board(v: &Vault, idx: &mut Map<String, Value>, id: &str, name: &str, file
     };
     let current = idx["paths"].get(id).and_then(|p| p.as_str()).map(String::from);
     let mut path = current.clone().unwrap_or_else(|| wanted.clone());
+
+    // written elsewhere since this window last had it: the page merges first
+    if let Some(cur) = &current {
+        if let Some(was) = seen.lock().unwrap().get(id) {
+            if !unchanged(&v.abs(cur)?, was) { return Err(CONFLICT.into()); }
+        }
+    }
 
     match &current {
         // renaming the board renames the file, never onto another board
@@ -439,7 +502,9 @@ fn put_board(v: &Vault, idx: &mut Map<String, Value>, id: &str, name: &str, file
         }
         _ => {}
     }
-    write_atomic(&v.abs(&path)?, body)?;
+    let at = v.abs(&path)?;
+    write_atomic(&at, body)?;
+    seen.lock().unwrap().insert(id.into(), seen_of(&at, body));
     idx["paths"].as_object_mut().unwrap().insert(id.into(), Value::String(path));
     Ok(())
 }
@@ -634,12 +699,12 @@ fn main() {
             let launch = ["board", "pdf", "file", "name", "page"].iter()
                 .filter_map(|k| args.get(*k).map(|v| ((*k).to_string(), v.clone())))
                 .collect();
-            app.manage(Ctx { vault: Mutex::new(vault), launch: Mutex::new(launch) });
+            app.manage(Ctx { vault: Mutex::new(vault), launch: Mutex::new(launch), seen: Mutex::new(HashMap::new()) });
             open_window(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            dpo_config, dpo_get, dpo_get_board, dpo_asset, dpo_set, dpo_put_board, dpo_put_asset, dpo_del, dpo_keys,
+            dpo_config, dpo_get, dpo_get_board, dpo_board_changed, dpo_asset, dpo_set, dpo_put_board, dpo_put_asset, dpo_del, dpo_keys,
             dpo_choose_folder, dpo_reveal_folder, dpo_open_url, dpo_check_update, dpo_install_update,
             dpo_close
         ])
@@ -664,5 +729,59 @@ mod tests {
 
         let sorted = serde_json::to_string(&value).unwrap();
         assert_eq!(String::from_utf8(pretty_json(sorted.as_bytes())).unwrap(), to_json(&value).unwrap(), "same layout");
+    }
+
+    fn scratch_vault(tag: &str) -> Vault {
+        let dir = std::env::temp_dir().join(format!("dpo-test-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        Vault { root: Some(dir), folder: "Drawings".into() }
+    }
+
+    /// A board changed on disk by something else is not written over; one
+    /// whose file was only touched, or is gone, is.
+    #[test]
+    fn a_board_changed_elsewhere_is_not_written_over() {
+        let v = scratch_vault("conflict");
+        let seen = Mutex::new(HashMap::new());
+        let mut idx = v.read_index().unwrap();
+        put_board(&v, &seen, &mut idx, "b1", "Beam", None, b"{\"v\":1}").unwrap();
+        put_board(&v, &seen, &mut idx, "b1", "Beam", None, b"{\"v\":1,\"x\":1}").unwrap();   // our own write: fine
+
+        let file = v.abs(idx["paths"]["b1"].as_str().unwrap()).unwrap();
+        fs::write(&file, b"{\"v\":1,\"from\":\"laptop\"}").unwrap();                      // the other machine
+        let err = put_board(&v, &seen, &mut idx, "b1", "Beam", None, b"{\"v\":1,\"x\":2}").unwrap_err();
+        assert_eq!(err, CONFLICT);
+        assert_eq!(fs::read(&file).unwrap(), b"{\"v\":1,\"from\":\"laptop\"}", "left as it was");
+
+        // read again (as the page does to merge), and the next save goes through
+        let bytes = fs::read(&file).unwrap();
+        seen.lock().unwrap().insert("b1".into(), seen_of(&file, &bytes));
+        put_board(&v, &seen, &mut idx, "b1", "Beam", None, b"{\"v\":1,\"merged\":true}").unwrap();
+
+        // the same bytes rewritten (a sync client touching it) is no change
+        let was = *seen.lock().unwrap().get("b1").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(&file, fs::read(&file).unwrap()).unwrap();
+        assert!(unchanged(&file, &was));
+
+        // and a file that has gone is written again
+        fs::remove_file(&file).unwrap();
+        put_board(&v, &seen, &mut idx, "b1", "Beam", None, b"{\"v\":1}").unwrap();
+        let _ = fs::remove_dir_all(v.root.as_ref().unwrap());
+    }
+
+    /// A board never read in this window is written as before.
+    #[test]
+    fn a_board_not_yet_seen_is_written() {
+        let v = scratch_vault("unseen");
+        let seen = Mutex::new(HashMap::new());
+        let mut idx = v.read_index().unwrap();
+        put_board(&v, &seen, &mut idx, "b2", "Notes", None, b"{}").unwrap();
+        seen.lock().unwrap().clear();
+        let file = v.abs(idx["paths"]["b2"].as_str().unwrap()).unwrap();
+        fs::write(&file, b"{\"other\":1}").unwrap();
+        put_board(&v, &seen, &mut idx, "b2", "Notes", None, b"{}").unwrap();
+        let _ = fs::remove_dir_all(v.root.as_ref().unwrap());
     }
 }
