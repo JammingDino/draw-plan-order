@@ -38,6 +38,8 @@
   const zoomBucket = z => Math.round(Math.log2(z) * 3);
   const bucketZoom = b => 2 ** (b / 3);
 
+  const INK_RETIRE = 3;          // frames a finished stroke stays on the ink layer
+
   /* Settings → Pen and touch → Low-latency ink, mirrored to localStorage
      by the app because the canvases are made before the prefs are read. */
   function lowLatencyWanted() {
@@ -50,25 +52,28 @@
       this.base = /** @type {HTMLCanvasElement} */ (document.getElementById('base'));
       this.live = /** @type {HTMLCanvasElement} */ (document.getElementById('live'));
       this.bctx = this.base.getContext('2d');
-      /* The live layer, and #ahead over it, ask for a desynchronized
-         context: on Chromium (Edge, WebView2) that lets their pixels reach
-         the screen without waiting on the page's compositor, which is a
-         frame or so off the time from nib to ink. It is a hint — where it
-         is not honoured nothing changes — and it can be turned off, for a
-         graphics driver that tears with it (Settings → Pen and touch,
-         read at start-up because a context cannot change once made). */
+      /* The pen's ink layer asks for a desynchronized context: on Chromium
+         (Edge, WebView2) that lets its pixels reach the screen without
+         waiting on the page's compositor, a frame or so off the time from
+         nib to ink. It is a hint — where it is not honoured nothing
+         changes — and it can be turned off (Settings → Pen and touch, read
+         at start-up because a context cannot change once made). */
       const fast = lowLatencyWanted();
       /** @type {CanvasRenderingContext2DSettings} */
       const attrs = fast ? { desynchronized: true } : {};
-      this.lctx = this.live.getContext('2d', attrs);
-      /* Where the pen is about to be: the pointer's predicted positions,
-         drawn past the end of the stroke and wiped every frame, so the
-         ink seems to stay under the nib. Its own canvas, because the live
-         layer is drawn to incrementally and cannot take anything back. */
-      this.ahead = /** @type {HTMLCanvasElement} */ (document.getElementById('ahead'));
-      this.actx = this.ahead ? this.ahead.getContext('2d', attrs) : null;
-      this._aheadDirty = false;
-      const got = this.lctx.getContextAttributes ? this.lctx.getContextAttributes() : null;
+      this.lctx = this.live.getContext('2d');
+      /* The pen's own layer: the stroke being written, and nothing else.
+         Ink is only ever added to it while the pen is down, so it can be
+         desynchronized — its pixels go to the screen without waiting on
+         the compositor — without anything on it ever flashing: there is no
+         clear-then-redraw for the screen to catch half done. Everything
+         that is redrawn whole each frame (selections, handles, the
+         highlighter, the eraser ring) stays on #live, which is composited
+         with the scene as normal. */
+      this.ink = /** @type {HTMLCanvasElement} */ (document.getElementById('ink'));
+      this.ictx = this.ink ? this.ink.getContext('2d', attrs) : null;
+      this.inkRetire = 0;              // frames left before the last stroke's ink is wiped
+      const got = this.ictx && this.ictx.getContextAttributes ? this.ictx.getContextAttributes() : null;
       this.lowLatency = !!(got && got.desynchronized);
       this.dpr = 1;
       this.w = 0; this.h = 0;
@@ -80,7 +85,7 @@
     resize() {
       const dpr = this.dpr = Math.min(devicePixelRatio || 1, 2.5);
       const w = this.w = innerWidth, h = this.h = innerHeight;
-      for (const c of [this.base, this.live, this.ahead]) {
+      for (const c of [this.base, this.ink, this.live]) {
         if (!c) continue;
         c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
         c.style.width = w + 'px'; c.style.height = h + 'px';
@@ -924,31 +929,33 @@
       const ctx = this.lctx;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, this.live.width, this.live.height);
-      this.clearAhead();
     }
 
-    clearAhead() {
-      if (!this.actx || !this._aheadDirty) return;
-      this.actx.setTransform(1, 0, 0, 1, 0, 0);
-      this.actx.clearRect(0, 0, this.ahead.width, this.ahead.height);
-      this._aheadDirty = false;
+    /* ── the pen's ink layer ─────────────────────────────────────────── */
+    /** the ink layer, in board coordinates; the live layer where there is none */
+    inkWorld() {
+      if (!this.ictx) return this.liveWorld();
+      this.worldTransform(this.ictx);
+      return this.ictx;
     }
 
-    /**
-     * The stroke carried on to where the pen is predicted to be: `pts`
-     * ([x, y, p, …], world) is the end of the stroke followed by the
-     * predicted points. Drawn as the stroke would be, on #ahead, which is
-     * wiped first — the next frame replaces it with real ink.
-     */
-    paintAhead(item, pts) {
-      this.clearAhead();
-      if (!this.actx || pts.length < 6) return;
-      const ctx = this.actx;
-      this.worldTransform(ctx);
-      ctx.globalAlpha = item.alpha ?? 1;
-      ctx.fillStyle = U.color(item.color);
-      ctx.fill(FH.path(FH.shapes(pts, { size: item.size, thinning: item.thinning })));
-      this._aheadDirty = true;
+    clearInk() {
+      this.inkRetire = 0;
+      if (!this.ictx) return;
+      this.ictx.setTransform(1, 0, 0, 1, 0, 0);
+      this.ictx.clearRect(0, 0, this.ink.width, this.ink.height);
+    }
+
+    /* The stroke on the ink layer is done with — committed to the scene, or
+       redrawn elsewhere. It is not wiped at once: the ink layer reaches the
+       screen ahead of the scene, so wiping it now would show a frame with
+       the stroke on neither, and every stroke would blink as the pen
+       lifted. It is wiped INK_RETIRE frames later, when the scene that has
+       it has been shown; for those frames it is on both, the same pixels
+       over each other. (App.frame counts them down.) */
+    retireInk() {
+      if (!this.ictx) return;
+      this.inkRetire = INK_RETIRE;
     }
 
     liveWorld() { const ctx = this.lctx; this.worldTransform(ctx); return ctx; }

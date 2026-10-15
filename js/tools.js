@@ -7,7 +7,6 @@
 
   const HOLD_MS = 550;          // hold-still-to-snap delay
   const HOLD_SLOP = 7;          // px of wobble allowed while holding
-  const AHEAD_PX = 24;          // furthest the predicted ink may run past the stroke, screen px
 
   /* Picking up a PDF page or picture with the select tool: press and
      hold this long, within this much wobble. A quicker drag selects
@@ -92,7 +91,6 @@
       if (!this.item) return;
       let moved = false;
       for (const s of ev.samples) moved = this.push(s) || moved;
-      this.predicted = ev.predicted || null;
       if (!moved) return;
       if (U.dist(ev.sx, ev.sy, this.holdOrigin.x, this.holdOrigin.y) > HOLD_SLOP) {
         if (this.snapped) { this.snapped = null; this.app.hideHint(); this.incremental = false; }
@@ -108,6 +106,8 @@
       const item = this.item;
       this.item = null;
       app.renderer.clearLive();
+      // the stroke's ink stays until the scene showing it is on screen
+      app.renderer.retireInk();
       if (!item) return;
 
       /* hold-to-snap → clean geometry */
@@ -150,45 +150,31 @@
       if (this.kind === 'pen') D.ext.emit('stroke', app, item);
     }
 
-    cancel() { clearTimeout(this.holdTimer); this.item = null; this.app.renderer.clearLive(); this.app.hideHint(); }
-
-    /* The stroke carried on to the pointer's predicted positions, so the
-       ink keeps up with the nib. The prediction runs from the raw samples,
-       and the stroke lags them by the smoothing, so it starts from the
-       last smoothed point; it is capped at AHEAD_PX on screen, because a
-       wrong guess drawn long reads as a flick of ink that was never there. */
-    paintAhead(r) {
-      const ahead = this.predicted, pts = this.item.pts, n = pts.length;
-      if (!ahead || !ahead.length || n < 6) { r.clearAhead(); return; }
-      const out = pts.slice(Math.max(0, n - 9));
-      const p = pts[n - 1], cap = AHEAD_PX / this.app.camera.zoom;
-      let lx = pts[n - 3], ly = pts[n - 2], left = cap;
-      for (const a of ahead) {
-        let dx = a.x - lx, dy = a.y - ly, d = Math.hypot(dx, dy);
-        if (!(d > 0)) continue;
-        if (d > left) { dx *= left / d; dy *= left / d; d = left; }
-        lx += dx; ly += dy; left -= d;
-        out.push(lx, ly, p);
-        if (left <= 0) break;
-      }
-      r.paintAhead(this.item, out);
+    cancel() {
+      clearTimeout(this.holdTimer); this.item = null;
+      this.app.renderer.clearLive(); this.app.renderer.clearInk(); this.app.hideHint();
     }
 
+    /* An opaque pen stroke is added to the ink layer a piece at a time and
+       never cleared while the pen is down (see Renderer.inkWorld). A see-
+       through stroke (the highlighter) is drawn whole each frame on the
+       live layer instead, as is a stroke snapped to a shape — and the ink
+       it had laid down is retired, not wiped, so it does not blink. */
     paint(r) {
       if (!this.item) return;
       if (this.snapped) {
+        r.retireInk();
         r.clearLive();
         const ctx = r.liveWorld();
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         r.drawItem(ctx, shapeFromRecognised(this.snapped, this.opt));
         return;
       }
-      const ctx = r.liveWorld();
-      ctx.globalAlpha = this.item.alpha;
-      ctx.globalCompositeOperation = r.blendFor(this.item);
-      ctx.fillStyle = U.color(this.item.color);      // 'ink' follows the theme
-
       if (this.incremental) {
+        const ctx = r.inkWorld();
+        ctx.globalAlpha = this.item.alpha;
+        ctx.globalCompositeOperation = r.blendFor(this.item);
+        ctx.fillStyle = U.color(this.item.color);      // 'ink' follows the theme
         const pts = this.item.pts;
         const from = Math.max(0, this.lastDrawn - 4);      // overlap so tails join seamlessly
         const tail = pts.slice(from * 3);
@@ -197,8 +183,8 @@
           ctx.fill(FH.path(poly));
         }
         this.lastDrawn = pts.length / 3;
-        this.paintAhead(r);
       } else {
+        if (this.lastDrawn) { r.retireInk(); this.lastDrawn = 0; }
         r.clearLive();
         const c2 = r.liveWorld();
         c2.globalAlpha = this.item.alpha;

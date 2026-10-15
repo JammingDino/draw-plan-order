@@ -223,7 +223,7 @@ test('the pen announces each stroke it commits; the highlighter does not', () =>
     const app = fakeApp(D, {
       opts: { general: {}, [kind]: { color: 'ink', size: 3, alpha: 1, thinning: 0.5 } },
       requestDraw() {}, requestDrawLive() {}, afterEdit() {}, hideHint() {},
-      renderer: { clearLive() {} }
+      renderer: { clearLive() {}, retireInk() {}, clearInk() {} }
     });
     const pen = new D.tools.PenTool(app, kind);
     const at = (x, y) => ({ x, y, sx: x, sy: y, pressure: 0.5 });

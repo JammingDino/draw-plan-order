@@ -1,90 +1,91 @@
-/* Drawing ahead of the pen (PenTool.paintAhead, Renderer.paintAhead): the
-   pointer's predicted positions carry the live stroke on towards the nib,
-   from where the stroke ends, never further than AHEAD_PX on screen, and
-   never into the stroke that is saved. */
+/* Low-latency ink (Renderer.inkWorld/retireInk, PenTool.paint, App.frame):
+   an opaque pen stroke goes on its own layer, which is the only one that
+   may skip the compositor, which is only ever added to while the pen is
+   down, and which keeps a finished stroke until the scene showing it has
+   been on screen — so nothing on it can be caught half redrawn, and a
+   stroke never blinks as the pen lifts. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { load, fakeApp } from './harness.mjs';
 
 const D = load('util.js', 'freehand.js', 'recognize.js', 'scene.js', 'camera.js', 'render.js', 'tools.js');
-const AHEAD_PX = 24;
 
-function rig(zoom = 1) {
-  const drawn = [];
+/* a renderer stand-in that records which layer each thing went to */
+function rig() {
+  const log = [];
+  const layer = name => new Proxy({}, {
+    get: (t, k) => k in t ? t[k] : (...a) => { if (k === 'fill' || k === 'clearRect') log.push(name + ':' + String(k)); },
+    set: (t, k, v) => (t[k] = v, true)
+  });
+  const ink = layer('ink'), live = layer('live');
   const app = fakeApp(D, {
-    camera: { zoom, x: 0, y: 0 },
-    opts: { general: {}, pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.5, smooth: 0 } },
-    requestDraw() {}, requestDrawLive() {}, afterEdit() {}, hideHint() {},
+    opts: { general: {}, pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.5, smooth: 0 }, highlighter: { color: '#ffe066', size: 22, alpha: 0.4, smooth: 0 } },
+    requestDraw() {}, requestDrawLive() {}, afterEdit() {}, hideHint() {}, haptic() {}, hint() {},
     renderer: {
-      cleared: 0,
-      clearLive() {}, clearAhead() { this.cleared++; },
-      paintAhead(item, pts) { drawn.push(pts.slice()); },
-      liveWorld: () => new Proxy({}, { get: (t, k) => k in t ? t[k] : () => {}, set: (t, k, v) => (t[k] = v, true) }),
-      blendFor: () => 'source-over'
+      inkRetire: 0,
+      inkWorld: () => ink, liveWorld: () => live,
+      clearLive() { log.push('live:clear'); }, clearInk() { this.inkRetire = 0; log.push('ink:clear'); },
+      retireInk() { this.inkRetire = 3; log.push('ink:retire'); },
+      blendFor: () => 'source-over', drawItem() {}
     }
   });
-  const pen = new D.tools.PenTool(app, 'pen');
-  return { app, pen, drawn };
+  return { app, log, r: app.renderer };
 }
 const at = (x, y) => ({ x, y, sx: x, sy: y, pressure: 0.5 });
+const scribbleFree = ev => ({ ...at(ev[0], ev[1]), samples: [at(ev[0] - 10, ev[1]), at(ev[0], ev[1])] });
 
-test('the predicted points carry on from the end of the stroke', () => {
-  const { pen, app, drawn } = rig();
+test('an opaque pen stroke is drawn on the ink layer, and that layer is never cleared while the pen is down', () => {
+  const { app, log, r } = rig();
+  const pen = new D.tools.PenTool(app, 'pen');
   pen.down(at(0, 0));
-  pen.move({ ...at(30, 0), samples: [at(10, 0), at(20, 0), at(30, 0)], predicted: [at(34, 0), at(38, 0)] });
-  pen.paint(app.renderer);
-  assert.equal(drawn.length, 1);
-  const pts = [...drawn[0]], stroke = [...pen.item.pts];
-  // it starts on the stroke's own last points, then goes on to the prediction
-  assert.deepEqual(pts.slice(0, -6), stroke.slice(-(pts.length - 6)));
-  assert.deepEqual(pts.slice(-6, -4), [34, 0]);
-  assert.deepEqual(pts.slice(-3, -1), [38, 0]);
+  for (let x = 10; x <= 60; x += 10) { pen.move(scribbleFree([x, x / 3])); pen.paint(r); }
+  assert.ok(log.filter(l => l === 'ink:fill').length >= 5, 'ink added to the ink layer');
+  assert.ok(!log.includes('ink:clear') && !log.includes('ink:clearRect'), 'and nothing taken off it');
+  assert.ok(!log.includes('live:fill'), 'the live layer is not drawn on');
 });
 
-test('a prediction never runs more than AHEAD_PX past the stroke, at any zoom', () => {
-  for (const zoom of [0.5, 1, 3]) {
-    const { pen, app, drawn } = rig(zoom);
-    pen.down(at(0, 0));
-    pen.move({ ...at(30, 0), samples: [at(10, 0), at(20, 0), at(30, 0)], predicted: [at(130, 0), at(400, 0)] });
-    pen.paint(app.renderer);
-    const pts = drawn[0], stroke = pen.item.pts;
-    const endX = stroke[stroke.length - 3], last = pts[pts.length - 3];
-    assert.ok(Math.abs(last - endX - AHEAD_PX / zoom) < 1e-9, `zoom ${zoom}: ran ${last - endX}`);
-  }
-});
-
-test('the prediction is never part of the saved stroke', () => {
-  const { pen, app } = rig();
+test('lifting the pen retires the ink rather than wiping it, so the stroke never blinks', () => {
+  const { app, log, r } = rig();
+  const pen = new D.tools.PenTool(app, 'pen');
   pen.down(at(0, 0));
-  pen.move({ ...at(30, 0), samples: [at(10, 0), at(20, 0), at(30, 0)], predicted: [at(60, 0)] });
-  pen.paint(app.renderer);
-  pen.up(at(30, 0));
-  const s = app.scene.items[0];
-  let maxX = -Infinity;
-  for (let i = 0; i < s.pts.length; i += 3) maxX = Math.max(maxX, s.pts[i]);
-  assert.ok(maxX <= 30, `the stroke reaches ${maxX}, past the last real sample`);
+  pen.move(scribbleFree([40, 10])); pen.paint(r);
+  log.length = 0;
+  pen.up(at(40, 10));
+  assert.ok(log.includes('ink:retire'));
+  assert.ok(!log.includes('ink:clear'), 'not wiped before the scene has it');
+  assert.equal(app.scene.items.length, 1, 'and it is in the scene');
 });
 
-test('no prediction, nothing drawn ahead, and what was there is wiped', () => {
-  const { pen, app, drawn } = rig();
-  pen.down(at(0, 0));
-  pen.move({ ...at(30, 0), samples: [at(10, 0), at(20, 0), at(30, 0)] });
-  pen.paint(app.renderer);
-  assert.equal(drawn.length, 0);
-  assert.ok(app.renderer.cleared > 0);
-});
-
-test('the highlighter, drawn whole each frame, is not drawn ahead', () => {
-  const { app, drawn } = rig();
-  app.opts.highlighter = { color: '#ffe066', size: 22, alpha: 0.4, smooth: 0 };
+test('the highlighter is drawn whole on the composited layer, never the ink layer', () => {
+  const { app, log, r } = rig();
   const hl = new D.tools.PenTool(app, 'highlighter');
   hl.down(at(0, 0));
-  hl.move({ ...at(30, 0), samples: [at(10, 0), at(20, 0), at(30, 0)], predicted: [at(40, 0)] });
-  hl.paint(app.renderer);
-  assert.equal(drawn.length, 0);
+  hl.move(scribbleFree([40, 0])); hl.paint(r);
+  assert.ok(log.includes('live:fill'));
+  assert.ok(!log.includes('ink:fill'));
 });
 
-test('the renderer asks for a desynchronized live layer unless turned off', () => {
+test('a stroke snapped to a shape moves to the live layer, and its ink is retired, not wiped', () => {
+  const { app, log, r } = rig();
+  const pen = new D.tools.PenTool(app, 'pen');
+  pen.down(at(0, 0));
+  pen.move(scribbleFree([40, 0])); pen.paint(r);
+  pen.snapped = { kind: 'line', x1: 0, y1: 0, x2: 40, y2: 0 };
+  log.length = 0;
+  pen.paint(r);
+  assert.ok(log.includes('ink:retire'));
+  assert.ok(!log.includes('ink:clear'));
+});
+
+test('a stroke given up (a second finger, a cancelled gesture) is wiped at once', () => {
+  const { app, log } = rig();
+  const pen = new D.tools.PenTool(app, 'pen');
+  pen.down(at(0, 0));
+  pen.cancel();
+  assert.ok(log.includes('ink:clear'));
+});
+
+test('only the ink layer asks to skip the compositor; the scene and the live layer stay composited', () => {
   const asked = [];
   const R = load('util.js', 'freehand.js', 'recognize.js', 'scene.js', 'camera.js', g => {
     const make = g.document.createElement;
@@ -96,7 +97,27 @@ test('the renderer asks for a desynchronized live layer unless turned off', () =
   }, 'render.js');
   const r = new R.Renderer({ camera: { zoom: 1, x: 0, y: 0 }, requestDraw() {} });
   assert.equal(r.lowLatency, true);
-  const live = asked.find(([id]) => id === 'live');
-  assert.equal(live[1].desynchronized, true);
-  assert.equal(asked.find(([id]) => id === 'base')[1], undefined, 'the scene layer stays composited');
+  assert.equal(asked.find(([id]) => id === 'ink')[1].desynchronized, true);
+  for (const id of ['base', 'live']) assert.ok(!(asked.find(([i]) => i === id)[1] || {}).desynchronized, id + ' stays composited');
+});
+
+test('a retired stroke is wiped a few frames later, not while another is being written', async () => {
+  const A = load('util.js', 'freehand.js', 'recognize.js', 'scene.js', 'camera.js', 'render.js',
+    'editor.js', 'taps.js', 'tools.js', g => {
+      g.DPO.store = { init: () => new Promise(() => {}), setLast() {} };
+    }, 'app.js');
+  const app = A.app, r = app.renderer;
+  let wiped = 0;
+  r.clearInk = function () { this.inkRetire = 0; wiped++; };
+  app.perf = null;
+  r.retireInk();
+  app.frame();
+  assert.equal(wiped, 0, 'still there the first frame');
+  // a new stroke started: it waits
+  app.tool = { incremental: true, item: {}, paint() {} };
+  app.frame(); app.frame(); app.frame();
+  assert.equal(wiped, 0, 'kept while the pen writes the next one');
+  app.tool = app.tools.pen;
+  app.frame(); app.frame();
+  assert.equal(wiped, 1, 'gone once it is safe');
 });
