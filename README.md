@@ -443,8 +443,23 @@ most of the rest, against one in twelve before; the notes themselves —
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
 `Ctrl+G` group · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+0` reset zoom · `Shift+1` zoom to fit · `Ctrl+'` cycle grid ·
+`Ctrl+F` search the board (`Enter` / `Shift+Enter` next and previous, `F3` too) ·
 `Ctrl+M` boards · `Alt`+drag duplicates · `Shift` constrains (15° steps
 for lines; square or circle for shapes) · `Alt` draws from the centre
+
+## Searching the board
+
+<kbd>Ctrl</kbd>+<kbd>F</kbd>, the magnifier in the zoom bar, or *Search the
+board* on the long-press menu opens a bar at the top right. Type, and
+everything on the board that says it is found: text boxes, notes, nodes,
+connector labels, calc blocks (their working and their answers),
+handwritten answers, part labels, page names, graphs' functions and
+dimensions — and the words of imported PDFs, each found where it sits on
+its page. <kbd>Enter</kbd> or ↓ goes to the next, <kbd>Shift</kbd>+<kbd>Enter</kbd>
+or ↑ to the one before; the view moves to each, outlines it, and shades
+the others in view. A search starts from where you are looking. A
+scanned PDF has no words to find (it is a picture of them), and
+handwriting is not searched yet.
 
 ## Boards and files
 
@@ -548,6 +563,7 @@ anything is written over it.
 | `js/exportpdf.js` | Export to PDF, a sheet per page, written by hand |
 | `js/graph.js` | Graphs of y = f(x), plotted through the maths engine |
 | `js/symbols.js` | Circuit and mechanics symbols, with terminals to wire to |
+| `js/search.js` | Search the board, PDFs' words included |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after
