@@ -6,7 +6,8 @@ window.DPO = window.DPO || {};
 (function (D) {
   'use strict';
 
-  const U = D.util = {};
+  const U = {};
+  D.util = U;
 
   /* ── ids & misc ─────────────────────────────────────────────────── */
   let seq = 0;

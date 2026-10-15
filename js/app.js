@@ -12,6 +12,9 @@
       this.perf = D.Perf ? new D.Perf(this) : null;   // ?perf or Ctrl+Shift+P
       this.selection = [];
       this.clipboard = [];
+      /* set once the app is built (see the bottom of this file) */
+      /** @type {any} a debounced save, with cancel() */ this.saveDebounced = null;
+      /** @type {() => void} */ this.saveViewDebounced = null;
       this.pointer = null;
       this.pointers = new Map();
       this.spaceDown = false;
@@ -21,7 +24,7 @@
       this.anim = false;
 
       this.opts = {
-        general: { holdToSnap: true, scribbleErase: true, snapGrid: false, touchPan: true, stickyTools: true },
+        general: { holdToSnap: true, scribbleErase: true, snapGrid: false, touchPan: true, stickyTools: true, lowLatency: true },
         pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.6, smooth: 0.5 },
         highlighter: { color: '#ffe066', size: 22, alpha: 0.4, smooth: 0.5 },
         eraser: { mode: 'object', size: 26 },
@@ -185,8 +188,9 @@
         b.hidden = false;
         b.onclick = async () => {
           b.hidden = true;
-          this.installPrompt.prompt();
-          await this.installPrompt.userChoice;
+          const ask = /** @type {any} */ (this.installPrompt);
+          ask.prompt();
+          await ask.userChoice;
           this.installPrompt = null;
         };
       });
@@ -195,7 +199,10 @@
     setBoard(board) {
       if (this.board && this.board.id !== board.id) { D.pdf.clear(); this.renderer.forgetPictures(); this._assets = new Map(); }
       this.board = board;
-      this.scene.load(board.doc);
+      const doc = board.doc;
+      this.scene.load(doc);
+      if (this.scene.loaded.newer) this.keepNewer(board, doc);
+      this.keepBase();
       this.movePicturesOut();
       this.camera.load(readView(board.id) || board.camera);
       $('#board-title').value = board.name;
@@ -278,6 +285,11 @@
     frame() {
       const r = this.renderer;
       if (this.perf) this.perf.frameStart();
+      const t0 = this.active || this.tool, inking = !!(t0.incremental && t0.item);
+      /* The ink layer holds a stroke in board space: a view that moves
+         under it makes it wrong, so it goes at once when nothing is being
+         written — and a finished stroke goes when its frames are up. */
+      if (!inking && r.inkRetire && (this.needPan || this.needZoom)) r.clearInk();
       if (this.needBase || this.needPan || this.needZoom) {
         const full = this.needBase, zoom = this.needZoom && !full;
         this.needBase = this.needPan = this.needZoom = false;
@@ -331,6 +343,9 @@
           }
         }
         if (this.perf) this.perf.mark('live');
+      }
+      if (r.inkRetire && !inking) {
+        if (--r.inkRetire <= 0) r.clearInk(); else this.schedule();
       }
       if (this.editor.active) this.editor.place();
       if (this.perf) this.perf.frameEnd();
@@ -531,8 +546,9 @@
       // pagehide/beforeunload only leave time for the synchronous mirror.
       addEventListener('visibilitychange', () => {
         if (document.hidden) { if (this._dirty) this.saveNow(false, true); }
-        else this.requestDraw();          // PDF pages that stalled while hidden get another go
+        else { this.requestDraw(); this.checkElsewhere(); }   // PDF pages that stalled while hidden get another go
       });
+      addEventListener('focus', () => this.checkElsewhere());
       addEventListener('pagehide', () => this.writeRescue());
       addEventListener('beforeunload', () => this.writeRescue());
     }
@@ -1528,7 +1544,7 @@
     syncThemeInk() {
       const dark = document.documentElement.dataset.theme === 'dark';
       // the installed app paints its title bar with this
-      const meta = document.getElementById('theme-color');
+      const meta = /** @type {HTMLMetaElement} */ (document.getElementById('theme-color'));
       if (meta) meta.content = dark ? '#0e1014' : '#f6f6f8';
       const wasInk = ['#14161c', '#f2f4f8'];
       for (const key of ['pen', 'shape', 'text', 'node']) {
@@ -1556,7 +1572,7 @@
       this._hint = h;
     }
     hideHint() { if (this._hint) { this._hint.remove(); this._hint = null; } }
-    focusCanvas() { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
+    focusCanvas() { const a = /** @type {HTMLElement} */ (document.activeElement); if (a && a.blur) a.blur(); }
 
     /* ── persistence ──────────────────────────────────────────────── */
     afterEdit() { this.markDirty(); this.requestDraw(); if (this.ui) this.ui.refresh(); D.ext.emit('change', this); }
@@ -1600,14 +1616,25 @@
     async saveNow(force, listToo) {
       if (!this.board) return;
       this.saveDebounced.cancel?.();
-      const edits = this._edits;
+      let edits = this._edits;
       $('#save-state').textContent = 'saving…';
       this.snapshot();
       // the board's picture: always when leaving the board, otherwise now and then
       const board = this.board;
       const shot = force ? this.captureThumb() : null;
       if (!force && Date.now() - (this._thumbAt || 0) > 6000) this.queueThumb();
-      await D.store.save(board, force || listToo);
+      /* changed on another machine since we read it: merge, then save the
+         two together (a few goes, in case it changes again meanwhile) */
+      for (let tries = 0; ; tries++) {
+        try { await D.store.save(board, force || listToo); break; }
+        catch (err) {
+          if (!err.conflict || tries >= 3 || board !== this.board) { $('#save-state').textContent = 'not saved'; throw err; }
+          await this.mergeElsewhere();
+          this.snapshot();
+          edits = this._edits;        // the merge is in what is about to be written
+        }
+      }
+      this.keepBase(this._sent);
       if (shot) await this.storeThumb(board, shot);
       // an edit made while that was writing is not in it: still unsaved
       if (this._edits !== edits) { $('#save-state').textContent = 'unsaved'; return; }
@@ -1684,7 +1711,8 @@
 
     /** copy the live scene into the board record */
     snapshot() {
-      D.store.setDocBytes(this.board, this.scene.docBytes(), this.scene.items.length);
+      const bytes = this._sent = this.scene.docBytes();
+      D.store.setDocBytes(this.board, bytes, this.scene.items.length);
       this.board.camera = this.camera.toJSON();
       this.board.name = $('#board-title').value || 'Untitled board';
       this.board.updated = Date.now();
@@ -1893,16 +1921,110 @@
       });
     }
 
+    /* ── changed elsewhere ───────────────────────────────────────────
+       A board in a synced folder can be changed on another machine while
+       it is open here. The desktop shell refuses to save over a file that
+       changed since this window read it (dpo_board_changed); the two are
+       then merged item by item against `_base` — the board as it was when
+       this window last read or wrote it — by js/merge.js, and saved. */
+
+    /** remember the board as it now is on disk: the copy a merge starts from */
+    keepBase(bytes) {
+      this._base = bytes || this.scene.docBytes();
+      this._baseName = this.board.name;
+    }
+
+    /** on coming back to the window: bring the board up to date if it changed meanwhile */
+    async checkElsewhere() {
+      const board = this.board;
+      if (!board || this._checking || !D.store.changed) return;
+      this._checking = true;
+      try {
+        if (!(await D.store.changed(board.id)) || board !== this.board) return;
+        const dirty = this._dirty;
+        await this.mergeElsewhere();
+        if (dirty) await this.saveNow(false, true);
+      } catch (err) { console.error('[dpo] checking for changes elsewhere', err); }
+      finally { this._checking = false; }
+    }
+
+    /**
+     * Read the board as it is on disk now and fold it into the one on
+     * screen. What both sides changed differently keeps ours, and theirs
+     * is kept as a board of its own, so neither is lost. Undo starts
+     * again after a merge that changed anything: the steps before it
+     * were taken on a board that is not there any more.
+     */
+    async mergeElsewhere() {
+      const board = this.board;
+      const disk = await D.store.load(board.id);
+      if (!disk || board !== this.board) return;
+      const base = this._base ? JSON.parse(new TextDecoder().decode(this._base)) : null;
+      const ours = JSON.parse(this.scene.docText());
+      const theirs = D.format.upgrade(disk.doc).doc;
+      const r = D.merge.three(base, ours, theirs);
+
+      if (r.changed) {
+        // nothing of ours to add: their copy as it is, so no need to save it back
+        const justTheirs = D.merge.canon(r.doc) === D.merge.canon(theirs);
+        const view = this.camera.toJSON();
+        this.scene.load(JSON.parse(JSON.stringify(r.doc)));   // its own copy: the scene hangs caches on items
+        this.movePicturesOut();
+        this.camera.load(view);
+        this.selection = [];
+        if (this.press) this.press.reset();
+        this.requestDraw();
+        if (this.ui) this.ui.refresh();
+        D.ext.emit('board', this, board);
+        if (!justTheirs) this.markDirty();
+      }
+      // a rename made there and not here
+      const title = $('#board-title');
+      if (disk.name && disk.name !== this._baseName && title.value === this._baseName) { title.value = disk.name; board.name = disk.name; }
+      this.keepBase(new TextEncoder().encode(JSON.stringify(theirs)));
+
+      const clashed = r.lost.items.length + Object.keys(r.lost.meta).length;
+      if (clashed) {
+        const when = new Date().toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        const copy = Object.assign({}, disk, { id: U.uid(), name: `${disk.name || board.name} (changed elsewhere, ${when})` });
+        delete copy.file;
+        await D.store.save(copy).catch(err => console.error('[dpo] keeping the other copy', err));
+        this.toast(`This board was changed on another device too. Both sets of changes are in; where the same thing was changed both ways, theirs is kept as “${copy.name}”.`);
+      } else if (r.changed) {
+        this.toast(`Brought in ${r.changed} change${r.changed > 1 ? 's' : ''} made on another device`);
+      }
+    }
+
+    /* A board saved by a newer version of the app (format.js). It opens
+       and its items survive, but a field whose meaning changed could be
+       saved back wrong — so before anything here writes over it, the
+       board as it arrived is kept as a board of its own. Once a session:
+       reopening it must not pile up copies. */
+    keepNewer(board, doc) {
+      const kept = this._keptNewer || (this._keptNewer = new Set());
+      if (kept.has(board.id)) return;
+      kept.add(board.id);
+      const copy = Object.assign({}, board, {
+        id: U.uid(), name: `${board.name} (as saved by a newer version)`,
+        doc: JSON.parse(JSON.stringify(doc))
+      });
+      delete copy.file;
+      D.store.save(copy).catch(err => console.error('[dpo] keeping the newer board', err));
+      setTimeout(() => this.toast(
+        `This board was saved by a newer version of Workings. Update to edit it safely — a copy as it was is kept as “${copy.name}”.`), 700);
+    }
+
     importFile(file) {
       const fr = new FileReader();
       fr.onload = async () => {
         try {
-          const j = JSON.parse(fr.result);
+          const j = JSON.parse(/** @type {string} */ (fr.result));
           const doc = j.doc || j;
           const b = D.store.newBoard(j.name || file.name.replace(/\.[^.]+$/, ''));
-          /* meta carries the drawing scale (see Scene.meta); a board
-             without one saves without the key, so keep it that way */
-          b.doc = doc.meta ? { v: 1, meta: doc.meta, items: doc.items || [] } : { v: 1, items: doc.items || [] };
+          /* the doc as it came, version and all: Scene.load brings an
+             older one up to date (format.js) and keeps a newer one's keys */
+          b.doc = Object.assign({}, doc, { items: doc.items || [] });
+          if (!b.doc.v) b.doc.v = 1;
           b.assets = [];
           for (const [id, a] of Object.entries(j.assets || {})) {
             await D.store.putAsset(id, D.store.fromB64(a.b64), { name: a.name, type: a.type });

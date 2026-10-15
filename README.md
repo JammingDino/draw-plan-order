@@ -80,6 +80,7 @@ saved work — handy for trying something out.
 | **Flip the Surface Pen** and rub | Erases, whatever tool you had selected. Let go and you are back on your previous tool. A ring shows the eraser's size, and appears as soon as the blunt end is in range — before you touch the glass — so you can see what you are about to take off. |
 | Draw a near-straight line | It is quietly straightened, and snapped to 0/45/90° if it is close. |
 | **Smoothing** (pen and highlighter panels) | Steadies a shaky hand. While you draw it pulls hardest when the pen moves slowly, where a tremor shows; when you lift, the stroke is smoothed along its length, keeping its ends and its sharp corners. 50% to start with; *Off* is the old feel. |
+| **Low-latency ink** (☰ → Settings → Pen and touch) | The stroke you are writing goes on a layer of its own that skips the page's compositor on its way to the screen, so it keeps closer to the nib. Ink is only ever added to that layer while the pen is down, and a finished stroke stays on it until the board showing it has reached the screen, so nothing blinks. Selections, handles and the highlighter stay on the ordinary layer. On by default; if ink tears on your screen, turn it off (from the next start). `?perf` says which is in use. |
 | Erase over a PDF, image, sticky or node | Only your ink comes off. Those are hit-tested by their whole area, so an eraser stroke *across* one would otherwise delete the lot — remove them deliberately, with the select tool and <kbd>Delete</kbd>. |
 | With the select tool, **drag** across a PDF page or picture | Selects the notes and ink written on it, rather than dragging the page out from under them. **Press and hold** (about a third of a second) to pick up the page itself, or tap it to select it — once selected, it drags straight away. Keep holding, still, and the long-press menu follows. |
 | **Finger** on the canvas | Always pans and pinch-zooms, whatever tool is selected — so you can sketch, shove the page along, and sketch some more without putting the pen down. Your palm can rest anywhere, and a mouse or pen still draws normally. Turn it off under ☰ → Settings if you would rather draw with a finger. |
@@ -216,9 +217,13 @@ round. *Select with what is on it* (in its panel, its long-press menu,
 or a double-tap on its edge) picks up the page with its contents, to
 move them together.
 
-The **Pages** button in the zoom bar lists the pages, jumps to one,
-and adds the next, laid below the last (beside it, for one on its
-side). <kbd>Page Down</kbd> and <kbd>Page Up</kbd> step through them.
+The **Pages** button in the zoom bar lists the pages, each with a small
+picture of what is on it, jumps to one, and adds the next, laid below the
+last (beside it, for one on its side). Drag a page by its ⋮⋮ grip — pen,
+finger or mouse — to put it somewhere else in the order: the pages change
+places on the board, each taking what is written on it along (pages of
+mixed sizes are stacked down a column so none lands on another), as one
+undo step. <kbd>Page Down</kbd> and <kbd>Page Up</kbd> step through them.
 The pages of an imported PDF are pages too: they come in at the same
 scale (an A4 PDF is exactly an A4 page), are listed by their document
 and page number, are stepped through with the rest, and *Add a page*
@@ -303,6 +308,27 @@ without loading the engine at all; they are worked out again when you edit
 the block or change the settings they were made under. `D.math` (in
 `js/math.js`) and `D.calc` (in `js/calc.js`) are documented at the top of
 each file, for anything else that wants an answer worked out.
+
+### Typeset maths
+
+Write `$…$` in a text box or a sticky note and what is between is set as
+maths — `$\sigma = \frac{F}{A}$`, `$x^2 + y^2 = r^2$`,
+`$\sqrt{b^2 - 4ac}$` — and `$$…$$` sets it in display style, over several
+lines if you like (`\begin{aligned} … \end{aligned}`). Editing shows the
+source; the board shows it set, and the SVG export keeps it vector. A
+dollar is maths only the way Pandoc reads it, so "$5 and $10" stays money;
+`\$` is always a dollar sign.
+
+Select a calc block, a handwritten answer or a graph and the action bar
+(or the long-press menu) offers **Copy as LaTeX**, for a report, and
+**Typeset beside it**, which sets it on the board next to the original. A
+calc block comes out as aligned working — `M &= F\cdot L = 6~\mathrm{kN}\cdot\mathrm{m}` —
+with the names it sets written as variables, not the units math.js
+would take them for.
+
+The typesetter is MathJax 3 (Apache-2.0, vendored under `vendor/mathjax`
+with every TeX extension built in, so nothing is fetched), loaded the
+first time a board shows some maths.
 
 ### Graphs
 
@@ -391,10 +417,15 @@ shape, scribble to erase — are untouched. A sum of numbers it found
 but could not read with confidence gets a faint **?** beside its `=`
 instead of an answer: tap it, and Solve this ink opens on its best
 guess, so a misreading is one correction away. **Show why it didn't
-answer**, in the same Settings section, puts a short note by every `=`
-it found and left alone — nothing before it, no operator, a letter
-nothing defines, not sure of the reading — for when it misses one.
-The marks are not part of the board: never saved, never undone.
+answer**, in the same Settings section, is for when it misses one: a
+small **?** sits above each `=` it found and could not answer, off the
+line you are writing on, and fades after a few seconds. Tap it and
+*Solve this ink* opens saying why (no operator, a letter nothing
+defines, not sure of the reading); hover over it with a mouse for the
+same. An `=` that starts a line (the next step of a working) and a line
+with letters but nothing to work out (`f_y = ½(…`) are left alone on
+purpose, so they get no mark. The marks are not part of the board:
+never saved, never undone.
 
 How it reads, in `js/inkmath.js`: each symbol is matched as a cloud of
 32 points against templates (the $P recogniser, Vatavu et al. 2012), so
@@ -437,8 +468,23 @@ most of the rest, against one in twelve before; the notes themselves —
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
 `Ctrl+G` group · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+0` reset zoom · `Shift+1` zoom to fit · `Ctrl+'` cycle grid ·
+`Ctrl+F` search the board (`Enter` / `Shift+Enter` next and previous, `F3` too) ·
 `Ctrl+M` boards · `Alt`+drag duplicates · `Shift` constrains (15° steps
 for lines; square or circle for shapes) · `Alt` draws from the centre
+
+## Searching the board
+
+<kbd>Ctrl</kbd>+<kbd>F</kbd>, the magnifier in the zoom bar, or *Search the
+board* on the long-press menu opens a bar at the top right. Type, and
+everything on the board that says it is found: text boxes, notes, nodes,
+connector labels, calc blocks (their working and their answers),
+handwritten answers, part labels, page names, graphs' functions and
+dimensions — and the words of imported PDFs, each found where it sits on
+its page. <kbd>Enter</kbd> or ↓ goes to the next, <kbd>Shift</kbd>+<kbd>Enter</kbd>
+or ↑ to the one before; the view moves to each, outlines it, and shades
+the others in view. A search starts from where you are looking. A
+scanned PDF has no words to find (it is a picture of them), and
+handwriting is not searched yet.
 
 ## Boards and files
 
@@ -453,10 +499,18 @@ and import of anything exported.
 **Export → Document (.pdf)** prints a sheet for each page on the board
 (see *Pages*), in their order and at their size, or one sheet round
 everything if the board has no pages; a page's own panel has *This page
-as PDF*. Sheets are drawn at 200 dpi on light paper, whatever the theme,
-and stored lossless — or as JPEG on a page that carries photos or PDF
-pages, which keeps the file small. The PDF is written by
-`js/exportpdf.js` with no library. PNG and SVG come out on a transparent background by
+as PDF*. Sheets are on light paper, whatever the theme, and as much of
+them as can be is vector: a page of an imported PDF goes back as the
+original page, so its words stay words — sharp, selectable and
+searchable, and no bigger than they were — and ink goes in as the
+outlines it is drawn with, highlighters see-through and multiplied over
+what is under them. Everything else (text boxes, notes, graphs, ruled
+paper) is painted at 200 dpi into see-through pictures cropped to what
+they hold, in their place between the rest. A two-page handout marked up
+with a pen comes out at a few kilobytes. The file is made by pdf-lib
+(MIT, vendored under `vendor/pdf-lib`, loaded the first time you
+export); a PDF it cannot copy from (encrypted or damaged), or a page
+turned on the board, is painted instead. PNG and SVG come out on a transparent background by
 default; **Settings → Export** switches to the paper colour, and picks the
 theme they are drawn in — matching the app, or always light or always dark —
 which sets the colour of default ink and of PDF pages. Autosave runs about
@@ -468,6 +522,42 @@ mirrored to `localStorage` on the way out (synchronous, so it always
 completes) and replayed on the next start, with a *Recovered N unsaved items*
 toast. Hiding the tab also forces a full save.
 
+### A board changed on two machines
+
+Boards saved as files (the desktop app's **Settings → Saving**) are often
+in a synced folder — OneDrive, Dropbox, an Obsidian vault — and the same
+board can be changed on two machines between syncs. The desktop app
+remembers each board file as it last read or wrote it, and will not save
+over one that has changed since. Instead it reads the other copy and
+merges the two, item by item, against the board as both started
+(`js/merge.js`): what either side added, moved or rubbed out is kept, and
+a toast says how much came in. Where the same thing was changed both
+ways, yours stays on the board and theirs is kept as a separate board,
+*… (changed elsewhere, date)*, so nothing is lost. Coming back to the
+window checks too, so a board changed on the laptop is up to date on the
+Surface before you write on it. After a merge that changed anything, undo
+starts again.
+
+The browser keeps boards in its own storage, which nothing else writes
+to, so this is the desktop app's alone.
+
+### The saved format
+
+A board is saved as plain JSON, `{ v, meta, items }`, and `v` says which
+version of that shape it is. When a change would make an older copy of
+the app misread a board — a field that changes meaning, a unit, an item
+type renamed — the version goes up and an upgrade step is added in
+`js/format.js`, so every board ever saved still opens: it is brought up to
+date as it loads. Adding an optional field or a new kind of item is not
+such a change. `test/fixtures/boards/` keeps a board as each version
+saved it, with one of every kind of item, and the tests open, draw and
+save every one. The comment at the top of `js/format.js` has the steps.
+
+A board saved by a *newer* version still opens, with nothing it does not
+understand thrown away. The app says so, and keeps the board as it
+arrived as a separate board, *… (as saved by a newer version)*, before
+anything is written over it.
+
 ## Layout of the code
 
 | File | Role |
@@ -476,6 +566,10 @@ toast. Hiding the tab also forces a full save.
 | `js/ext.js` | The extension registry, `D.ext`: how features plug into the core |
 | `js/freehand.js` | Pressure → stroke outline (one filled polygon per stroke) |
 | `js/recognize.js` | Shape recognition and scribble detection |
+| `types/globals.d.ts` | What the type check is told about `window` |
+| `js/merge.js` | Two copies of a board, changed on two machines, merged item by item |
+| `js/tex.js` | Typeset maths in text boxes and notes; LaTeX out of calc blocks and answers |
+| `js/format.js` | The saved format's version, and the steps that upgrade an old board |
 | `js/scene.js` | Document model, undo/redo, bounding boxes, edge routing |
 | `js/camera.js` | Infinite-canvas viewport |
 | `js/render.js` | Canvas painting and SVG export |
@@ -495,6 +589,7 @@ toast. Hiding the tab also forces a full save.
 | `js/exportpdf.js` | Export to PDF, a sheet per page, written by hand |
 | `js/graph.js` | Graphs of y = f(x), plotted through the maths engine |
 | `js/symbols.js` | Circuit and mechanics symbols, with terminals to wire to |
+| `js/search.js` | Search the board, PDFs' words included |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after
@@ -620,9 +715,33 @@ key and installed copies can no longer be updated, only reinstalled.
 ## Tests
 
 ```
-npm test        the geometry, document and ink layers, plus the PDF cache
-npm run bench   the numbers behind the performance work
+npm test           the geometry, document and ink layers, plus the PDF cache
+npm run bench      the numbers behind the performance work
+npm run bench:ink  how well handwritten maths is read, on real handwriting
 ```
+
+`bench:ink` runs the handwritten-maths reader over a folder of InkML —
+the `test/` folder of Google's [MathWriting](https://github.com/google-research/google-research/tree/master/mathwriting)
+set, or CROHME's — and says how many symbols it read right, how many
+expressions it read whole, how many work out to the right value, and how
+often it answered one it had wrong. The data is not in the repository
+(it is large, and MathWriting is CC BY-NC-SA): download it and pass the
+folder, `npm run bench:ink -- path/to/mathwriting-2024/test`. Only
+expressions the reader could get right are counted — written with the
+symbols it knows — and it says what share of the set that is. Run it
+before and after a change to `js/inkmath.js`.
+
+```
+npm run typecheck   TypeScript reads js/ as it is, with no build step
+```
+
+The source stays plain JavaScript. `jsconfig.json` has TypeScript check it
+as it stands — class fields, DOM calls, JSDoc types — and CI runs it with
+the tests. It checks each file on its own terms: the `D.*` namespace that
+joins the files is untyped for now (`types/globals.d.ts`), so a call into
+another file is not checked yet. Write `@param {type} name  what it is`
+when a comment gives a type; braces straight after the name are read as
+a type too, so `@param o {size, …}` breaks the check.
 
 `test/harness.mjs` runs the browser-global modules under node with a small
 DOM stub, so the source needs no build step and no module loader to be

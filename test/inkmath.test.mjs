@@ -870,3 +870,33 @@ test('To calc block: selected writing becomes a calc block of its lines', async 
   assert.ok(blk, 'a calc block');
   assert.equal(blk.text, 'x = 2\n3x+1');
 });
+
+test('"Show why" leaves alone an "=" that starts a line, and a statement with letters', async () => {
+  const app = board();
+  app.opts.inkmath.explain = true;
+  draw(app, inkOf(['='], 41));                        // the next line of a working: = ½(5 + 3)
+  await IM.flush(app);
+  const eqs = [...IM.state.eqs.values()];
+  assert.ok(eqs.some(e => e.why === 'alone'), 'still seen, and why recorded');
+  assert.equal(IM.state.marks.size, 0, 'but no note on the page');
+  IM.reset(app);
+
+  draw(app, inkOf(['y', '=', '7'], 42));              // a statement, nothing to work out
+  await IM.flush(app);
+  assert.equal([...IM.state.marks.values()].filter(m => m.why === 'not-a-sum').length, 0);
+  IM.reset(app);
+  app.opts.inkmath.explain = false;
+});
+
+test('a "why" note opens Solve this ink saying why', async () => {
+  const app = board();
+  app.opts.inkmath.explain = true;
+  draw(app, inkOf(['7', '='], 8));
+  await IM.flush(app);
+  const [m] = IM.state.marks.values();
+  assert.equal(m.why, 'not-a-sum');
+  const p = IM.solve(app, [], { reading: m.reading, why: 'Nothing to work out: no operator' });
+  assert.ok(p, 'the panel opens');
+  IM.reset(app);
+  app.opts.inkmath.explain = false;
+});

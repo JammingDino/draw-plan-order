@@ -106,6 +106,8 @@
       const item = this.item;
       this.item = null;
       app.renderer.clearLive();
+      // the stroke's ink stays until the scene showing it is on screen
+      app.renderer.retireInk();
       if (!item) return;
 
       /* hold-to-snap → clean geometry */
@@ -148,23 +150,31 @@
       if (this.kind === 'pen') D.ext.emit('stroke', app, item);
     }
 
-    cancel() { clearTimeout(this.holdTimer); this.item = null; this.app.renderer.clearLive(); this.app.hideHint(); }
+    cancel() {
+      clearTimeout(this.holdTimer); this.item = null;
+      this.app.renderer.clearLive(); this.app.renderer.clearInk(); this.app.hideHint();
+    }
 
+    /* An opaque pen stroke is added to the ink layer a piece at a time and
+       never cleared while the pen is down (see Renderer.inkWorld). A see-
+       through stroke (the highlighter) is drawn whole each frame on the
+       live layer instead, as is a stroke snapped to a shape — and the ink
+       it had laid down is retired, not wiped, so it does not blink. */
     paint(r) {
       if (!this.item) return;
       if (this.snapped) {
+        r.retireInk();
         r.clearLive();
         const ctx = r.liveWorld();
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         r.drawItem(ctx, shapeFromRecognised(this.snapped, this.opt));
         return;
       }
-      const ctx = r.liveWorld();
-      ctx.globalAlpha = this.item.alpha;
-      ctx.globalCompositeOperation = r.blendFor(this.item);
-      ctx.fillStyle = U.color(this.item.color);      // 'ink' follows the theme
-
       if (this.incremental) {
+        const ctx = r.inkWorld();
+        ctx.globalAlpha = this.item.alpha;
+        ctx.globalCompositeOperation = r.blendFor(this.item);
+        ctx.fillStyle = U.color(this.item.color);      // 'ink' follows the theme
         const pts = this.item.pts;
         const from = Math.max(0, this.lastDrawn - 4);      // overlap so tails join seamlessly
         const tail = pts.slice(from * 3);
@@ -174,6 +184,7 @@
         }
         this.lastDrawn = pts.length / 3;
       } else {
+        if (this.lastDrawn) { r.retireInk(); this.lastDrawn = 0; }
         r.clearLive();
         const c2 = r.liveWorld();
         c2.globalAlpha = this.item.alpha;

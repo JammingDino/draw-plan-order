@@ -30,6 +30,9 @@
      PDFs, in reading order (down the board, left to right along a row)
    D.frames.nameOf(scene, it) → what it is called
    D.frames.pointsOf(it) → its size in PDF points
+   D.frames.contentsOf(scene, page) → what is written on it
+   D.frames.reorder(app, from, to) → move page `from` to place `to`, the
+     pages changing places on the board with what is on them
    D.frames.mm → board units in a millimetre                              */
 (function (D) {
   'use strict';
@@ -285,15 +288,72 @@
   }
 
   /** the page and everything whose middle is on it, selected to move as one */
-  function selectWithContents(app, f) {
+  /** what is written on a page: everything whose middle is on it, other pages aside */
+  function contentsOf(scene, f) {
     const box = U.box(f.x, f.y, f.x + f.w, f.y + f.h);
-    const on = app.scene.near(box).filter(it => {
-      if (it === f || it.type === 'frame') return false;
-      const c = U.boxCenter(app.scene.bbox(it));
+    return scene.near(box).filter(it => {
+      if (it === f || isSheet(it)) return false;
+      const c = U.boxCenter(scene.bbox(it));
       return U.pointInBox(c.x, c.y, box);
     });
+  }
+
+  function selectWithContents(app, f) {
+    const on = contentsOf(app.scene, f);
     app.setTool('select');
     app.select([f, ...on]);
+  }
+
+  /* ── putting pages in another order ─────────────────────────────────
+     The order of the pages is where they are on the board (sheets()), so
+     to move page `from` to place `to` the pages change places, each
+     taking what is written on it along. Pages all of one size swap into
+     each other's spots, so a layout of rows stays rows; pages of mixed
+     sizes are stacked down a column from where the first one was, so
+     none lands on another. One undo step. */
+  function reorder(app, from, to) {
+    const scene = app.scene, pages = sheets(scene);
+    if (from === to || from < 0 || to < 0 || from >= pages.length || to >= pages.length) return false;
+    const order = pages.slice();
+    order.splice(to, 0, order.splice(from, 1)[0]);
+    const same = pages.every(p => Math.abs(p.w - pages[0].w) < 0.5 && Math.abs(p.h - pages[0].h) < 0.5);
+    const spots = [];
+    if (same) for (const p of pages) spots.push({ x: p.x, y: p.y });
+    else {
+      let y = pages[0].y;
+      for (const p of order) { spots.push({ x: pages[0].x, y }); y += p.h + GAP; }
+    }
+    // what is on each page, worked out before anything moves
+    const on = new Map(order.map(p => [p, contentsOf(scene, p)]));
+    scene.begin('reorder pages');
+    order.forEach((p, i) => {
+      const dx = spots[i].x - p.x, dy = spots[i].y - p.y;
+      if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return;
+      scene.translate(p, dx, dy);
+      for (const it of on.get(p)) if (it.type !== 'edge' || !it.from.id || !it.to.id) scene.translate(it, dx, dy);
+    });
+    scene.commit();
+    app.afterEdit();
+    return true;
+  }
+
+  /* A page as a picture for the list: the page and what is on it, drawn
+     small by the board's own painter (PDF pages as far as they are already
+     rendered). */
+  function thumb(app, f, W = 46) {
+    const c = el('canvas', { class: 'frames-thumb', 'aria-hidden': 'true' });
+    const k = W / Math.max(f.w, f.h), w = Math.max(1, Math.round(f.w * k)), h = Math.max(1, Math.round(f.h * k));
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    c.width = w * dpr; c.height = h * dpr;
+    c.style.width = w + 'px'; c.style.height = h + 'px';
+    const ctx = c.getContext && c.getContext('2d');
+    if (!ctx || !app.renderer || !app.renderer.drawItems) return c;
+    try {
+      ctx.setTransform(k * dpr, 0, 0, k * dpr, -f.x * k * dpr, -f.y * k * dpr);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      app.renderer.drawItems(ctx, [f, ...contentsOf(app.scene, f)], k);
+    } catch (err) { console.warn('[dpo] page picture', err); }
+    return c;
   }
 
   /* ── moving between pages ──────────────────────────────────────── */
@@ -337,11 +397,17 @@
     if (pop) { closePages(); return; }
     const pages = sheets(app.scene), now = current(app);
     const kindOf = f => f.type === 'pdfpage' ? 'PDF' : f.size === 'custom' ? 'own size' : f.size === 'Slide' ? '16:9' : f.size + (f.orient === 'landscape' ? ' ⟷' : '');
-    const rows = pages.map((f, i) => el('button', { class: 'frames-row' + (f === now ? ' on' : ''), type: 'button', onclick: () => { closePages(); go(app, f); } },
-      el('b', {}, String(i + 1)), el('span', {}, nameOf(app.scene, f)), el('i', {}, kindOf(f))));
+    const grip = '<svg viewBox="0 0 24 24"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/></svg>';
+    const rows = pages.map((f, i) => el('div', { class: 'frames-row' + (f === now ? ' on' : ''), role: 'button', tabindex: '0', 'data-i': String(i), onclick: () => { closePages(); go(app, f); },
+      onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closePages(); go(app, f); } } },
+      el('b', {}, String(i + 1)), thumb(app, f), el('span', {}, nameOf(app.scene, f)), el('i', {}, kindOf(f)),
+      pages.length > 1 ? el('span', { class: 'frames-grip', title: 'Drag to move this page', 'aria-label': 'Move page ' + (i + 1), html: grip }) : null));
+    const listEl = pages.length ? el('div', { class: 'frames-list' }, rows) : null;
+    if (listEl && pages.length > 1) dragToReorder(app, listEl, rows);
     const box = el('div', { class: 'frames-pop', role: 'dialog', 'aria-label': 'Pages' },
-      el('div', { class: 'frames-head' }, el('span', {}, pages.length ? `${pages.length} page${pages.length > 1 ? 's' : ''}` : 'No pages yet')),
-      pages.length ? el('div', { class: 'frames-list' }, rows) : el('p', { class: 'frames-note' }, 'A page is a sheet on the board: what you print and export to PDF. The page tool (F) lays them down.'),
+      el('div', { class: 'frames-head' }, el('span', {}, pages.length ? `${pages.length} page${pages.length > 1 ? 's' : ''}` : 'No pages yet'),
+        pages.length > 1 ? el('small', {}, 'drag ⋮⋮ to reorder') : null),
+      listEl || el('p', { class: 'frames-note' }, 'A page is a sheet on the board: what you print and export to PDF. The page tool (F) lays them down.'),
       el('div', { class: 'frames-acts' },
         el('button', { class: 'btn primary', type: 'button', onclick: () => { closePages(); addAfter(app, null); } }, pages.length ? 'Add a page' : 'Add the first page'),
         D.exportPdf ? el('button', { class: 'btn', type: 'button', onclick: () => { closePages(); D.exportPdf(app); } }, 'Export PDF') : null));
@@ -352,6 +418,54 @@
     box.style.bottom = Math.max(8, innerHeight - r.top + 8) + 'px';
     pop = { el: box, away: e => { if (!box.contains(e.target) && !(btn && btn.contains(e.target))) closePages(); } };
     setTimeout(() => { if (pop && pop.el === box) addEventListener('pointerdown', pop.away, true); }, 0);
+  }
+
+  /* Rows dragged by their grip, with a pen, a finger or a mouse: a line
+     shows where the page will go, and letting go puts it there. */
+  function dragToReorder(app, list, rows) {
+    let drag = null;
+    const where = y => {
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i].getBoundingClientRect();
+        if (y < r.top + r.height / 2) return i;
+      }
+      return rows.length;
+    };
+    const mark = el('div', { class: 'frames-drop', hidden: true });
+    list.appendChild(mark);
+    list.addEventListener('pointerdown', e => {
+      const g = e.target.closest && e.target.closest('.frames-grip');
+      if (!g) return;
+      e.preventDefault(); e.stopPropagation();
+      const row = g.closest('.frames-row');
+      drag = { id: e.pointerId, from: +row.dataset.i, row, to: null };
+      row.classList.add('dragging');
+      list.setPointerCapture && list.setPointerCapture(e.pointerId);
+    });
+    list.addEventListener('pointermove', e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const at = where(e.clientY);
+      drag.to = at;
+      const lr = list.getBoundingClientRect();
+      const ref = at < rows.length ? rows[at].getBoundingClientRect().top : rows[rows.length - 1].getBoundingClientRect().bottom;
+      mark.hidden = false;
+      mark.style.top = (ref - lr.top + list.scrollTop - 1) + 'px';
+    });
+    const end = e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const d = drag; drag = null;
+      d.row.classList.remove('dragging'); mark.hidden = true;
+      if (e.type === 'pointercancel' || d.to == null) return;
+      // a drop below itself lands one higher, once it has left its own place
+      const to = d.to > d.from ? d.to - 1 : d.to;
+      if (to === d.from) return;
+      closePages();
+      if (reorder(app, d.from, to)) { openPages(app); app.toast(`Page ${d.from + 1} is now page ${to + 1}`, 'Undo', () => app.undo()); }
+    };
+    list.addEventListener('pointerup', end);
+    list.addEventListener('pointercancel', end);
+    // a drag must not also open the page it started on
+    list.addEventListener('click', e => { if (e.target.closest && e.target.closest('.frames-grip')) e.stopPropagation(); }, true);
   }
 
   /* ── the tool ──────────────────────────────────────────────────── */
@@ -423,5 +537,5 @@
   });
   D.ext.on('board', () => closePages());
 
-  D.frames = { list, sheets, nameOf, numberOf, pointsOf, dims, mm: MM, go, step, current, addAfter, selectWithContents, make, labelSize };
+  D.frames = { list, sheets, nameOf, numberOf, pointsOf, dims, mm: MM, go, step, current, addAfter, selectWithContents, contentsOf, reorder, make, labelSize };
 })(window.DPO);

@@ -5,6 +5,7 @@
   /* Item types registered by feature files (see ext.js). Looked up only
      where a built-in type would have fallen through. */
   const XT = D.ext.items;
+  const FMT = D.format;      // format.js: the saved version and its upgrades
 
   const FONT_STACK = '"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif';
   const HAND_STACK = '"Segoe Print","Bradley Hand","Comic Sans MS",cursive';
@@ -255,6 +256,12 @@
          board and undone like an edit to an item. */
       this.meta = {};
       this.metaRev = 0;                // moves whenever meta does, for what formats with it
+      /* The board's format version (format.js), and any top-level keys
+         this copy of the app does not know — a newer version's — kept so
+         that saving here does not drop them. A board from a newer version
+         keeps its own number, so that version does not upgrade it twice. */
+      this.v = FMT ? FMT.VERSION : 1;
+      this.extra = null;
       this.undoStack = [];
       this.redoStack = [];
       this.tx = null;
@@ -779,6 +786,7 @@
     }
 
     _snapPoints(it, depth) {
+      /** @type {any} the points, and `ink` when they are a stroke's */
       const out = [];
       const P = (k, x, y, t) => out.push({ k, x, y, t });
       const rect = g => {
@@ -842,6 +850,14 @@
       const font = `${item.italic ? 'italic ' : ''}${item.bold ? '600 ' : ''}${size}px ${item.font === 'hand' ? HAND_STACK : FONT_STACK}`;
       mctx.font = font;
       const maxW = item.w || 240;
+      /* $…$ in the text: laid out as words and typeset maths (tex.js),
+         line by line, each line as tall as what is on it */
+      if (D.tex && D.tex.has(item.text)) {
+        const { lh, base } = lineMetrics(size);
+        const R = D.tex.layout(item.text, size, maxW, item.autoWidth, s => mctx.measureText(s).width, lh, base);
+        item._lines = { lines: R.lines.map(l => l.src), rich: R.lines, font, lh, base, width: Math.ceil(R.width) + 2, height: Math.max(lh, R.height) };
+        return item._lines;
+      }
       const lines = [];
       let width = 0;
       for (const para of String(item.text ?? '').split('\n')) {
@@ -855,18 +871,7 @@
         }
         lines.push(line); width = Math.max(width, mctx.measureText(line).width);
       }
-      const lh = size * 1.35;
-      /* Where the baseline sits in a line of height lh, worked out the way
-         CSS does it — the font's ascent+descent box centred in the line —
-         rather than by canvas's 'top', which hangs the em square from the
-         top. Text is edited in a textarea laid out by CSS and painted on
-         the canvas afterwards, so the two models used to disagree by a few
-         pixels: the text jumped when you finished typing, and doubled up
-         while you typed. Every painter, the SVG export and the editor now
-         put line i's baseline at lineTop + i * lh + base. */
-      const m = mctx.measureText('Hg');
-      const A = m.fontBoundingBoxAscent, De = m.fontBoundingBoxDescent;
-      const base = isFinite(A) && isFinite(De) ? (lh - (A + De)) / 2 + A : (lh - size) / 2 + size * 0.8;
+      const { lh, base } = lineMetrics(size);
       item._lines = { lines, font, lh, base, width: Math.ceil(width) + 2, height: Math.max(lh, lines.length * lh) };
       return item._lines;
     }
@@ -1161,7 +1166,20 @@
 
     /* ── serialisation ────────────────────────────────────────────── */
     toJSON() {
-      return this.hasMeta() ? { v: 1, meta: clone(this.meta), items: this.items.map(strip) } : { v: 1, items: this.items.map(strip) };
+      const doc = { v: this.v };
+      if (this.hasMeta()) doc.meta = clone(this.meta);
+      if (this.extra) Object.assign(doc, clone(this.extra));
+      doc.items = this.items.map(strip);
+      return doc;
+    }
+
+    /** what docBytes() writes ahead of the items: everything but them, in toJSON's order */
+    _docHead() {
+      if (this.v === 1 && !this.extra && !this.hasMeta()) return DOC_HEAD;
+      const head = { v: this.v };
+      if (this.hasMeta()) head.meta = this.meta;
+      if (this.extra) Object.assign(head, this.extra);
+      return ENCODER.encode(JSON.stringify(head).slice(0, -1) + ',"items":[');
     }
 
     hasMeta() { for (const _ in this.meta) return true; return false; }
@@ -1185,7 +1203,7 @@
       const items = this.items, n = items.length;
       const parts = new Array(n);
       // a board with settings of its own says so ahead of its items, as toJSON does
-      const head = this.hasMeta() ? ENCODER.encode('{"v":1,"meta":' + JSON.stringify(this.meta) + ',"items":[') : DOC_HEAD;
+      const head = this._docHead();
       let size = head.length + DOC_TAIL.length + Math.max(0, n - 1);
       for (let i = 0; i < n; i++) size += (parts[i] = itemBytes(items[i])).length;
       const out = new Uint8Array(size);
@@ -1217,7 +1235,21 @@
       this._warm = 0;
       return true;
     }
+    /**
+     * Open a saved doc. It is brought up to this version's format first
+     * (format.js); `this.loaded` says what it was, for the app to warn
+     * about a board from a newer version.
+     */
     load(doc) {
+      const up = FMT ? FMT.upgrade(doc) : { doc, from: 1, newer: false };
+      doc = up.doc;
+      this.loaded = { from: up.from, newer: up.newer };
+      this.v = up.newer ? up.from : (FMT ? FMT.VERSION : 1);
+      this.extra = null;
+      for (const k in doc) {
+        if (k === 'v' || k === 'meta' || k === 'items') continue;
+        (this.extra || (this.extra = {}))[k] = clone({ k: doc[k] }).k;
+      }
       this.items = []; this.byId.clear();
       this.meta = doc.meta && typeof doc.meta === 'object' ? clone(doc.meta) : {};
       this.metaRev++;
@@ -1259,6 +1291,23 @@
       else o[k] = clone(v);
     }
     return o;
+  }
+
+  /* A line's height, and where its baseline sits in it, for text in the
+     font mctx holds. Worked out the way CSS does it — the font's
+     ascent+descent box centred in the line — rather than by canvas's
+     'top', which hangs the em square from the top. Text is edited in a
+     textarea laid out by CSS and painted on the canvas afterwards, so the
+     two models used to disagree by a few pixels: the text jumped when you
+     finished typing, and doubled up while you typed. Every painter, the
+     SVG export and the editor now put line i's baseline at
+     lineTop + i * lh + base. */
+  function lineMetrics(size) {
+    const lh = size * 1.35;
+    const m = mctx.measureText('Hg');
+    const A = m.fontBoundingBoxAscent, De = m.fontBoundingBoxDescent;
+    const base = isFinite(A) && isFinite(De) ? (lh - (A + De)) / 2 + A : (lh - size) / 2 + size * 0.8;
+    return { lh, base };
   }
 
   /** clone(), plus the coordinate rounding the stored format uses */

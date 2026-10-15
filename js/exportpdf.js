@@ -2,25 +2,51 @@
    Each page on the board (js/frames.js) — drawn with the page tool, or a
    page of an imported PDF — becomes a sheet of its own size, in reading
    order, so a marked-up PDF goes back as the same pages with the writing
-   on them; a board with no pages comes out as one sheet round everything. A sheet is the board painted at 200 dpi, on
-   light paper — it is for printing and handing in — and set into the
-   PDF as a picture: lossless (deflated, as PNG is) when the page is ink
-   and shapes, JPEG when it carries photos or PDF pages, which would
-   otherwise come out several times the size.
+   on them; a board with no pages comes out as one sheet round everything.
+   Sheets are on light paper, whatever the theme: they are for printing
+   and handing in.
 
+   ── Vector, mostly ────────────────────────────────────────────────────
+   A sheet is built in the board's own order, back to front, from three
+   kinds of layer:
+
+     a page of an imported PDF   the original page itself, copied out of
+                                 the PDF, so its text stays text: sharp at
+                                 any zoom, selectable and searchable, and
+                                 no bigger than it was
+     ink                         each stroke as the filled outline it is on
+                                 screen, highlighters with their see-through
+                                 and multiply, so it is sharp at any zoom
+     everything else             (text boxes, notes, shapes, graphs, ruled
+                                 paper…) painted at 200 dpi into a
+                                 see-through picture cropped to what it
+                                 holds, between the layers it sits between
+
+   The file is made by pdf-lib (vendor/pdf-lib, MIT), loaded the first
+   time something is exported. What it cannot copy — a PDF that is
+   encrypted or damaged, a page whose own /Rotate it would ignore, a page
+   turned on the board — is painted instead, as everything else is. If
+   pdf-lib cannot be loaded at all, the whole export falls back to the
+   old way below: each sheet one 200 dpi picture, in a file written by
+   hand.
+
+   ── The raster writer (the fallback) ─────────────────────────────────
    No library: the file is a dozen objects written out by hand — the
    catalogue, the page tree, and for each sheet its page, its one-line
    drawing and its picture — and a cross-reference table of where each
-   starts. CompressionStream does the deflating; every browser the app
-   runs in, and node, has it.
+   starts. CompressionStream does the deflating.
 
    D.exportPdf(app, { frames? }) → Promise   frames: only these pages
    D.exportPdf.plan(scene) → [{ x, y, w, h, frame? }]   the sheets
+   D.exportPdf.layers(items, canCopy) → [{ kind: 'pdf'|'ink'|'paint', items }]
+   D.exportPdf.vector(L, app, sheets, info, hooks?) → Promise<Uint8Array>
+     L: pdf-lib; hooks.paint(items, crop) → { png, x, y, w, h } | null,
+     how a run of painted items becomes a picture (a canvas, in the app)
    D.exportPdf.write(sheets, info) → Uint8Array
      sheets: [{ w, h (points), img: { w, h, filter: 'FlateDecode'|'DCTDecode', data } }]   */
 (function (D) {
   'use strict';
-  const U = D.util;
+  const U = D.util, FH = D.freehand;
 
   const DPI = 200;
   const PT = 72 / 96;                   // points in a board unit (a CSS px)
@@ -125,6 +151,214 @@
     } finally { c.width = 0; c.height = 0; }
   }
 
+  /* ── the vector file ───────────────────────────────────────────── */
+  const LIB = 'vendor/pdf-lib/pdf-lib.min.js';
+  let libLoading = null;
+  function lib() {
+    const g = typeof window !== 'undefined' ? window : globalThis;
+    if (g.PDFLib) return Promise.resolve(g.PDFLib);
+    if (libLoading) return libLoading;
+    libLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = new URL(LIB, document.baseURI).href;
+      s.async = true;
+      s.onload = () => g.PDFLib ? resolve(g.PDFLib) : reject(new Error('pdf-lib did not load'));
+      s.onerror = () => { libLoading = null; s.remove(); reject(new Error('Could not load the PDF library')); };
+      document.head.appendChild(s);
+    });
+    return libLoading;
+  }
+
+  /* Ink that goes in as paths: a stroke with its points, not turned as a
+     box (strokes never are — their points are turned instead). */
+  const isInk = it => it.type === 'stroke' && it.pts && it.pts.length >= 3;
+
+  /**
+   * The sheet's items as layers, in board order: consecutive strokes
+   * together as ink, PDF pages that can be copied on their own, and the
+   * rest gathered into runs to paint. `canCopy(it)` says whether a PDF
+   * page can go in as itself.
+   */
+  function layers(items, canCopy) {
+    const out = [];
+    for (const it of items) {
+      const kind = isInk(it) ? 'ink' : it.type === 'pdfpage' && canCopy(it) ? 'pdf' : 'paint';
+      const last = out[out.length - 1];
+      if (last && last.kind === kind && kind !== 'pdf') last.items.push(it);
+      else out.push({ kind, items: [it] });
+    }
+    return out;
+  }
+
+  /** a CSS colour as 0–1 rgb and alpha, by way of a canvas, which knows them all */
+  let probe = null;
+  function rgbaOf(c) {
+    let s = String(c || '').trim();
+    if (!/^#|^rgb/i.test(s) && typeof document !== 'undefined') {
+      probe = probe || document.createElement('canvas').getContext('2d');
+      probe.fillStyle = '#000'; probe.fillStyle = s; s = String(probe.fillStyle);
+    }
+    let m = /^#([0-9a-f]{3,8})$/i.exec(s);
+    if (m) {
+      let h = m[1];
+      if (h.length <= 4) h = [...h].map(x => x + x).join('');
+      const n = parseInt(h.slice(0, 6), 16);
+      return { r: (n >> 16 & 255) / 255, g: (n >> 8 & 255) / 255, b: (n & 255) / 255, a: h.length === 8 ? parseInt(h.slice(6), 16) / 255 : 1 };
+    }
+    m = /^rgba?\(([^)]+)\)/i.exec(s);
+    if (m) {
+      const [r, g, b, a] = m[1].split(/[\s,/]+/).filter(Boolean).map(parseFloat);
+      return { r: r / 255, g: g / 255, b: b / 255, a: a == null || isNaN(a) ? 1 : a };
+    }
+    return { r: 0, g: 0, b: 0, a: 1 };
+  }
+
+  const f2 = v => (Math.round(v * 100) / 100).toString();
+  /** a stroke's outline as SVG path data, in board units */
+  function strokePath(it) {
+    const polys = FH.shapes(it.pts, { size: it.size, thinning: it.thinning, taper: it.taper || 0, cap: it.cap !== false });
+    let d = '';
+    for (const p of polys) {
+      if (p.length < 6) continue;
+      d += 'M' + f2(p[0]) + ' ' + f2(p[1]);
+      for (let i = 2; i < p.length; i += 2) d += 'L' + f2(p[i]) + ' ' + f2(p[i + 1]);
+      d += 'Z';
+    }
+    return d;
+  }
+
+  /**
+   * Draw a run of strokes onto `page`. Opaque strokes of one colour are
+   * filled as one path, which looks the same (an opaque union is a union)
+   * and is a fraction of the file; see-through ones go one by one, so two
+   * that overlap darken where they cross, as they do on the board.
+   */
+  function drawInk(L, page, strokes, at) {
+    let batch = '', key = null, colour = null;
+    const flush = () => {
+      if (batch) page.drawSvgPath(batch, { ...at, color: L.rgb(colour.r, colour.g, colour.b), borderWidth: 0 });
+      batch = ''; key = null;
+    };
+    for (const it of strokes) {
+      const c = rgbaOf(U.color(it.color));
+      const alpha = (it.alpha ?? 1) * c.a;
+      const d = strokePath(it);
+      if (!d) continue;
+      if (alpha >= 1 && (it.blend || 'source-over') === 'source-over') {
+        const k = c.r + ',' + c.g + ',' + c.b;
+        if (k !== key) { flush(); key = k; colour = c; }
+        batch += d;
+        continue;
+      }
+      flush();
+      page.drawSvgPath(d, {
+        ...at, color: L.rgb(c.r, c.g, c.b), opacity: alpha, borderWidth: 0,
+        ...(it.blend === 'multiply' ? { blendMode: L.BlendMode.Multiply } : {})
+      });
+    }
+    flush();
+  }
+
+  /* An imported PDF, opened once per export. null when it cannot be
+     copied from (encrypted, damaged, missing): its pages are painted. */
+  async function sourceOf(L, app, cache, asset) {
+    if (cache.has(asset)) return cache.get(asset);
+    let src = null;
+    try {
+      const bytes = await app.getAsset(asset);
+      if (bytes && bytes.length) src = await L.PDFDocument.load(bytes, { updateMetadata: false });
+    } catch (err) { console.warn('[dpo] PDF export: painting the pages of', asset, 'instead:', err && err.message); src = null; }
+    cache.set(asset, src);
+    return src;
+  }
+
+  async function vector(L, app, sheets, info = {}, hooks = {}) {
+    const scene = app.scene;
+    const paint = hooks.paint || ((items, crop) => paintRun(app, items, crop));
+    const doc = await L.PDFDocument.create();
+    doc.setTitle(String(info.title || 'Board'));
+    doc.setProducer(String(info.producer || 'Workings'));
+    doc.setCreator('Workings');
+
+    // the PDFs whose pages are on these sheets, opened before anything is drawn
+    const sources = new Map(), copies = new Map();
+    for (const s of sheets) {
+      const box = U.box(s.x, s.y, s.x + s.w, s.y + s.h);
+      for (const it of scene.items) if (it.type === 'pdfpage' && it.asset && U.boxesOverlap(scene.bbox(it), box)) await sourceOf(L, app, sources, it.asset);
+    }
+    const canCopy = it => {
+      if (it.rot) return false;
+      const src = sources.get(it.asset);
+      if (!src || it.page < 1 || it.page > src.getPageCount()) return false;
+      return src.getPage(it.page - 1).getRotation().angle % 360 === 0;
+    };
+
+    const paper = rgbaOf(U.paintAs('light', () => U.color('paper')));
+    for (const s of sheets) {
+      const W = s.pt ? s.pt.w : s.w * PT, H = s.pt ? s.pt.h : s.h * PT, k = W / s.w;
+      const page = doc.addPage();
+      page.setSize(W, H);
+      page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: L.rgb(paper.r, paper.g, paper.b), borderWidth: 0 });
+      // board (x, y) → page: x right from the sheet's left, y up from its foot
+      const at = { x: -s.x * k, y: H + s.y * k, scale: k };
+      const box = U.box(s.x, s.y, s.x + s.w, s.y + s.h);
+      const items = scene.items.filter(it => U.boxesOverlap(scene.bbox(it), box));
+
+      for (const layer of layers(items, canCopy)) {
+        if (layer.kind === 'ink') { U.paintAs('light', () => drawInk(L, page, layer.items, at)); continue; }
+        if (layer.kind === 'pdf') {
+          const it = layer.items[0], key = it.asset + '#' + it.page;
+          let emb = copies.get(key);
+          if (!emb) {
+            const src = sources.get(it.asset), sp = src.getPage(it.page - 1);
+            const cb = sp.getCropBox();
+            emb = await doc.embedPage(sp, { left: cb.x, bottom: cb.y, right: cb.x + cb.width, top: cb.y + cb.height });
+            copies.set(key, emb);
+          }
+          page.drawPage(emb, { x: (it.x - s.x) * k, y: H - (it.y - s.y + it.h) * k, width: it.w * k, height: it.h * k, opacity: it.alpha ?? 1 });
+          continue;
+        }
+        // painted: cropped to what the run covers on this sheet
+        let crop = null;
+        for (const it of layer.items) crop = U.unionBox(crop, scene.bbox(it));
+        crop = crop && intersect(crop, box);
+        if (!crop || crop.w <= 0 || crop.h <= 0) continue;
+        const pic = await paint(layer.items, crop);
+        if (!pic || !pic.png) continue;
+        const img = await doc.embedPng(pic.png);
+        page.drawImage(img, { x: (pic.x - s.x) * k, y: H - (pic.y - s.y + pic.h) * k, width: pic.w * k, height: pic.h * k });
+      }
+    }
+    return doc.save();
+  }
+
+  function intersect(a, b) {
+    const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y), x2 = Math.min(a.x2, b.x2), y2 = Math.min(a.y2, b.y2);
+    return x2 > x && y2 > y ? U.box(x, y, x2, y2) : null;
+  }
+
+  /** a run of items painted at 200 dpi on a see-through canvas, as PNG bytes */
+  async function paintRun(app, items, crop) {
+    const pad = 2;
+    const x = Math.floor(crop.x - pad), y = Math.floor(crop.y - pad);
+    const w = Math.ceil(crop.x2 + pad) - x, h = Math.ceil(crop.y2 + pad) - y;
+    const scale = Math.min(DPI / 96, MAX_SIDE / w, MAX_SIDE / h, Math.sqrt(MAX_AREA / (w * h)));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * scale));
+    c.height = Math.max(1, Math.round(h * scale));
+    const ctx = c.getContext('2d');
+    const r = app.renderer;
+    try {
+      ctx.setTransform(scale, 0, 0, scale, -x * scale, -y * scale);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      r.printing = true;
+      try { await r.paintExport(ctx, items, scale, { theme: 'light', dark: false, transparent: true }); } finally { r.printing = false; }
+      const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+      if (!blob) throw new Error('the page was too big to draw');
+      return { png: new Uint8Array(await blob.arrayBuffer()), x, y, w, h };
+    } finally { c.width = 0; c.height = 0; }
+  }
+
   let busy = false;
   async function exportPdf(app, opts = {}) {
     const sheets = plan(app.scene, opts.frames);
@@ -134,14 +368,20 @@
     const look = { theme: 'light', dark: false, transparent: false };
     const say = t => app.ui && app.ui.toast ? app.ui.toast(t, null, null, 60000) : null;
     try {
-      const out = [];
-      for (let i = 0; i < sheets.length; i++) {
-        if (sheets.length > 1) say(`Exporting page ${i + 1} of ${sheets.length}…`);
-        else say('Exporting…');
-        out.push(await sheet(app, sheets[i], look));
-      }
       const name = (app.board && app.board.name) || 'Board';
-      const bytes = write(out, { title: name });
+      let bytes = null;
+      say(sheets.length > 1 ? `Exporting ${sheets.length} pages…` : 'Exporting…');
+      let L = null;
+      try { L = await lib(); } catch (err) { console.warn('[dpo] PDF export: no pdf-lib, every sheet a picture', err); }
+      if (L) bytes = await vector(L, app, sheets, { title: name });
+      else {
+        const out = [];
+        for (let i = 0; i < sheets.length; i++) {
+          if (sheets.length > 1) say(`Exporting page ${i + 1} of ${sheets.length}…`);
+          out.push(await sheet(app, sheets[i], look));
+        }
+        bytes = write(out, { title: name });
+      }
       if (opts.download !== false) save(new Blob([bytes], { type: 'application/pdf' }), safeName(opts.frames && opts.frames.length === 1 && D.frames ? D.frames.nameOf(app.scene, opts.frames[0]) : name) + '.pdf');
       if (app.ui && app.ui.hideToast) app.ui.hideToast();
       app.toast(sheets.length > 1 ? `Exported ${sheets.length} pages` : 'Exported');
@@ -163,6 +403,8 @@
   const safeName = s => String(s || 'board').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'board';
 
   exportPdf.plan = plan;
+  exportPdf.layers = layers;
+  exportPdf.vector = vector;
   exportPdf.write = write;
   exportPdf.deflateRGB = deflateRGB;
   D.exportPdf = exportPdf;

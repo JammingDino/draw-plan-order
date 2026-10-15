@@ -28,9 +28,6 @@ into `master` (every push to `master` ships an update to installed copies).
 
 Roughly in order of how much each would help a student working with a pen.
 
-- **Search the board.** Find text in text boxes, notes, nodes, calc blocks,
-  answers and the text layer of imported PDFs, and step through the hits.
-  The current search only filters the list of boards.
 - **Lock.** Pin a PDF page, a picture, a page or a background in place so
   that writing over it never moves or selects it.
 - **Crop pictures.** Pasted screenshots of lecture slides nearly always
@@ -44,9 +41,8 @@ Roughly in order of how much each would help a student working with a pen.
 - **Any colour.** A custom colour picker and an eyedropper; the palette is
   fixed at eight.
 - **Handwriting to text.** Generalise the handwritten-maths reader to turn
-  selected writing into a text box.
-- **Typeset maths.** LaTeX in text boxes, and *Copy as LaTeX* for an answer
-  or a calc block.
+  selected writing into a text box — which would also make handwriting
+  searchable (search finds typed words and PDFs' words today).
 - **Links.** From an item to another board, or to a place on this one.
 
 ## Follow-ups to this release
@@ -57,6 +53,29 @@ Roughly in order of how much each would help a student working with a pen.
   how much the last few strokes wobbled.
 
 ### Handwriting
+
+The reader as it stands, untaught, on strangers' handwriting — Google's
+MathWriting set, `npm run bench:ink`, October 2026, the expressions written
+only with symbols it knows (about 1 in 20 of the set):
+
+| | test (372) | valid (677) |
+| --- | --- | --- |
+| symbols read right | 59% | 56% |
+| expressions read whole | 8% | 18% |
+| work out to the right value | 6% | 18% |
+| answered, and of those right | 16%, 24% right | 21%, 60% right |
+
+Most confused: 2 read as x, 2 as 1, 4 as 9, brackets as 1, a as 9.
+Answering a line it has wrong is the worst outcome, so the first aim is
+the last row: answer less often when unsure, and be right when it does.
+
+- Fewer confident wrong answers: tighten `reading.ok` against the bench
+  (a stricter margin for 2/x, 2/1, 4/9 and brackets) before improving
+  the reading itself.
+- A stronger reader for 2, 4, a and brackets: more template variety from
+  real hands (MathWriting's `symbols/` is CC BY-NC-SA, so only as an
+  evaluation, not shipped), or features beyond the point cloud
+  (direction, closure).
 
 - Carry what you taught between devices: export and import the samples
   (they live in each browser's or app's own storage).
@@ -76,15 +95,14 @@ Roughly in order of how much each would help a student working with a pen.
 
 - Move what is written on a page when the page itself is dragged, without
   *Select with what is on it* first.
-- Reorder pages by dragging them in the Pages list.
 - Page numbers and a header or footer on export.
 - More page templates: Cornell notes, an engineering drawing title block,
   graph paper with axes.
 
 ### PDF export
 
-- Vector output, with ink, shapes and text as paths and text, for smaller
-  files that stay sharp at any zoom. Today each sheet is a 200 dpi picture.
+- Shapes, connectors and text boxes as vector too (ink and imported PDF
+  pages are vector now; the rest is still painted at 200 dpi).
 
 ### Graphs
 

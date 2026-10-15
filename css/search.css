@@ -1,0 +1,16 @@
+/* The search bar (js/search.js): top right, clear of the top bar and the
+   rail, big enough for a pen to hit its buttons. */
+#search-bar{
+  position:fixed;top:12px;right:12px;z-index:30;
+  display:flex;align-items:center;gap:2px;padding:5px 6px 5px 10px;
+  width:min(440px,calc(100vw - 32px));
+}
+#search-bar[hidden]{display:none}
+.search-glass svg{width:18px;height:18px;opacity:.6}
+.search-field{
+  flex:1;min-width:0;height:36px;border:0;background:none;outline:0;
+  font:inherit;font-size:15px;color:var(--text);padding:0 6px;
+}
+.search-field::-webkit-search-cancel-button{display:none}
+.search-count{font-size:12px;color:var(--muted);white-space:nowrap;padding:0 6px;font-variant-numeric:tabular-nums}
+@media (max-width:1100px){#search-bar{top:64px}}

@@ -469,7 +469,7 @@
     /** put the caret in a field of the style panel, once it has been built */
     focusField(id) {
       setTimeout(() => {
-        const f = document.getElementById('f-' + id);
+        const f = /** @type {HTMLInputElement} */ (document.getElementById('f-' + id));
         if (f) { f.focus(); if (f.select) f.select(); }
       }, 30);
     }
@@ -825,7 +825,7 @@
       $('#sheet-close').onclick = () => this.closeSheet();
       $('#sheet-backdrop').onclick = () => { this.closeSheet(); this.closeSettings(); };
       $('#settings-close').onclick = () => this.closeSettings();
-      for (const a of document.querySelectorAll('[data-link]')) {
+      for (const a of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('[data-link]'))) {
         a.onclick = e => { e.preventDefault(); D.desktop.open(D.desktop.links[a.dataset.link]); };
       }
       $('#act-new').onclick = () => app.newBoard();
@@ -1228,7 +1228,11 @@
         this.setToggle('Scribble to erase', 'Scribble back and forth over ink to rub it out', g.scribbleErase, v => set('scribbleErase', v)),
         this.setToggle('Snap to grid', 'Shapes, notes and nodes line up with the paper', g.snapGrid, v => set('snapGrid', v)),
         this.setToggle('Fingers pan and zoom', 'A finger moves the board instead of drawing, so a resting hand leaves no marks', g.touchPan, v => set('touchPan', v)),
-        this.setToggle('Keep the tool', 'Stay on the shape, note or node tool after making one', g.stickyTools, v => set('stickyTools', v)))];
+        this.setToggle('Keep the tool', 'Stay on the shape, note or node tool after making one', g.stickyTools, v => set('stickyTools', v)),
+        this.setToggle('Low-latency ink', 'The pen’s ink skips a step on its way to the screen, so it keeps closer to the nib. Turn off if ink tears on your screen; changes the next time the app starts', g.lowLatency !== false, v => {
+          set('lowLatency', v);
+          try { localStorage.setItem('dpo:lowLatency', v ? '1' : '0'); } catch (_) { }
+        }))];
     }
 
     setUpdates(cfg) {

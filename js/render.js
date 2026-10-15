@@ -38,13 +38,43 @@
   const zoomBucket = z => Math.round(Math.log2(z) * 3);
   const bucketZoom = b => 2 ** (b / 3);
 
+  const INK_RETIRE = 3;          // frames a finished stroke stays on the ink layer
+
+  /* Settings → Pen and touch → Low-latency ink, mirrored to localStorage
+     by the app because the canvases are made before the prefs are read. */
+  function lowLatencyWanted() {
+    try { return localStorage.getItem('dpo:lowLatency') !== '0'; } catch (_) { return true; }
+  }
+
   class Renderer {
     constructor(app) {
       this.app = app;
-      this.base = document.getElementById('base');
-      this.live = document.getElementById('live');
+      this.base = /** @type {HTMLCanvasElement} */ (document.getElementById('base'));
+      this.live = /** @type {HTMLCanvasElement} */ (document.getElementById('live'));
       this.bctx = this.base.getContext('2d');
+      /* The pen's ink layer asks for a desynchronized context: on Chromium
+         (Edge, WebView2) that lets its pixels reach the screen without
+         waiting on the page's compositor, a frame or so off the time from
+         nib to ink. It is a hint — where it is not honoured nothing
+         changes — and it can be turned off (Settings → Pen and touch, read
+         at start-up because a context cannot change once made). */
+      const fast = lowLatencyWanted();
+      /** @type {CanvasRenderingContext2DSettings} */
+      const attrs = fast ? { desynchronized: true } : {};
       this.lctx = this.live.getContext('2d');
+      /* The pen's own layer: the stroke being written, and nothing else.
+         Ink is only ever added to it while the pen is down, so it can be
+         desynchronized — its pixels go to the screen without waiting on
+         the compositor — without anything on it ever flashing: there is no
+         clear-then-redraw for the screen to catch half done. Everything
+         that is redrawn whole each frame (selections, handles, the
+         highlighter, the eraser ring) stays on #live, which is composited
+         with the scene as normal. */
+      this.ink = /** @type {HTMLCanvasElement} */ (document.getElementById('ink'));
+      this.ictx = this.ink ? this.ink.getContext('2d', attrs) : null;
+      this.inkRetire = 0;              // frames left before the last stroke's ink is wiped
+      const got = this.ictx && this.ictx.getContextAttributes ? this.ictx.getContextAttributes() : null;
+      this.lowLatency = !!(got && got.desynchronized);
       this.dpr = 1;
       this.w = 0; this.h = 0;
       this.grid = 'dots';
@@ -55,7 +85,8 @@
     resize() {
       const dpr = this.dpr = Math.min(devicePixelRatio || 1, 2.5);
       const w = this.w = innerWidth, h = this.h = innerHeight;
-      for (const c of [this.base, this.live]) {
+      for (const c of [this.base, this.ink, this.live]) {
+        if (!c) continue;
         c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
         c.style.width = w + 'px'; c.style.height = h + 'px';
       }
@@ -696,8 +727,26 @@
       ctx.textBaseline = 'alphabetic';
       ctx.textAlign = it.align || 'left';
       const w = it.autoWidth ? L.width : it.w;
+      if (L.rich) { this.drawRich(ctx, L, it.x, it.y, w, it.align, U.color(it.color), it.size || 18); return; }
       const ax = it.align === 'center' ? it.x + w / 2 : it.align === 'right' ? it.x + w : it.x;
       L.lines.forEach((ln, i) => ctx.fillText(ln, ax, it.y + i * L.lh + L.base));
+    }
+
+    /* Lines of words and typeset maths (tex.js): words as text, maths as
+       its picture once the typesetter has made it, and as its source,
+       faintly, until then. `bottom` stops before a line that would not fit. */
+    drawRich(ctx, L, x, y, w, align, colour, size, bottom = Infinity) {
+      ctx.textAlign = 'left';
+      for (const ln of L.rich) {
+        if (y + ln.top + ln.h > bottom) break;
+        const off = align === 'center' ? (w - ln.w) / 2 : align === 'right' ? w - ln.w : 0;
+        for (const r of ln.runs) {
+          if (r.s != null) { ctx.fillText(r.s, x + off + r.x, y + ln.y); continue; }
+          const pic = D.tex.picture(r.tex, size, r.display, colour);
+          if (pic) ctx.drawImage(pic, x + off + r.x, y + ln.y - r.asc, r.w, r.asc + r.desc);
+          else { ctx.save(); ctx.globalAlpha *= 0.4; ctx.fillText(r.tex, x + off + r.x, y + ln.y); ctx.restore(); }
+        }
+      }
     }
 
     drawNote(ctx, it) {
@@ -712,6 +761,7 @@
       const t = { text: it.text, x: it.x + pad, y: it.y + pad, w: it.w - pad * 2, size: it.size, color: it.textColor || '#22252c', align: it.align, font: it.font };
       const L = this.app.scene.layout(t);
       ctx.font = L.font; ctx.fillStyle = U.color(t.color); ctx.textBaseline = 'alphabetic'; ctx.textAlign = t.align || 'left';
+      if (L.rich) { this.drawRich(ctx, L, t.x, t.y, t.w, t.align, U.color(t.color), t.size || 16, it.y + it.h); return; }
       const ax = t.align === 'center' ? t.x + t.w / 2 : t.align === 'right' ? t.x + t.w : t.x;
       L.lines.forEach((ln, i) => { if (t.y + (i + 1) * L.lh < it.y + it.h) ctx.fillText(ln, ax, t.y + i * L.lh + L.base); });
     }
@@ -879,6 +929,33 @@
       const ctx = this.lctx;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, this.live.width, this.live.height);
+    }
+
+    /* ── the pen's ink layer ─────────────────────────────────────────── */
+    /** the ink layer, in board coordinates; the live layer where there is none */
+    inkWorld() {
+      if (!this.ictx) return this.liveWorld();
+      this.worldTransform(this.ictx);
+      return this.ictx;
+    }
+
+    clearInk() {
+      this.inkRetire = 0;
+      if (!this.ictx) return;
+      this.ictx.setTransform(1, 0, 0, 1, 0, 0);
+      this.ictx.clearRect(0, 0, this.ink.width, this.ink.height);
+    }
+
+    /* The stroke on the ink layer is done with — committed to the scene, or
+       redrawn elsewhere. It is not wiped at once: the ink layer reaches the
+       screen ahead of the scene, so wiping it now would show a frame with
+       the stroke on neither, and every stroke would blink as the pen
+       lifted. It is wiped INK_RETIRE frames later, when the scene that has
+       it has been shown; for those frames it is on both, the same pixels
+       over each other. (App.frame counts them down.) */
+    retireInk() {
+      if (!this.ictx) return;
+      this.inkRetire = INK_RETIRE;
     }
 
     liveWorld() { const ctx = this.lctx; this.worldTransform(ctx); return ctx; }
@@ -1416,6 +1493,22 @@
     const w = it.autoWidth ? L.width : it.w;
     const anchor = it.align === 'center' ? 'middle' : it.align === 'right' ? 'end' : 'start';
     const ax = it.align === 'center' ? it.x + w / 2 : it.align === 'right' ? it.x + w : it.x;
+    if (L.rich) {
+      // words as text, maths as the typesetter's own SVG, so it stays vector
+      const colour = U.color(it.color), size = it.size || 18;
+      let out = '';
+      for (const ln of L.rich) {
+        const off = it.align === 'center' ? (w - ln.w) / 2 : it.align === 'right' ? w - ln.w : 0;
+        for (const r of ln.runs) {
+          const x = U.round(it.x + off + r.x, 1), y = U.round(it.y + ln.y, 1);
+          if (r.s != null) { out += `<text x="${x}" y="${y}" font-family="${family}" font-size="${size}" fill="${colour}" xml:space="preserve">${U.escapeXml(r.s)}</text>`; continue; }
+          const svg = D.tex.svg(r.tex, size, r.display, colour);
+          out += svg ? svg.replace('<svg', `<svg x="${x}" y="${U.round(it.y + ln.y - r.asc, 1)}"`)
+            : `<text x="${x}" y="${y}" font-family="${family}" font-size="${size}" fill="${colour}" opacity="0.4">${U.escapeXml(r.tex)}</text>`;
+        }
+      }
+      return `<g${op}>${out}</g>`;
+    }
     return `<g${op}>` + L.lines.map((ln, i) =>
       `<text x="${U.round(ax, 1)}" y="${U.round(it.y + i * L.lh + L.base, 1)}" text-anchor="${anchor}" font-family="${family}" font-size="${it.size}" fill="${U.color(it.color)}" xml:space="preserve">${U.escapeXml(ln)}</text>`).join('') + '</g>';
   }

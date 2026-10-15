@@ -131,3 +131,49 @@ test('reading order: down the board, and left to right along a row', () => {
   const c = f(0, 400), b = f(130, 10), a = f(0, 0);
   assert.deepEqual([...F.sheets(scene)].map(s => s.id), [a.id, b.id, c.id]);
 });
+
+/* ── reordering ──────────────────────────────────────────────────── */
+
+function threePages() {
+  const r = rig(), { D, app, scene, F } = r;
+  const a = F.addAfter(app, null), b = F.addAfter(app, a), c = F.addAfter(app, b);
+  const on = p => scene.add(D.make.stroke({ id: 'ink-' + p.id, pts: inked([p.x + 100, p.y + 100, p.x + 200, p.y + 150]) }));
+  const ia = on(a), ib = on(b), ic = on(c);
+  return { ...r, a, b, c, ia, ib, ic };
+}
+const at = (scene, it) => scene.bbox(it).y;
+
+test('dragging the last page to the front: the pages change places, each with what is written on it', () => {
+  const { app, scene, F, a, b, c, ic } = threePages();
+  const spots = [a, b, c].map(p => ({ x: p.x, y: p.y }));
+  const inkOffset = at(scene, ic) - c.y;
+  assert.equal(F.reorder(app, 2, 0), true);
+  assert.deepEqual([...F.sheets(scene).map(p => p.id)], [c.id, a.id, b.id]);
+  assert.deepEqual([c.x, c.y], [spots[0].x, spots[0].y], 'into the first page\'s place');
+  assert.deepEqual([a.y, b.y], [spots[1].y, spots[2].y]);
+  assert.ok(Math.abs(at(scene, ic) - c.y - inkOffset) < 1e-6, 'its writing came with it');
+});
+
+test('a reorder is one undo step', () => {
+  const { app, scene, F, a, b, c } = threePages();
+  const before = [a, b, c].map(p => p.y);
+  F.reorder(app, 0, 2);
+  app.undo();
+  assert.deepEqual([a, b, c].map(p => scene.get(p.id).y), before);
+  assert.deepEqual([...F.sheets(scene).map(p => p.id)], [a.id, b.id, c.id]);
+});
+
+test('pages of mixed sizes are stacked down a column, and none lands on another', () => {
+  const { app, scene, F, a, b, c } = threePages();
+  scene.begin('t'); scene.touch(b); b.w = 1123; b.h = 794; b.size = 'A4'; b.orient = 'landscape'; scene.commit();
+  F.reorder(app, 1, 0);
+  const pages = F.sheets(scene);
+  assert.deepEqual([...pages.map(p => p.id)], [b.id, a.id, c.id]);
+  for (let i = 1; i < pages.length; i++) assert.ok(pages[i].y >= pages[i - 1].y + pages[i - 1].h, 'below the one before');
+});
+
+test('nothing happens for a move to where it already is, or out of range', () => {
+  const { app, F } = threePages();
+  assert.equal(F.reorder(app, 1, 1), false);
+  assert.equal(F.reorder(app, 0, 5), false);
+});

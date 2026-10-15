@@ -86,6 +86,9 @@ function stubElement(tag) {
 export function load(...files) {
   const u = files.indexOf('util.js');
   if (u >= 0 && !files.includes('ext.js')) files = [...files.slice(0, u + 1), 'ext.js', ...files.slice(u + 1)];
+  /* and the saved format's versions (format.js) go ahead of the scene */
+  const sc = files.indexOf('scene.js');
+  if (sc >= 0 && !files.includes('format.js')) files = [...files.slice(0, sc), 'format.js', ...files.slice(sc)];
   const ctx = {
     Math, JSON, Date, performance, console,
     Array, Object, String, Number, Boolean, Error, Map, Set, RegExp,

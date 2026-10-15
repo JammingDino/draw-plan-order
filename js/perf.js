@@ -89,6 +89,8 @@
         `board  ${scene.items.length} items   undo ${scene.undoStack.length}   zoom ${Math.round(app.camera.zoom * 100)}%`
       ];
       if (pdf) rows.push(`pdf    ${pdf.hiMB}MB sharp + ${pdf.thumbMB}MB thumbs   ${pdf.inflight.length} rendering, ${pdf.queued} queued`);
+      const r = app.renderer, g = app.opts && app.opts.general;
+      if (r) rows.push(`ink    ${r.lowLatency ? 'low-latency layer' : 'composited layer'}${g && g.lowLatency === false && r.lowLatency ? ' (off from the next start)' : ''}`);
       this.pre.textContent = rows.join('\n');
       this.graph();
     }
