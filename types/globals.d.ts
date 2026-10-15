@@ -6,4 +6,5 @@ interface Window {
   __TAURI_INTERNALS__?: any;
   pdfjsLib?: any;
   math?: any;
+  MathJax?: any;
 }

@@ -850,6 +850,14 @@
       const font = `${item.italic ? 'italic ' : ''}${item.bold ? '600 ' : ''}${size}px ${item.font === 'hand' ? HAND_STACK : FONT_STACK}`;
       mctx.font = font;
       const maxW = item.w || 240;
+      /* $…$ in the text: laid out as words and typeset maths (tex.js),
+         line by line, each line as tall as what is on it */
+      if (D.tex && D.tex.has(item.text)) {
+        const { lh, base } = lineMetrics(size);
+        const R = D.tex.layout(item.text, size, maxW, item.autoWidth, s => mctx.measureText(s).width, lh, base);
+        item._lines = { lines: R.lines.map(l => l.src), rich: R.lines, font, lh, base, width: Math.ceil(R.width) + 2, height: Math.max(lh, R.height) };
+        return item._lines;
+      }
       const lines = [];
       let width = 0;
       for (const para of String(item.text ?? '').split('\n')) {
@@ -863,18 +871,7 @@
         }
         lines.push(line); width = Math.max(width, mctx.measureText(line).width);
       }
-      const lh = size * 1.35;
-      /* Where the baseline sits in a line of height lh, worked out the way
-         CSS does it — the font's ascent+descent box centred in the line —
-         rather than by canvas's 'top', which hangs the em square from the
-         top. Text is edited in a textarea laid out by CSS and painted on
-         the canvas afterwards, so the two models used to disagree by a few
-         pixels: the text jumped when you finished typing, and doubled up
-         while you typed. Every painter, the SVG export and the editor now
-         put line i's baseline at lineTop + i * lh + base. */
-      const m = mctx.measureText('Hg');
-      const A = m.fontBoundingBoxAscent, De = m.fontBoundingBoxDescent;
-      const base = isFinite(A) && isFinite(De) ? (lh - (A + De)) / 2 + A : (lh - size) / 2 + size * 0.8;
+      const { lh, base } = lineMetrics(size);
       item._lines = { lines, font, lh, base, width: Math.ceil(width) + 2, height: Math.max(lh, lines.length * lh) };
       return item._lines;
     }
@@ -1294,6 +1291,23 @@
       else o[k] = clone(v);
     }
     return o;
+  }
+
+  /* A line's height, and where its baseline sits in it, for text in the
+     font mctx holds. Worked out the way CSS does it — the font's
+     ascent+descent box centred in the line — rather than by canvas's
+     'top', which hangs the em square from the top. Text is edited in a
+     textarea laid out by CSS and painted on the canvas afterwards, so the
+     two models used to disagree by a few pixels: the text jumped when you
+     finished typing, and doubled up while you typed. Every painter, the
+     SVG export and the editor now put line i's baseline at
+     lineTop + i * lh + base. */
+  function lineMetrics(size) {
+    const lh = size * 1.35;
+    const m = mctx.measureText('Hg');
+    const A = m.fontBoundingBoxAscent, De = m.fontBoundingBoxDescent;
+    const base = isFinite(A) && isFinite(De) ? (lh - (A + De)) / 2 + A : (lh - size) / 2 + size * 0.8;
+    return { lh, base };
   }
 
   /** clone(), plus the coordinate rounding the stored format uses */
