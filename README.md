@@ -459,10 +459,18 @@ and import of anything exported.
 **Export → Document (.pdf)** prints a sheet for each page on the board
 (see *Pages*), in their order and at their size, or one sheet round
 everything if the board has no pages; a page's own panel has *This page
-as PDF*. Sheets are drawn at 200 dpi on light paper, whatever the theme,
-and stored lossless — or as JPEG on a page that carries photos or PDF
-pages, which keeps the file small. The PDF is written by
-`js/exportpdf.js` with no library. PNG and SVG come out on a transparent background by
+as PDF*. Sheets are on light paper, whatever the theme, and as much of
+them as can be is vector: a page of an imported PDF goes back as the
+original page, so its words stay words — sharp, selectable and
+searchable, and no bigger than they were — and ink goes in as the
+outlines it is drawn with, highlighters see-through and multiplied over
+what is under them. Everything else (text boxes, notes, graphs, ruled
+paper) is painted at 200 dpi into see-through pictures cropped to what
+they hold, in their place between the rest. A two-page handout marked up
+with a pen comes out at a few kilobytes. The file is made by pdf-lib
+(MIT, vendored under `vendor/pdf-lib`, loaded the first time you
+export); a PDF it cannot copy from (encrypted or damaged), or a page
+turned on the board, is painted instead. PNG and SVG come out on a transparent background by
 default; **Settings → Export** switches to the paper colour, and picks the
 theme they are drawn in — matching the app, or always light or always dark —
 which sets the colour of default ink and of PDF pages. Autosave runs about
