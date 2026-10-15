@@ -689,9 +689,21 @@ key and installed copies can no longer be updated, only reinstalled.
 ## Tests
 
 ```
-npm test        the geometry, document and ink layers, plus the PDF cache
-npm run bench   the numbers behind the performance work
+npm test           the geometry, document and ink layers, plus the PDF cache
+npm run bench      the numbers behind the performance work
+npm run bench:ink  how well handwritten maths is read, on real handwriting
 ```
+
+`bench:ink` runs the handwritten-maths reader over a folder of InkML —
+the `test/` folder of Google's [MathWriting](https://github.com/google-research/google-research/tree/master/mathwriting)
+set, or CROHME's — and says how many symbols it read right, how many
+expressions it read whole, how many work out to the right value, and how
+often it answered one it had wrong. The data is not in the repository
+(it is large, and MathWriting is CC BY-NC-SA): download it and pass the
+folder, `npm run bench:ink -- path/to/mathwriting-2024/test`. Only
+expressions the reader could get right are counted — written with the
+symbols it knows — and it says what share of the set that is. Run it
+before and after a change to `js/inkmath.js`.
 
 ```
 npm run typecheck   TypeScript reads js/ as it is, with no build step

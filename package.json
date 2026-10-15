@@ -13,7 +13,8 @@
     "test": "node --test test/*.test.mjs",
     "typecheck": "tsc -p jsconfig.json",
     "bench": "node test/bench.mjs",
-    "bench:app": "node test/bench-app.mjs"
+    "bench:app": "node test/bench-app.mjs",
+    "bench:ink": "node test/bench-ink.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
