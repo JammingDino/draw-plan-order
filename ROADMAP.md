@@ -58,6 +58,29 @@ Roughly in order of how much each would help a student working with a pen.
 
 ### Handwriting
 
+The reader as it stands, untaught, on strangers' handwriting — Google's
+MathWriting set, `npm run bench:ink`, October 2026, the expressions written
+only with symbols it knows (about 1 in 20 of the set):
+
+| | test (372) | valid (677) |
+| --- | --- | --- |
+| symbols read right | 59% | 56% |
+| expressions read whole | 8% | 18% |
+| work out to the right value | 6% | 18% |
+| answered, and of those right | 16%, 24% right | 21%, 60% right |
+
+Most confused: 2 read as x, 2 as 1, 4 as 9, brackets as 1, a as 9.
+Answering a line it has wrong is the worst outcome, so the first aim is
+the last row: answer less often when unsure, and be right when it does.
+
+- Fewer confident wrong answers: tighten `reading.ok` against the bench
+  (a stricter margin for 2/x, 2/1, 4/9 and brackets) before improving
+  the reading itself.
+- A stronger reader for 2, 4, a and brackets: more template variety from
+  real hands (MathWriting's `symbols/` is CC BY-NC-SA, so only as an
+  evaluation, not shipped), or features beyond the point cloud
+  (direction, closure).
+
 - Carry what you taught between devices: export and import the samples
   (they live in each browser's or app's own storage).
 - See and delete single samples in the trainer, not only *Forget* all.
