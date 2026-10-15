@@ -28,9 +28,6 @@ into `master` (every push to `master` ships an update to installed copies).
 
 Roughly in order of how much each would help a student working with a pen.
 
-- **Search the board.** Find text in text boxes, notes, nodes, calc blocks,
-  answers and the text layer of imported PDFs, and step through the hits.
-  The current search only filters the list of boards.
 - **Lock.** Pin a PDF page, a picture, a page or a background in place so
   that writing over it never moves or selects it.
 - **Crop pictures.** Pasted screenshots of lecture slides nearly always
@@ -44,7 +41,8 @@ Roughly in order of how much each would help a student working with a pen.
 - **Any colour.** A custom colour picker and an eyedropper; the palette is
   fixed at eight.
 - **Handwriting to text.** Generalise the handwritten-maths reader to turn
-  selected writing into a text box.
+  selected writing into a text box — which would also make handwriting
+  searchable (search finds typed words and PDFs' words today).
 - **Typeset maths.** LaTeX in text boxes, and *Copy as LaTeX* for an answer
   or a calc block.
 - **Links.** From an item to another board, or to a place on this one.
