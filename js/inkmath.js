@@ -1498,10 +1498,20 @@
     graph: 'A function of x — tap to graph it',
     unsure: 'Not sure of the reading — tap to check it'
   };
+  /* Left alone on purpose, so not worth a note even with "Show why" on:
+     an "=" with nothing before it is the start of the next line of a
+     working (= ½(5 + 3)), and a line with letters but nothing to work out
+     is a statement (f_y = ½(…), not a sum the reader missed. What is
+     left is what points to a misreading. */
+  function worthNoting(why, r) {
+    if (why === 'alone') return false;
+    if (why === 'not-a-sum' && r && /[a-zθ]/i.test(r.text || r.expr || '')) return false;
+    return true;
+  }
   function note(e, why, r, guess = false) {
     e.why = why; e.reading = r || null;
     const o = S.app && S.app.opts && S.app.opts.inkmath;
-    if (why !== 'answered' && (guess || (o && o.explain))) mark(e, why, r, guess);
+    if (why !== 'answered' && (guess || (o && o.explain && worthNoting(why, r)))) mark(e, why, r, guess);
     else unmark(e.key);
   }
   function mark(e, why, r, guess) {
@@ -1524,7 +1534,8 @@
     m.el.classList.toggle('why', !guess && why !== 'graph');
     m.el.classList.toggle('graph', why === 'graph');
     if (why === 'graph') m.el.innerHTML = U.GRAPH_ICON + '<span>Graph</span>';
-    else m.el.textContent = guess ? '?' : '?  ' + why;
+    // a "why" says it in words on a tap (Solve this ink) or a hover, not on the page
+    else m.el.textContent = '?';
     placeMark(m);
     if (S.app && S.app.requestDrawLive) S.app.requestDrawLive();
   }
@@ -1539,8 +1550,11 @@
   function placeMark(m) {
     const app = S.app, cam = app && app.camera;
     if (!cam || !cam.toScreen) return;
-    const e = m.e, p = cam.toScreen((m.why === 'graph' && e.gx != null ? e.gx : e.x2) + 0.3 * e.L, e.cy);
-    const px = U.clamp(e.L * cam.zoom * 0.7, 13, 26);
+    /* A "why" sits small and raised, above the end of the "=", off the
+       line: that is where the next thing gets written. */
+    const why = m.el.classList.contains('why');
+    const e = m.e, p = cam.toScreen((m.why === 'graph' && e.gx != null ? e.gx : e.x2) + (why ? 0.1 : 0.3) * e.L, e.cy - (why ? 0.9 * e.L : 0));
+    const px = why ? 12 : U.clamp(e.L * cam.zoom * 0.7, 13, 26);
     m.el.style.left = p.x + 'px'; m.el.style.top = p.y + 'px';
     m.el.style.fontSize = px + 'px';
   }
@@ -1556,7 +1570,7 @@
     if (!app || !m.reading) return;
     const items = m.reading.syms.flatMap(s => s.strokes.map(f => app.scene.get(f.id))).filter(Boolean);
     const b = m.el.getBoundingClientRect ? m.el.getBoundingClientRect() : null;
-    solve(app, items, { reading: m.reading, sx: b ? b.left : undefined, sy: b ? b.bottom : undefined });
+    solve(app, items, { reading: m.reading, why: m.guess ? null : WHY[m.why], sx: b ? b.left : undefined, sy: b ? b.bottom : undefined });
   }
 
   /* Answers are added, changed and removed outside the undo history: they
@@ -1850,6 +1864,7 @@
     const ins = el('button', { class: 'btn primary', type: 'button' }, 'Insert result');
     const calc = el('button', { class: 'btn', type: 'button' }, 'Open in calculator');
     const teachB = el('button', { class: 'btn', type: 'button', title: 'Remember the symbols you corrected, for your handwriting' }, 'Teach');
+    const why = opts.why ? el('p', { class: 'inkmath-why' }, 'Not answered: ' + opts.why.replace(/ — tap.*$/, '') + '.') : null;
     const note = el('p', { class: 'inkmath-note' },
       reading.ok ? 'Tap the line to put a misreading right, or a symbol below to teach it.' : 'Not sure of this one. Tap a symbol below that is wrong, and pick what it is: it is learnt for next time.');
     const chips = el('div', { class: 'inkmath-chips', 'aria-label': 'The symbols, as read' });
@@ -1859,7 +1874,7 @@
         el('button', { class: 'btn inkmath-trainb', type: 'button', title: 'Write each symbol a few times, so your hand is read right', onclick: () => train(app) }, 'Train'),
         el('button', { class: 'icon', type: 'button', title: 'Close', 'aria-label': 'Close', onclick: () => closePop(),
           html: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>' })),
-      field, out, el('div', { class: 'inkmath-acts' }, ins, calc, teachB), chips, pick, note);
+      ...(why ? [why] : []), field, out, el('div', { class: 'inkmath-acts' }, ins, calc, teachB), chips, pick, note);
     /* each symbol as it was read, with its own ink: tap one, pick what it
        really is, and that is taught on the spot — no retyping the line,
        and it works however the line was split into symbols */
@@ -2471,7 +2486,7 @@
           ui.setToggle('Solve as I write', 'Write a sum with the pen, end it with =, and pause: the answer appears beside it. x = 5 on a line above sets x', !!o.auto, v => set('auto', v)),
           ui.setRow('Decimal places', 'Auto follows the calculator’s number settings', ui.setSeg([['auto', 'Auto'], [0, '0'], [1, '1'], [2, '2'], [3, '3'], [4, '4']], o.places, v => { set('places', v); rework(app); })),
           ui.setRow('Answer colour', '', ui.setSeg(['accent', 'green', 'orange', 'red', 'purple'].map(c => [c, sw(c, c)]), o.color, v => { set('color', v); recolour(app, v); })),
-          ui.setToggle('Show why it didn’t answer', 'A note beside each = it found but left alone, saying why. For when it misses one', !!o.explain, v => { set('explain', v); explainAll(app); })),
+          ui.setToggle('Show why it didn’t answer', 'A small ? above each = it found but could not answer; tap it to see why. For when it misses one', !!o.explain, v => { set('explain', v); explainAll(app); })),
         ui.setGroup(
           ui.setRow('Your handwriting', n ? `${n} sample${n > 1 ? 's' : ''} of ${new Set(learned().map(t => t.ch)).size} symbols, taught on this device` : 'Nothing taught yet. Write each symbol a few times so it reads your hand',
             el('div', { class: 'set-actions' },

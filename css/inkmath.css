@@ -59,7 +59,16 @@
   animation:inkmath-ask-in .3s var(--ease);
 }
 .inkmath-ask:hover,.inkmath-ask:focus-visible{opacity:.95;outline:0}
-.inkmath-ask.why{font:500 12px/1.2 "Segoe UI",system-ui,sans-serif;color:var(--muted);opacity:.85}
+.inkmath-ask.why{
+  /* small, raised off the line, and quieter still once it has been seen;
+     a 28px target round it, smaller than a "?" guess's, as it is less often wanted */
+  min-width:28px;min-height:28px;padding:0;justify-content:center;transform:translate(-50%,-50%);
+  font:600 12px/1 "Segoe UI",system-ui,sans-serif;color:var(--muted);opacity:.7;
+  animation:inkmath-ask-in .3s var(--ease),inkmath-why-settle .6s 4s var(--ease) forwards;
+}
+.inkmath-ask.why:hover,.inkmath-ask.why:focus-visible{animation:none;opacity:.95}
+@keyframes inkmath-why-settle{to{opacity:.3}}
+.inkmath-why{margin:0 0 8px;font-size:13px;color:var(--muted)}
 @keyframes inkmath-ask-in{from{opacity:0}}
 
 /* the symbols of a reading, each with its own ink: tap to teach */

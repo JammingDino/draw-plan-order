@@ -392,10 +392,15 @@ shape, scribble to erase — are untouched. A sum of numbers it found
 but could not read with confidence gets a faint **?** beside its `=`
 instead of an answer: tap it, and Solve this ink opens on its best
 guess, so a misreading is one correction away. **Show why it didn't
-answer**, in the same Settings section, puts a short note by every `=`
-it found and left alone — nothing before it, no operator, a letter
-nothing defines, not sure of the reading — for when it misses one.
-The marks are not part of the board: never saved, never undone.
+answer**, in the same Settings section, is for when it misses one: a
+small **?** sits above each `=` it found and could not answer, off the
+line you are writing on, and fades after a few seconds. Tap it and
+*Solve this ink* opens saying why (no operator, a letter nothing
+defines, not sure of the reading); hover over it with a mouse for the
+same. An `=` that starts a line (the next step of a working) and a line
+with letters but nothing to work out (`f_y = ½(…`) are left alone on
+purpose, so they get no mark. The marks are not part of the board:
+never saved, never undone.
 
 How it reads, in `js/inkmath.js`: each symbol is matched as a cloud of
 32 points against templates (the $P recogniser, Vatavu et al. 2012), so
