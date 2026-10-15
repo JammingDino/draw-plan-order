@@ -217,9 +217,13 @@ round. *Select with what is on it* (in its panel, its long-press menu,
 or a double-tap on its edge) picks up the page with its contents, to
 move them together.
 
-The **Pages** button in the zoom bar lists the pages, jumps to one,
-and adds the next, laid below the last (beside it, for one on its
-side). <kbd>Page Down</kbd> and <kbd>Page Up</kbd> step through them.
+The **Pages** button in the zoom bar lists the pages, each with a small
+picture of what is on it, jumps to one, and adds the next, laid below the
+last (beside it, for one on its side). Drag a page by its ⋮⋮ grip — pen,
+finger or mouse — to put it somewhere else in the order: the pages change
+places on the board, each taking what is written on it along (pages of
+mixed sizes are stacked down a column so none lands on another), as one
+undo step. <kbd>Page Down</kbd> and <kbd>Page Up</kbd> step through them.
 The pages of an imported PDF are pages too: they come in at the same
 scale (an A4 PDF is exactly an A4 page), are listed by their document
 and page number, are stepped through with the rest, and *Add a page*
