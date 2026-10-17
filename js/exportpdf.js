@@ -13,8 +13,9 @@
      a page of an imported PDF   the original page itself, copied out of
                                  the PDF, so its text stays text: sharp at
                                  any zoom, selectable and searchable, and
-                                 no bigger than it was
-     ink                         each stroke as the filled outline it is on
+                                 no bigger than it was — turned, if it is
+                                 turned on the board or has a /Rotate
+     ink                        each stroke as the filled outline it is on
                                  screen, highlighters with their see-through
                                  and multiply, so it is sharp at any zoom
      everything else             (text boxes, notes, shapes, graphs, ruled
@@ -24,11 +25,18 @@
 
    The file is made by pdf-lib (vendor/pdf-lib, MIT), loaded the first
    time something is exported. What it cannot copy — a PDF that is
-   encrypted or damaged, a page whose own /Rotate it would ignore, a page
-   turned on the board — is painted instead, as everything else is. If
+   encrypted or damaged — is painted instead, as everything else is. If
    pdf-lib cannot be loaded at all, the whole export falls back to the
    old way below: each sheet one 200 dpi picture, in a file written by
    hand.
+
+   ── No limit on size ──────────────────────────────────────────────────
+   A canvas has a ceiling, so a painted run goes in as tiles that each
+   fit, every one at the full 200 dpi, rather than as one picture that
+   got blurrier the longer the board was. And a sheet past 200 inches —
+   the most a PDF page can be in its ordinary units — is written in
+   bigger ones (/UserUnit), so a long board comes out as one long page
+   at its true size instead of one a reader refuses.
 
    ── The raster writer (the fallback) ─────────────────────────────────
    No library: the file is a dozen objects written out by hand — the
@@ -287,10 +295,8 @@
       for (const it of scene.items) if (it.type === 'pdfpage' && it.asset && U.boxesOverlap(scene.bbox(it), box)) await sourceOf(L, app, sources, it.asset);
     }
     const canCopy = it => {
-      if (it.rot) return false;
       const src = sources.get(it.asset);
-      if (!src || it.page < 1 || it.page > src.getPageCount()) return false;
-      return src.getPage(it.page - 1).getRotation().angle % 360 === 0;
+      return !!src && it.page >= 1 && it.page <= src.getPageCount();
     };
 
     const paper = rgbaOf(U.paintAs('light', () => U.color('paper')));
@@ -308,14 +314,17 @@
         if (layer.kind === 'ink') { U.paintAs('light', () => drawInk(L, page, layer.items, at)); continue; }
         if (layer.kind === 'pdf') {
           const it = layer.items[0], key = it.asset + '#' + it.page;
-          let emb = copies.get(key);
-          if (!emb) {
+          let copy = copies.get(key);
+          if (!copy) {
             const src = sources.get(it.asset), sp = src.getPage(it.page - 1);
+            // a blank page has no drawing at all, and pdf-lib will not embed one
+            if (!sp.node.Contents()) continue;
             const cb = sp.getCropBox();
-            emb = await doc.embedPage(sp, { left: cb.x, bottom: cb.y, right: cb.x + cb.width, top: cb.y + cb.height });
-            copies.set(key, emb);
+            const emb = await doc.embedPage(sp, { left: cb.x, bottom: cb.y, right: cb.x + cb.width, top: cb.y + cb.height });
+            copy = { emb, turn: ((sp.getRotation().angle % 360) + 360) % 360 };
+            copies.set(key, copy);
           }
-          page.drawPage(emb, { x: (it.x - s.x) * k, y: H - (it.y - s.y + it.h) * k, width: it.w * k, height: it.h * k, opacity: it.alpha ?? 1 });
+          page.drawPage(copy.emb, placePage(L, copy, it, scene, s, k, H));
           continue;
         }
         // painted: cropped to what the run covers on this sheet
@@ -323,13 +332,63 @@
         for (const it of layer.items) crop = U.unionBox(crop, scene.bbox(it));
         crop = crop && intersect(crop, box);
         if (!crop || crop.w <= 0 || crop.h <= 0) continue;
-        const pic = await paint(layer.items, crop);
-        if (!pic || !pic.png) continue;
-        const img = await doc.embedPng(pic.png);
-        page.drawImage(img, { x: (pic.x - s.x) * k, y: H - (pic.y - s.y + pic.h) * k, width: pic.w * k, height: pic.h * k });
+        for (const part of tiles(crop)) {
+          const pic = await paint(layer.items, part);
+          if (!pic || !pic.png) continue;
+          const img = await doc.embedPng(pic.png);
+          page.drawImage(img, { x: (pic.x - s.x) * k, y: H - (pic.y - s.y + pic.h) * k, width: pic.w * k, height: pic.h * k });
+        }
       }
+      bigUnits(L, page);
     }
     return doc.save();
+  }
+
+  /**
+   * drawPage's options for a copied page, so that it fills the item's
+   * box on the sheet. The copy is the page as stored, before its own
+   * /Rotate (embedding ignores it), so that turn goes back on here, with
+   * any turn it has on the board. Both are clockwise as seen; PDF turns
+   * the other way.
+   */
+  function placePage(L, { emb, turn }, it, scene, s, k, H) {
+    const side = turn % 180 !== 0;
+    const sx = (side ? it.h : it.w) * k / emb.width, sy = (side ? it.w : it.h) * k / emb.height;
+    const b = it.rot ? scene.bbox(it) : null;
+    const c = b && b.local ? U.boxCenter(b.local) : { x: it.x + it.w / 2, y: it.y + it.h / 2 };
+    const a = -(turn * Math.PI / 180 + (it.rot || 0)), cos = Math.cos(a), sin = Math.sin(a);
+    // the form's middle, turned and scaled, has to land on the item's middle
+    const hx = sx * emb.width / 2, hy = sy * emb.height / 2;
+    const cx = (c.x - s.x) * k, cy = H - (c.y - s.y) * k;
+    return {
+      x: cx - (cos * hx - sin * hy), y: cy - (sin * hx + cos * hy),
+      xScale: sx, yScale: sy, rotate: L.radians(a), opacity: it.alpha ?? 1
+    };
+  }
+
+  /* A painted run is cut into tiles of this many board units: 4000 px at
+     200 dpi exactly, and on whole units, so neighbours meet on a pixel
+     edge and nothing is painted twice. */
+  const TILE = 1920;
+  function tiles(crop) {
+    const x0 = Math.floor(crop.x - 2), y0 = Math.floor(crop.y - 2);
+    const x1 = Math.ceil(crop.x2 + 2), y1 = Math.ceil(crop.y2 + 2);
+    const out = [];
+    for (let y = y0; y < y1; y += TILE)
+      for (let x = x0; x < x1; x += TILE) out.push(U.box(x, y, Math.min(x1, x + TILE), Math.min(y1, y + TILE)));
+    return out;
+  }
+
+  /* 14400 (200 in) is the longest page side readers promise to open. A
+     longer sheet keeps its true size by counting in bigger units: its
+     drawing is scaled down by u, and /UserUnit says a unit is u points. */
+  const PAGE_LIMIT = 14400;
+  function bigUnits(L, page) {
+    const side = Math.max(page.getWidth(), page.getHeight());
+    if (side <= PAGE_LIMIT) return;
+    const u = Math.ceil(side / PAGE_LIMIT);
+    page.scale(1 / u, 1 / u);
+    page.node.set(L.PDFName.of('UserUnit'), L.PDFNumber.of(u));
   }
 
   function intersect(a, b) {
@@ -337,12 +396,11 @@
     return x2 > x && y2 > y ? U.box(x, y, x2, y2) : null;
   }
 
-  /** a run of items painted at 200 dpi on a see-through canvas, as PNG bytes */
+  /** one tile of a run of items painted at 200 dpi on a see-through canvas, as PNG bytes */
   async function paintRun(app, items, crop) {
-    const pad = 2;
-    const x = Math.floor(crop.x - pad), y = Math.floor(crop.y - pad);
-    const w = Math.ceil(crop.x2 + pad) - x, h = Math.ceil(crop.y2 + pad) - y;
-    const scale = Math.min(DPI / 96, MAX_SIDE / w, MAX_SIDE / h, Math.sqrt(MAX_AREA / (w * h)));
+    const x = Math.floor(crop.x), y = Math.floor(crop.y);
+    const w = Math.ceil(crop.x2) - x, h = Math.ceil(crop.y2) - y;
+    const scale = DPI / 96;
     const c = document.createElement('canvas');
     c.width = Math.max(1, Math.round(w * scale));
     c.height = Math.max(1, Math.round(h * scale));

@@ -242,7 +242,11 @@ so annotations always sit on top.
 Pages are not flattened into pictures at import. The file is stored once and
 each page is rendered on demand at a resolution that suits the current zoom —
 so a 40-page PDF costs one copy of the file rather than forty bitmaps, and
-zooming in to annotate gives you a sharper page rather than a blurry one. A
+zooming in to annotate gives you a sharper page rather than a blurry one.
+The pages stay vectors however far in you zoom: past the resolution a whole
+page can be held at, the part on screen is rendered on its own, straight from
+the PDF, at the screen's resolution, so small print and fine lines are as
+sharp at 30× as at 1×. A
 `.board` export carries its PDFs and pictures inside it, so the file still
 stands alone. Pasted and dropped pictures are kept the same way — stored once,
 at full resolution, outside the board itself — so a board full of screenshots
@@ -504,13 +508,19 @@ them as can be is vector: a page of an imported PDF goes back as the
 original page, so its words stay words — sharp, selectable and
 searchable, and no bigger than they were — and ink goes in as the
 outlines it is drawn with, highlighters see-through and multiplied over
-what is under them. Everything else (text boxes, notes, graphs, ruled
-paper) is painted at 200 dpi into see-through pictures cropped to what
-they hold, in their place between the rest. A two-page handout marked up
-with a pen comes out at a few kilobytes. The file is made by pdf-lib
+what is under them. A PDF page turned on the board, or one with a
+rotation of its own, goes back turned and still vector. Everything else
+(text boxes, notes, graphs, ruled paper) is painted at 200 dpi into
+see-through pictures cropped to what they hold, in their place between
+the rest. A two-page handout marked up with a pen comes out at a few
+kilobytes. There is no limit on how long an export can be: those
+pictures are painted in tiles, each at the full 200 dpi, so a long
+board is as sharp at the bottom as at the top, and a sheet longer than
+the 200 inches a PDF page normally allows is written in larger units
+(`/UserUnit`) so it keeps its true size. The file is made by pdf-lib
 (MIT, vendored under `vendor/pdf-lib`, loaded the first time you
-export); a PDF it cannot copy from (encrypted or damaged), or a page
-turned on the board, is painted instead. PNG and SVG come out on a transparent background by
+export); a PDF it cannot copy from (encrypted or damaged) is painted
+instead. PNG and SVG come out on a transparent background by
 default; **Settings → Export** switches to the paper colour, and picks the
 theme they are drawn in — matching the app, or always light or always dark —
 which sets the colour of default ink and of PDF pages. Autosave runs about

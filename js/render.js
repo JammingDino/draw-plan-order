@@ -897,6 +897,9 @@
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(`${it.label || 'PDF'} · page ${it.page}`, it.x + it.w / 2, it.y + it.h / 2);
       }
+      // zoomed in past the whole page's bitmap: the part on screen, drawn afresh from the PDF
+      const part = this.pageDetail(ctx, it);
+      if (part) ctx.drawImage(part.bitmap, part.box.x, part.box.y, part.box.w, part.box.h);
       ctx.strokeStyle = dark ? '#ffffff1f' : '#0000001f';
       ctx.lineWidth = 1 / (this.paintZoom || this.app.camera.zoom);
       ctx.strokeRect(it.x, it.y, it.w, it.h);
@@ -922,6 +925,29 @@
         return D.pdf.bitmap(this.app, it, this.app.camera.zoom * this.dpr);
       }
       return D.pdf.peek ? D.pdf.peek(it, this.tokens().dark) : null;
+    }
+
+    /**
+     * The sharp render of the part of a page on screen (D.pdf.detail), for
+     * the screen only. It is asked with the view in the page's own frame:
+     * for a page turned on the board, the screen turned back the other way.
+     */
+    pageDetail(ctx, it) {
+      if (this.pages || !D.pdf.detail || (ctx !== this.bctx && ctx !== this.lctx)) return null;
+      const cam = this.app.camera;
+      let v = cam.viewport(this.w, this.h, 0);
+      if (it.rot) {
+        const b = this.app.scene.bbox(it), c = b && b.local ? U.boxCenter(b.local) : { x: it.x + it.w / 2, y: it.y + it.h / 2 };
+        const cos = Math.cos(-it.rot), sin = Math.sin(-it.rot);
+        let x = Infinity, y = Infinity, x2 = -Infinity, y2 = -Infinity;
+        for (const [px, py] of [[v.x, v.y], [v.x2, v.y], [v.x, v.y2], [v.x2, v.y2]]) {
+          const dx = px - c.x, dy = py - c.y;
+          const qx = c.x + dx * cos - dy * sin, qy = c.y + dx * sin + dy * cos;
+          x = Math.min(x, qx); y = Math.min(y, qy); x2 = Math.max(x2, qx); y2 = Math.max(y2, qy);
+        }
+        v = { x, y, x2, y2 };
+      }
+      return D.pdf.detail(this.app, it, cam.zoom * this.dpr, v);
     }
 
     /* ── live layer ───────────────────────────────────────────────── */

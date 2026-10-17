@@ -121,12 +121,86 @@ test('a PDF that cannot be copied from is painted instead, and the export still 
   assert.deepEqual(painted[0], ['pg'], 'the page painted');
 });
 
-test('a page turned on the board is painted, not copied square', async () => {
+/** the copied form's matrix: pdf-lib writes translate, turn, scale and skew as cms before its Do */
+function matrices(ops) {
+  const at = ops.indexOf('/EmbeddedPdfPage');
+  const before = ops.slice(0, at).split('\nq\n').pop();
+  let M = [1, 0, 0, 1, 0, 0];
+  for (const m of before.matchAll(/([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) cm/g)) {
+    const [a, b, c, d, e, f] = m.slice(1).map(Number), [A, B, C, D, E, F] = M;
+    M = [a * A + b * C, a * B + b * D, c * A + d * C, c * B + d * D, e * A + f * C + E, e * B + f * D + F];
+  }
+  return M;
+}
+const apply = (M, x, y) => [M[0] * x + M[2] * y + M[4], M[1] * x + M[3] * y + M[5]];
+
+test('a page turned on the board is copied, not painted, and turned with it', async () => {
   const src = await lecture();
   const { app, hooks, painted, scene } = await board(src);
-  scene.get('pg').rot = 0.3;
-  await P.vector(L, app, P.plan(scene), {}, hooks);
-  assert.deepEqual(painted[0], ['pg']);
+  const pg = scene.get('pg');
+  pg.rot = Math.PI / 2;
+  // a sheet round the turned page, so the page is all there is to check
+  const k = 72 / 96, cx = pg.x + pg.w / 2, cy = pg.y + pg.h / 2;
+  const sheet = { x: cx - pg.h / 2, y: cy - pg.w / 2, w: pg.h, h: pg.w };
+  const bytes = await P.vector(L, app, [sheet], {}, hooks);
+  assert.ok(!painted.some(r => r.includes('pg')), 'the page is not painted');
+  const out = await L.PDFDocument.load(bytes);
+  const M = matrices(contentOf(out, out.getPage(0)));
+  // a quarter turn clockwise as seen: the form's top-left lands top-right
+  const [x, y] = apply(M, 0, 841.89);
+  assert.ok(Math.abs(x - sheet.w * k) < 0.5 && Math.abs(y - sheet.h * k) < 0.5, `top-left at ${x}, ${y}`);
+  const [x2, y2] = apply(M, 595.28, 0);
+  assert.ok(Math.abs(x2) < 0.5 && Math.abs(y2) < 0.5, `bottom-right at ${x2}, ${y2}`);
+});
+
+test('a page with a /Rotate of its own is copied turned the way a reader shows it', async () => {
+  const doc = await L.PDFDocument.create();
+  const turned = doc.addPage([595.28, 841.89]);
+  turned.setRotation(L.degrees(90));
+  turned.drawRectangle({ x: 0, y: 0, width: 10, height: 10 });
+  const src = await doc.save();
+  const scene = new D.Scene();
+  // shown landscape, as pdf.js measures a turned page
+  const w = 841.89 * 96 / 72, h = 595.28 * 96 / 72;
+  scene.add(D.make.pdfpage({ id: 'pg', asset: 'a', page: 1, pages: 1, x: 0, y: 0, w, h, pw: 841.89, ph: 595.28 }));
+  const painted = [];
+  const app = { scene, getAsset: async () => src };
+  const bytes = await P.vector(L, app, [{ x: 0, y: 0, w, h }], {}, { paint: async items => { painted.push(items.map(i => i.id)); return null; } });
+  assert.deepEqual(painted, []);
+  const out = await L.PDFDocument.load(bytes);
+  const M = matrices(contentOf(out, out.getPage(0)));
+  // /Rotate 90 is clockwise: the stored page's top-left is shown top-right
+  const [x, y] = apply(M, 0, 841.89);
+  assert.ok(Math.abs(x - 841.89) < 0.5 && Math.abs(y - 595.28) < 0.5, `top-left at ${x}, ${y}`);
+});
+
+test('a blank page, with no drawing to copy, does not stop the export', async () => {
+  const doc = await L.PDFDocument.create();
+  doc.addPage([595.28, 841.89]);
+  const src = await doc.save();
+  const scene = new D.Scene();
+  scene.add(D.make.pdfpage({ id: 'pg', asset: 'a', page: 1, pages: 1, x: 0, y: 0, w: 794, h: 1123, pw: 595.28, ph: 841.89 }));
+  const bytes = await P.vector(L, { scene, getAsset: async () => src }, P.plan(scene), {}, { paint: async () => null });
+  assert.equal((await L.PDFDocument.load(bytes)).getPageCount(), 1);
+});
+
+test('no limit on length: a long run is painted in full-resolution tiles, and a long sheet keeps its size', async () => {
+  const scene = new D.Scene();
+  // a strip of text boxes 30000 units long: past a canvas, and past 200 inches
+  for (let i = 0; i < 30; i++) scene.add(D.make.text({ id: 't' + i, x: 20, y: 20 + i * 1000, w: 300, text: 'line ' + i }));
+  const crops = [];
+  const app = { scene, getAsset: async () => null };
+  const bytes = await P.vector(L, app, P.plan(scene), {}, { paint: async (items, crop) => { crops.push(crop); return { png: png(), x: crop.x, y: crop.y, w: crop.w, h: crop.h }; } });
+  assert.ok(crops.length > 1, 'cut into tiles');
+  assert.ok(crops.every(c => c.w <= 1920 && c.h <= 1920), 'each one small enough to paint at 200 dpi');
+  const out = await L.PDFDocument.load(bytes);
+  const page = out.getPage(0);
+  const unit = page.node.get(L.PDFName.of('UserUnit'));
+  assert.ok(unit, 'written in bigger units');
+  const u = unit.asNumber();
+  assert.ok(page.getHeight() <= 14400, 'inside what a reader opens');
+  const want = P.plan(scene)[0].h * 72 / 96;
+  assert.ok(Math.abs(page.getHeight() * u - want) < 1, `at its true length (${page.getHeight() * u} of ${want})`);
 });
 
 test('ink is vector: the file barely grows with the zoom it is read at, and opaque ink of one colour is one fill', async () => {

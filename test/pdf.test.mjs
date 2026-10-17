@@ -204,7 +204,47 @@ const lightBmp = P.bitmap(app, sheet, 2);
 check("the light board gets a page with no dark pass applied",
   !!lightBmp && !lightBmp.ops.some(o => o.startsWith("draw:invert(1)")));
 
-/* ── 7. forget / clear release memory ────────────────────────────── */
+/* ── 7. zoomed in past the whole page: the part on screen, sharp ──── */
+/* A whole page can be held at scale 4 at most. Past that the page must
+   still be a vector: the part on screen is rendered from the PDF at the
+   screen's resolution, not the scale-4 bitmap blown up. */
+const pg = items[0];
+const view = { x: pg.x + 100, y: pg.y + 100, x2: pg.x + 300, y2: pg.y + 250 };
+check("at an ordinary zoom the whole page is enough", P.detail(app, pg, 3, view) === null);
+P.bitmap(app, pg, 12);
+P.detail(app, pg, 12, view);
+await sleep(300);
+P.bitmap(app, pg, 12);
+const part = P.detail(app, pg, 12, view);
+check("zoomed to 12x, the part on screen is rendered", !!part && !!part.bitmap);
+check("at the screen's resolution or better", !!part && part.bitmap.width / part.box.w >= 12,
+  part ? `${(part.bitmap.width / part.box.w).toFixed(2)} px per unit` : "");
+check("covering the screen, and only around it", !!part &&
+  part.box.x <= view.x && part.box.y <= view.y && part.box.x + part.box.w >= view.x2 && part.box.y + part.box.h >= view.y2 &&
+  part.box.w < pg.w, part ? JSON.stringify(part.box) : "");
+check("in memory, a part and not the page at 12x", P.stats().detailMB < 64, `${P.stats().detailMB}MB`);
+
+const beforePan = fake.stats.renders;
+const nudged = { x: view.x + 20, y: view.y + 10, x2: view.x2 + 20, y2: view.y2 + 10 };
+for (let f = 0; f < 5; f++) { P.bitmap(app, pg, 12); P.detail(app, pg, 12, nudged); }
+await sleep(100);
+check("a small pan inside the margin renders nothing", fake.stats.renders === beforePan,
+  `${fake.stats.renders - beforePan} renders`);
+
+const far = { x: pg.x + 500, y: pg.y + 800, x2: pg.x + 700, y2: pg.y + 950 };
+P.bitmap(app, pg, 12); P.detail(app, pg, 12, far);
+await sleep(300);
+P.bitmap(app, pg, 12);
+const moved = P.detail(app, pg, 12, far);
+check("panning away renders the new part", !!moved && moved.box.x <= far.x && moved.box.y + moved.box.h >= far.y2);
+
+setTheme("dark");
+P.themeChanged();
+check("a theme flip drops the parts too", P.stats().detailMB === 0);
+setTheme("light");
+P.themeChanged();
+
+/* ── 8. forget / clear release memory ────────────────────────────── */
 P.forget(items[0].asset);
 const after = P.stats();
 check("forget empties the caches", after.hiMB === 0 && after.thumbMB === 0,
