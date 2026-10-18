@@ -520,7 +520,10 @@ the 200 inches a PDF page normally allows is written in larger units
 (`/UserUnit`) so it keeps its true size. The file is made by pdf-lib
 (MIT, vendored under `vendor/pdf-lib`, loaded the first time you
 export); a PDF it cannot copy from (encrypted or damaged) is painted
-instead. PNG and SVG come out on a transparent background by
+instead. **PNG** is at twice the board's size, however big the board:
+it is painted in tiles and written into the file a band of rows at a
+time, so it is never shrunk to fit a canvas and memory stays flat (a
+board 30,000 units wide comes out at 60,000 px across). PNG and SVG come out on a transparent background by
 default; **Settings → Export** switches to the paper colour, and picks the
 theme they are drawn in — matching the app, or always light or always dark —
 which sets the colour of default ink and of PDF pages. Autosave runs about

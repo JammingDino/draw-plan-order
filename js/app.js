@@ -1872,37 +1872,71 @@
       if (this._exporting) return;
       this._exporting = true;
       const c = document.createElement('canvas');
+      const kept = new Map();              // PDF pages rendered once, for every tile they cross
+      const drop = it => { const bmp = kept.get(it); if (bmp && bmp.width) { bmp.width = 0; bmp.height = 0; } kept.delete(it); };
       try {
-        const look = this.exportLook();
-        const pad = 48, W = b.w + pad * 2, H = b.h + pad * 2;
-        /* Twice the board's size for a crisp picture, but no bigger than a
-           canvas can actually hold. The size used to be clamped while the
-           scale stayed at 2, so anything past 4000 units across was simply
-           cut off at the right and bottom; past the browser's real limits
-           the canvas comes back blank instead. Scaling down keeps all of it. */
-        const scale = Math.min(2, PNG_MAX_SIDE / W, PNG_MAX_SIDE / H, Math.sqrt(PNG_MAX_AREA / (W * H)));
-        c.width = Math.max(1, Math.round(W * scale));
-        c.height = Math.max(1, Math.round(H * scale));
-        const ctx = c.getContext('2d');
-        if (!look.transparent) {
-          ctx.fillStyle = U.paintAs(look.theme, () => U.color('paper'));
-          ctx.fillRect(0, 0, c.width, c.height);
-        }
-        ctx.setTransform(scale, 0, 0, scale, (-b.x + pad) * scale, (-b.y + pad) * scale);
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        if (this.scene.items.some(i => i.type === 'pdfpage')) this.ui.toast('Exporting…', null, null, 60000);
-        await this.renderer.paintExport(ctx, this.scene.items, scale, look);
-        const blob = await new Promise(r => c.toBlob(r, 'image/png'));
-        if (!blob) return this.toast('That board is too big to export as a PNG — try SVG');
+        const blob = await this.paintPNG(b, c, kept, drop);
         download(blob, safeName(this.board.name) + '.png');
         this.ui.hideToast();
       } catch (err) {
         console.error(err);
         this.toast('The export did not finish: ' + (err.message || err));
       } finally {
+        for (const it of [...kept.keys()]) drop(it);
         c.width = 0; c.height = 0;          // a full-size export is a lot of memory to wait on GC for
         this._exporting = false;
       }
+    }
+
+    /**
+     * The board round `b` as a PNG at twice its size, however big.
+     *
+     * A canvas cannot hold a big board (and canvas.toBlob needs it all on
+     * one), so it is painted in tiles of at most PNG_TILE px, a band of
+     * them across at a time, and each band's rows go straight into the
+     * file (D.png). The bands are as tall as fits PNG_BAND_BYTES of
+     * pixels, so a board of any size costs one band of memory, and every
+     * part of it comes out at full resolution rather than scaled down to
+     * fit. Tiles meet on whole pixels, so there are no seams.
+     */
+    async paintPNG(b, c, kept, drop) {
+      const look = this.exportLook(), r = this.renderer, scene = this.scene;
+      const scale = 2, pad = 48;
+      const x0 = b.x - pad, y0 = b.y - pad;
+      const W = Math.max(1, Math.round((b.w + pad * 2) * scale)), H = Math.max(1, Math.round((b.h + pad * 2) * scale));
+      const band = Math.max(1, Math.min(PNG_TILE, Math.floor(PNG_BAND_BYTES / (W * 4))));
+      const paper = look.transparent ? null : U.paintAs(look.theme, () => U.color('paper'));
+      const bands = Math.ceil(H / band), big = bands > 1 || W > PNG_TILE;
+      if (big || scene.items.some(i => i.type === 'pdfpage')) this.ui.toast('Exporting…', null, null, 60000);
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      const self = this;
+
+      async function* strips() {
+        for (let i = 0, top = 0; top < H; i++, top += band) {
+          const bh = Math.min(band, H - top);
+          const rows = new Uint8ClampedArray(W * bh * 4);
+          // renders of pages wholly above this band will not be needed again
+          const above = y0 + top / scale - 40;
+          for (const it of [...kept.keys()]) if (scene.bbox(it).y2 < above) drop(it);
+          for (let left = 0; left < W; left += PNG_TILE) {
+            const tw = Math.min(PNG_TILE, W - left);
+            c.width = tw; c.height = bh;
+            if (paper) { ctx.fillStyle = paper; ctx.fillRect(0, 0, tw, bh); }
+            ctx.setTransform(scale, 0, 0, scale, -x0 * scale - left, -y0 * scale - top);
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            // what touches this tile, with room for shadows and wide strokes
+            const box = U.box(x0 + left / scale - 40, y0 + top / scale - 40, x0 + (left + tw) / scale + 40, y0 + (top + bh) / scale + 40);
+            const items = scene.near(box);
+            if (items.length) await r.paintExport(ctx, items, scale, look, kept);
+            const px = ctx.getImageData(0, 0, tw, bh).data;
+            if (tw === W) rows.set(px);
+            else for (let y = 0; y < bh; y++) rows.set(px.subarray(y * tw * 4, (y + 1) * tw * 4), (y * W + left) * 4);
+          }
+          if (big && bands > 2) self.ui.toast(`Exporting… ${Math.round((i + 1) / bands * 100)}%`, null, null, 60000);
+          yield rows;
+        }
+      }
+      return D.png.write(W, H, strips());
     }
 
     onFile(e) {
@@ -2148,10 +2182,10 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }
-  /* What a PNG export may grow to. Chrome refuses canvases past 32767px a
-     side or 268M pixels in all, and a quarter of that is already a gigabyte
-     of RGBA to hold and encode — so stay well inside both. */
-  const PNG_MAX_SIDE = 16384, PNG_MAX_AREA = 64e6;
+  /* A PNG export is painted in tiles no canvas refuses (Chrome's limits
+     are 32767px a side and 268M pixels in all), a band across at a time,
+     each band at most this much RGBA in memory. */
+  const PNG_TILE = 4096, PNG_BAND_BYTES = 64 * 1024 * 1024;
 
   function dataUrlOf(file) {
     return new Promise((res, rej) => {

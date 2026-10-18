@@ -1200,7 +1200,7 @@
      * Painting is synchronous between the awaits, which is what makes
      * borrowing the theme safe: the screen never draws while it is lent.
      */
-    async paintExport(ctx, items, zoom, look) {
+    async paintExport(ctx, items, zoom, look, kept) {
       await Promise.all(items.filter(it => it.type === 'image').map(it => this.picture(it).ready));
       const paint = fn => U.paintAs(look.theme, fn);
       let run = [];
@@ -1212,12 +1212,19 @@
       for (const it of items) {
         if (it.type !== 'pdfpage') { run.push(it); continue; }
         flush();
-        const bmp = await D.pdf.render(this.app, it, zoom, look.dark);
+        /* `kept` (a Map, optional) holds renders across calls: an export
+           painted in tiles paints a page once per tile it crosses, and
+           should render it once. The caller frees what it keeps. */
+        let bmp = kept ? kept.get(it) : undefined;
+        if (bmp === undefined) {
+          bmp = await D.pdf.render(this.app, it, zoom, look.dark);
+          if (kept) kept.set(it, bmp);
+        }
         this.pages = new Map([[it, bmp]]);
         try { paint(() => { this.paintZoom = zoom; this.drawItem(ctx, it); }); }
         finally {
           this.pages = null;
-          if (bmp && bmp.width) { bmp.width = 0; bmp.height = 0; }
+          if (!kept && bmp && bmp.width) { bmp.width = 0; bmp.height = 0; }
         }
       }
       flush();
