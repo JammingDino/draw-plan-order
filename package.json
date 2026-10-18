@@ -1,6 +1,6 @@
 {
   "name": "draw-plan-order",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "description": "An endless canvas for pen, keyboard and decision trees",
   "scripts": {
