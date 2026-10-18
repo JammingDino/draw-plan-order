@@ -28,7 +28,14 @@ through the GitHub git-data API, on top of the current remote master:
    commit; `gh api repos/{owner}/{repo}/git/commits/<sha>` gives its tree.
 2. For each changed file, `POST repos/{owner}/{repo}/git/blobs` with the
    content base64-encoded (`{"content": ..., "encoding": "base64"}`).
-   Read files as bytes so line endings and UTF-8 come through unchanged.
+   Convert CRLF to LF first. The Windows checkout has CRLF
+   (`core.autocrlf`) and the repo stores LF (`.gitattributes` has
+   `text=auto`), and the API stores exactly what it's sent. Raw bytes
+   would rewrite every line of the file in history. Leave binary files
+   (png, ico) as they are.
+   Check afterwards with `git fetch`, then compare
+   `git hash-object <file>` with `git rev-parse origin/master:<file>`
+   for each one. They should match.
 3. `POST .../git/trees` with `base_tree` set to the head's tree and one
    entry per file (`path`, `mode: "100644"`, `type: "blob"`, `sha`). A
    deleted file is an entry with `"sha": null`.
