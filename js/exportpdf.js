@@ -251,18 +251,40 @@
     return { r: 0, g: 0, b: 0, a: 1 };
   }
 
-  const f2 = v => (Math.round(v * 100) / 100).toString();
-  /** a stroke's outline as SVG path data, in board units */
-  function strokePath(it) {
-    const polys = FH.shapes(it.pts, { size: it.size, thinning: it.thinning, taper: it.taper || 0, cap: it.cap !== false });
-    let d = '';
+  const r2 = v => Math.round(v * 100) / 100;
+  /** a stroke's outline: the polygons it fills, in board units */
+  function strokePolys(it) {
+    return FH.shapes(it.pts, { size: it.size, thinning: it.thinning, taper: it.taper || 0, cap: it.cap !== false }).filter(p => p.length >= 6);
+  }
+
+  /* Operators go into the page this many at a time. pdf-lib's own
+     drawSvgPath hands every segment of a path to one call as an argument
+     (push.apply), and a board's worth of ink is more arguments than the
+     call stack holds: "Maximum call stack size exceeded". So the ink is
+     written here as operators, and pushed in batches of a size any stack
+     takes, however long the path. */
+  const OPS_AT_ONCE = 4096;
+
+  /**
+   * Fill polygons (board units) onto `page` in one colour, as one path:
+   * the board → page transform (at: x, y, scale, y flipped, as
+   * drawSvgPath would have it), then the outline, then a nonzero fill.
+   */
+  function fillPolys(L, page, polys, at, c, gs) {
+    let ops = [L.pushGraphicsState()];
+    if (gs) ops.push(L.setGraphicsState(gs));
+    ops.push(L.setFillingColor(L.rgb(c.r, c.g, c.b)), L.concatTransformationMatrix(at.scale, 0, 0, -at.scale, at.x, at.y));
+    const send = () => { page.pushOperators(...ops); ops = []; };
     for (const p of polys) {
-      if (p.length < 6) continue;
-      d += 'M' + f2(p[0]) + ' ' + f2(p[1]);
-      for (let i = 2; i < p.length; i += 2) d += 'L' + f2(p[i]) + ' ' + f2(p[i + 1]);
-      d += 'Z';
+      ops.push(L.moveTo(r2(p[0]), r2(p[1])));
+      for (let i = 2; i < p.length; i += 2) {
+        ops.push(L.lineTo(r2(p[i]), r2(p[i + 1])));
+        if (ops.length >= OPS_AT_ONCE) send();
+      }
+      ops.push(L.closePath());
     }
-    return d;
+    ops.push(L.fill(), L.popGraphicsState());
+    send();
   }
 
   /**
@@ -272,27 +294,25 @@
    * that overlap darken where they cross, as they do on the board.
    */
   function drawInk(L, page, strokes, at) {
-    let batch = '', key = null, colour = null;
+    let batch = [], key = null, colour = null;
     const flush = () => {
-      if (batch) page.drawSvgPath(batch, { ...at, color: L.rgb(colour.r, colour.g, colour.b), borderWidth: 0 });
-      batch = ''; key = null;
+      if (batch.length) fillPolys(L, page, batch, at, colour, null);
+      batch = []; key = null;
     };
     for (const it of strokes) {
       const c = rgbaOf(U.color(it.color));
       const alpha = (it.alpha ?? 1) * c.a;
-      const d = strokePath(it);
-      if (!d) continue;
+      const polys = strokePolys(it);
+      if (!polys.length) continue;
       if (alpha >= 1 && (it.blend || 'source-over') === 'source-over') {
         const k = c.r + ',' + c.g + ',' + c.b;
         if (k !== key) { flush(); key = k; colour = c; }
-        batch += d;
+        for (const p of polys) batch.push(p);
         continue;
       }
       flush();
-      page.drawSvgPath(d, {
-        ...at, color: L.rgb(c.r, c.g, c.b), opacity: alpha, borderWidth: 0,
-        ...(it.blend === 'multiply' ? { blendMode: L.BlendMode.Multiply } : {})
-      });
+      const gs = page.maybeEmbedGraphicsState({ opacity: alpha, blendMode: it.blend === 'multiply' ? L.BlendMode.Multiply : undefined });
+      fillPolys(L, page, polys, at, c, gs);
     }
     flush();
   }

@@ -245,3 +245,16 @@ test('a region of the board: one sheet at its actual size, or fitted to paper, t
   assert.ok(bg < clipAt, 'after the paper, which fills the whole sheet');
   assert.ok(ops.lastIndexOf(' m\n') > clipAt, 'and before the ink, which is drawn inside it');
 });
+
+test('a lot of ink exports: no limit from the call stack on how much one path can hold', async () => {
+  // a long scribble in one colour, and a long see-through one: each is far
+  // more path than one call can take as arguments
+  const scene = new D.Scene();
+  const zigzag = (n, y0) => { const xy = []; for (let i = 0; i < n; i++) xy.push(10 + (i % 400) * 2, y0 + Math.floor(i / 400) * 6 + (i % 2) * 3); return inked(xy); };
+  for (let k = 0; k < 20; k++) scene.add(D.make.stroke({ id: 's' + k, pts: zigzag(4000, k * 60), size: 2, color: '#1f6feb' }));
+  scene.add(D.make.stroke({ id: 'hl', pts: zigzag(80000, 0), size: 12, alpha: 0.4, color: '#ffe066', blend: 'multiply', thinning: 0 }));
+  const bytes = await P.vector(L, { scene }, P.plan(scene), {}, { paint: async () => null });
+  const out = await L.PDFDocument.load(bytes);
+  const ops = contentOf(out, out.getPages()[0]);
+  assert.ok((ops.match(/ l\n/g) || []).length > 300000, 'all of it, as paths');
+});

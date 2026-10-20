@@ -141,8 +141,11 @@ input[type=range]{width:100%;accent-color:var(--accent);background:none}
 .zoomval:hover{background:var(--accent-soft);color:var(--text)}
 
 /* ── Toast ─────────────────────────────────────────────────────────── */
+/* Above everything — menus, sheets, the export dialog and its scrim, the
+   region picker (40–46), even the frame counter — so what it says is seen
+   whatever is open. */
 #toast{
-  position:fixed;bottom:22px;left:50%;transform:translate(-50%,20px);z-index:20;
+  position:fixed;bottom:22px;left:50%;transform:translate(-50%,20px);z-index:10000;
   background:var(--panel-solid);border:1px solid var(--stroke);border-radius:12px;
   box-shadow:var(--shadow);padding:9px 14px;font-size:13px;display:flex;gap:12px;align-items:center;
   opacity:0;pointer-events:none;transition:.24s var(--ease);
