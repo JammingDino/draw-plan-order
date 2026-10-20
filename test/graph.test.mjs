@@ -87,3 +87,37 @@ test('graphable: only a curve asked for — "y =" or "f(x) =" — and never a su
   assert.equal(G.graphable('x^2', scope, { bare: true }), null, 'x is a number there: it gets an answer');
   assert.equal(G.graphable('y = x^2', scope), 'x^2', 'unless it says y =');
 });
+
+test('3D: z = f(x, y) sampled over x and y, its height fitted, drawn far to near and exported', () => {
+  const it = graph({ dim: 3, fns: ['z = sin(x)·cos(y)'], x0: -3, x1: 3, y0: -3, y1: 3 });
+  const p = G.sample3(it);
+  assert.equal(p.surfaces.length, 1);
+  assert.equal(p.surfaces[0].length, (p.n + 1) ** 2);
+  assert.ok(p.z0 < -0.9 && p.z1 > 0.9 && p.z1 < 1.3, `z ${p.z0}…${p.z1}`);
+  assert.equal(G.sample3(it), p, 'cached');
+  const P = G.parts3(it, p);
+  assert.equal(P.quads.length, p.n * p.n, 'a quad a cell');
+  for (let i = 1; i < P.quads.length; i++) assert.ok(P.quads[i].depth >= P.quads[i - 1].depth, 'far to near');
+  assert.equal(P.edges.length, 9, 'the box, its three nearest edges left open');
+  for (const q of P.quads) for (let i = 0; i < 8; i += 2)
+    assert.ok(q.pts[i] >= it.x && q.pts[i] <= it.x + it.w && q.pts[i + 1] >= it.y && q.pts[i + 1] <= it.y + it.h, 'inside the frame');
+  assert.equal(P.legend.map(l => l.text).join('|'), 'z = sin(x)·cos(y)');
+  const svg = D.ext.items.graph.svg(it);
+  assert.ok(!/NaN/.test(svg));
+  assert.match(svg, /z = sin\(x\)·cos\(y\)/);
+  // a set height is kept; a hole in the surface is left out, not drawn
+  const set = G.parts3({ ...it, zAuto: false, z0: -5, z1: 5 }, p);
+  assert.equal(set.quads.length, P.quads.length);
+  const holed = graph({ dim: 3, fns: ['sqrt(x)'], x0: -1, x1: 1, y0: -1, y1: 1 });
+  const hs = G.sample3(holed), hp = G.parts3(holed, hs);
+  assert.equal(hp.quads.length, hs.n * hs.n / 2, 'only where x ≥ 0');
+});
+
+test('3D: turning the view moves the open corner round, and the plot stays in its box', () => {
+  const it = graph({ dim: 3, fns: ['x*y'], x0: -1, x1: 1, y0: -1, y1: 1 });
+  const p = G.sample3(it);
+  const a = G.parts3(it, p), b = G.parts3({ ...it, az: it.az ?? 0.6 + Math.PI / 2 }, p);
+  assert.notDeepEqual(a.edges, b.edges);
+  for (const P of [a, b]) for (const [x1, y1, x2, y2] of P.edges)
+    for (const [x, y] of [[x1, y1], [x2, y2]]) assert.ok(x >= it.x && x <= it.x + it.w && y >= it.y && y <= it.y + it.h);
+});

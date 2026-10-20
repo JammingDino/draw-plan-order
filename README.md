@@ -84,7 +84,7 @@ saved work — handy for trying something out.
 | Erase over a PDF, image, sticky or node | Only your ink comes off. Those are hit-tested by their whole area, so an eraser stroke *across* one would otherwise delete the lot — remove them deliberately, with the select tool and <kbd>Delete</kbd>. |
 | With the select tool, **drag** across a PDF page or picture | Selects the notes and ink written on it, rather than dragging the page out from under them. **Press and hold** (about a third of a second) to pick up the page itself, or tap it to select it — once selected, it drags straight away. Keep holding, still, and the long-press menu follows. |
 | **Finger** on the canvas | Always pans and pinch-zooms, whatever tool is selected — so you can sketch, shove the page along, and sketch some more without putting the pen down. Your palm can rest anywhere, and a mouse or pen still draws normally. Turn it off under ☰ → Settings if you would rather draw with a finger. |
-| **Hold the pen or a finger still** where it landed, for half a second, and lift | A menu opens there: paste, paste here, a picture or PDF, select all, undo and redo. On something, that thing is selected — whatever tool you have out — and the menu is what you can do with it. A ring fills while you hold, then locks; move off before it locks and you carry on as normal, with nothing drawn. Keep holding past the lock and the menu opens without waiting for the lift. Holding still at the *end* of a stroke is the shape snap above, never the menu, and a finger soon after the pen was near the glass is taken for your palm. A right click, or the pen's barrel button, opens the same menu. |
+| **Hold the pen or a finger still** where it landed, for half a second, and lift | A menu opens there: paste, paste here, a picture or PDF, select all, undo and redo. On something, that thing is selected — whatever tool you have out — and the menu is what you can do with it. A ring fills while you hold, then locks; move off before it locks and you carry on as normal, with nothing drawn. Keep holding past the lock and the menu opens without waiting for the lift. Holding still at the *end* of a stroke is the shape snap above, never the menu, and a finger soon after the pen was near the glass is taken for your palm. A right click, or the pen's barrel button, opens the same menu — and a right-drag (or barrel-button drag) selects with a box or lasso straight away, whatever tool is out. |
 | **Hold still, then drag** without lifting | Once the ring locks, dragging draws a selection from where you held — a box or a lasso, shown by the little icon in the ring — whatever tool you have out. Let go and what it enclosed is selected, by the select tool's rules (across a PDF page, the ink on it rather than the page), with the action bar above it. |
 | Pen down **inside a selection** made with another tool out | Drags it, as one undo step, or resizes it from a handle — so a selection made by holding, or from the menu, moves with the same pen. Down outside it lets go and draws as normal; a finger outside it pans. |
 | Anything **selected** | A bar of big buttons sits just above it — copy, cut, duplicate, delete, front, back, group, edit — and follows it as you pan and zoom. It appears once a pen or finger has touched the screen; the mouse keeps to the style panel. |
@@ -174,13 +174,14 @@ drawings, and for a pen alone — nothing needs a key held down.
 Long-press anywhere for *Measure from here*; on a line, *Dimension this*
 and *Set drawing scale…*.
 
-### Circuit and mechanics symbols
+### Circuit, logic and mechanics symbols
 
 The symbol tool (<kbd>S</kbd>) is built to be quicker than drawing the
 parts by hand. While it is out, a strip along the bottom holds the parts
 — resistor, capacitor, inductor, DC and AC sources, diode, switch,
-ground, op-amp, junction; *Mech* swaps in springs, dampers, a mass,
-supports and a pulley — and **Wire**.
+ground, op-amp, junction; *Logic* swaps in AND, OR, NOT, NAND, NOR, XOR
+and XNOR gates, a buffer, D and JK flip-flops and an SR latch; *Mech*
+springs, dampers, a mass, supports and a pulley — and **Wire**.
 
 - **Drag to lay a part.** Drag from one point to another and a
   two-terminal part spans exactly that: its leads stretch, its body
@@ -377,11 +378,18 @@ It plots anything the calculator reads — `sin(x)`, `3x² − 2`,
 `e^(−x/2)·cos(3x)`, constants such as `g` and `π` — several functions
 at once, each in its own colour with its formula over it, on a grid
 with ticks at 1, 2 and 5 steps. Double-tap it for the functions, the
-x range, radians or degrees, and a y range that either follows the
-curves (ignoring the spikes beside an asymptote, so `tan(x)` is
-readable) or is set by hand; the whole edit is one undo step. Its panel
-zooms x in and out and fits y again. A graph moves, resizes, turns and
-exports to SVG and PDF like anything else.
+x range (or a usual one from the ± list), radians or degrees, and a y
+range that either follows the curves (ignoring the spikes beside an
+asymptote, so `tan(x)` is readable) — its fields show what it fitted —
+or is typed in, with **Fit** to let it follow again; the whole edit is
+one undo step. Its panel zooms x in and out and fits y again. A graph
+moves, resizes, turns and exports to SVG and PDF like anything else.
+
+**3D.** Switch the editor to *3D* and a graph plots surfaces,
+`z = sin(x)·cos(y)`, over an x and a y range, shaded by height in an
+open box with a floor grid and ticks on all three axes. *Turn* and
+*Tilt* in the editor (or the turn buttons on its panel) change the
+view; z follows the surface unless it is set.
 
 **Prompted, and by pen.** A curve you ask for offers to graph itself:
 write `y = x² − 3` with the pen and a **Graph** chip appears beside it;
@@ -517,7 +525,7 @@ most of the rest, against one in twelve before; the notes themselves —
 `V` select · `G` lasso · `P` pen · `H` highlighter · `E` eraser · `R` rectangle ·
 `O` ellipse · `L` line · `A` arrow · `D` diamond · `T` text · `K` sticky ·
 `N` node · `C` connector · `M` measure (hold its button for dimensions) · `F` page · `Y` graph · `S` symbols ·
-`Q` laser · `Space` pan · `Enter` finishes a polyline or a measured path
+`Q` laser · `Space` pan (or middle-drag; the mouse's side buttons undo and redo, and Settings can make the wheel zoom) · `Enter` finishes a polyline or a measured path
 
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
 `Ctrl+G` group · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·

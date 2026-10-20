@@ -9,6 +9,8 @@
   /* A feature's icon (ext.js) may be finished markup or, like ICON below,
      just the path data. */
   const iconOf = s => !s ? '' : /^\s*</.test(s) ? s : svg(s);
+  /* an icon that needs more than strokes: a fill, a faint part, a turn */
+  const raw = inner => `<svg viewBox="0 0 24 24">${inner}</svg>`;
 
   /* the Align row, in order: [mode, title] (App.alignSelection) */
   const ALIGNS = [
@@ -31,8 +33,11 @@
     select: svg('M5.5 3.2l13 7.6-5.9 1.7-2.6 5.6z'),
     lasso: svg('M12 4.6c4.1 0 7.5 2 7.5 4.5s-3.4 4.5-7.5 4.5-7.5-2-7.5-4.5S7.9 4.6 12 4.6z|M9.4 13.4c-.7 2 0 3.4 1.4 4.1|M10.9 17.5a1.4 1.4 0 1 1-1.5 2.2 1.4 1.4 0 0 1 1.5-2.2z'),
     pen: svg('M4 20l4.5-1.2L20 7.3a2 2 0 0 0 0-2.8l-.5-.5a2 2 0 0 0-2.8 0L5.2 15.5z|M14.5 6.5l3 3'),
-    highlighter: svg('M14.9 3.7l5.4 5.4-7.7 7.7H8.9l-2.3-2.3z|M12.6 6l5.4 5.4|M4 20.4h16'),
-    eraser: svg('M8.6 20.4h11.8|M18.7 12.8l-7.6 7.6H7.4l-3.9-3.9a1.6 1.6 0 0 1 0-2.3l8.2-8.2a1.6 1.6 0 0 1 2.3 0l4.7 4.7a1.6 1.6 0 0 1 0 2.3z|M8.3 8.5l7 7'),
+    /* The highlighter and the eraser are told apart by what they leave:
+       a broad, faint stroke under a chisel-tipped marker; a block of
+       rubber, its worn end shaded, and no line at all. */
+    highlighter: raw('<path d="M3.5 20h10" stroke-width="4" stroke-opacity=".35"/><path d="M15 3.6l5.4 5.4-7.5 7.5H9.3L7.5 14.7z"/><path d="M12.8 5.8l5.4 5.4"/><path d="M9 15.2l-2.1 2.1H4.6l1.8-3.4"/>'),
+    eraser: raw('<g transform="rotate(-45 12 12)"><path d="M9.5 7.5H5.2A2.2 2.2 0 0 0 3 9.7v4.6a2.2 2.2 0 0 0 2.2 2.2h4.3z" fill="currentColor" fill-opacity=".3"/><rect x="3" y="7.5" width="18" height="9" rx="2.2"/><path d="M9.5 7.5v9"/></g>'),
     shape: svg('M3.6 4.4h10.2v10.2H3.6z|M15.4 20.4a5 5 0 1 0 0-10 5 5 0 0 0 0 10z'),
     rect: svg('M4 5h16v14H4z'),
     ellipse: svg('M12 5c4.4 0 8 3.1 8 7s-3.6 7-8 7-8-3.1-8-7 3.6-7 8-7z'),
@@ -46,8 +51,8 @@
     text: svg('M5 6V4h14v2|M12 4v16|M9 20h6'),
     note: svg('M5 4h14v10l-5 6H5z|M19 14h-5v6'),
     node: svg('M9 3.2h6v4.4H9z|M2.6 16h5v4.4h-5z|M16.4 16h5v4.4h-5z|M12 7.6v2.9|M5.1 16v-5.5h13.8V16'),
-    connector: svg('M4.4 19a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2z|M6 17.4h6.4a3.6 3.6 0 0 0 3.6-3.6V7.4|M13 10.4l3-3 3 3'),
-    laser: svg('M12 13.7a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4z|M8.6 15.4a4.8 4.8 0 0 1 0-6.8|M15.4 8.6a4.8 4.8 0 0 1 0 6.8|M5.6 18.4a9 9 0 0 1 0-12.8|M18.4 5.6a9 9 0 0 1 0 12.8'),
+    connector: raw('<rect x="3" y="3" width="8" height="6" rx="1.4"/><rect x="13" y="15" width="8" height="6" rx="1.4"/><path d="M7 9v9h3.8"/><path d="M9 15.5l2.5 2.5L9 20.5"/>'),
+    laser: raw('<path d="M3.5 20.5c3-.7 5.8-2.9 7.9-6.2" stroke-opacity=".7" stroke-dasharray="0.1 3"/><circle cx="14.5" cy="9.5" r="2.6" fill="currentColor"/><path d="M14.5 3.6V5M20.4 9.5H19M18.7 5.3l-1 1M18.7 13.7l-1-1M10.3 5.3l1 1"/>'),
     hand: svg('M8 13V6a1.5 1.5 0 0 1 3 0v5|M11 11V4.8a1.5 1.5 0 0 1 3 0V11|M14 11V6.3a1.5 1.5 0 0 1 3 0V13c0 4-2.4 7-6 7s-6-2.6-6-6v-3a1.5 1.5 0 0 1 3 0'),
     image: svg('M4 5h16v14H4z|M4 16l4.5-4.5 4 4L16 12l4 4'),
     front: svg('M12 3.4v9.2|M8.2 7.2L12 3.4l3.8 3.8|M4.5 15.5h15v5h-15z'),
@@ -1113,8 +1118,8 @@
       return [
         { id: 'saving', title: 'Saving', sub: 'Where your boards are kept', icon: icon('M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z'), build: () => this.setStorage(this._cfg) },
         { id: 'canvas', title: 'Canvas', sub: 'How the board looks', icon: icon('M4 5h16v14H4z|M4 10h16|M9 5v14'), build: () => this.setCanvas() },
-        { id: 'pen', title: 'Pen and touch', sub: 'What the pen, your fingers and the tools do', icon: ICON.pen, build: () => this.setInput() },
-        { id: 'export', title: 'Export', sub: 'How PNG and SVG exports come out', icon: icon('M12 4v11|M7.5 10.5L12 15l4.5-4.5|M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3'), build: () => this.setExport() },
+        { id: 'pen', title: 'Pen, touch and mouse', sub: 'What the pen, your fingers, the mouse and the tools do', icon: ICON.pen, build: () => this.setInput() },
+        { id: 'export', title: 'Export', sub: 'How PNG, SVG and PDF exports come out', icon: icon('M12 4v11|M7.5 10.5L12 15l4.5-4.5|M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3'), build: () => this.setExport() },
         X.on ? { id: 'updates', title: 'Updates', sub: 'New versions, from GitHub', icon: icon('M20 11a8 8 0 1 0-2.3 5.7|M20 5v6h-6'), build: () => this.setUpdates(this._cfg) } : null,
         // what features add (ext.js), ahead of Help, which stays last
         ...D.ext.settings.map(x => ({
@@ -1252,17 +1257,27 @@
       return [this.setGroup(
         this.setRow('Theme', 'Sets the colour of default ink and of PDF pages, whatever the app is showing',
           this.setSeg([['auto', 'Match the app'], ['light', 'Light'], ['dark', 'Dark']], o.theme, v => { o.theme = v; save(); })),
+        this.setRow('PNG scale', 'Pixels for each unit of the board: 2× is 192 dpi at the board’s size, sharp on most screens',
+          this.setSeg([[1, '1×'], [2, '2×'], [3, '3×'], [4, '4×']], o.scale || 2, v => { o.scale = v; save(); })),
+        this.setRow('Margin', 'Round the whole board or a selection, in a PNG, SVG or PDF',
+          this.setSeg([[0, 'None'], [24, 'S'], [48, 'M'], [96, 'L']], o.margin ?? 48, v => { o.margin = v; save(); })),
+        this.setRow('PDF paper', 'For a region, a selection or the whole board — pages on the board always keep their own size',
+          this.setSeg([['actual', 'Actual size'], ['a4', 'A4'], ['a3', 'A3'], ['letter', 'Letter']], o.paper || 'actual', v => { o.paper = v; save(); })),
+        this.setRow('PDF pictures at', 'Ink and imported PDF pages are vector; text boxes, notes and pictures are painted at this resolution',
+          this.setSeg([[150, '150 dpi'], [200, '200 dpi'], [300, '300 dpi']], o.dpi || 200, v => { o.dpi = v; save(); })),
         this.setRow('Background', 'Transparent keeps only what is on the board, ready for a slide or page of any colour',
           this.setSeg([['transparent', 'Transparent'], ['paper', 'Paper colour']], o.background, v => { o.background = v; save(); })),
         this.setToggle('Ask where to save', typeof self.showSaveFilePicker === 'function'
           ? 'Each export opens a Save dialog to choose the folder and name. Off: straight to Downloads'
           : 'This browser has no Save dialog for the page to open, so exports go to Downloads', o.ask !== false, v => { o.ask = v; save(); })),
-        this.setNote('Export from the download button in the top bar: it shows a preview of the file first, with these options beside it.')];
+        this.setNote('Export from the download button in the top bar: it shows a preview of the file first, with these options beside it, and lets you pick what goes in — the pages, the whole board, the selection, what is on screen, or a region you drag out.')];
     }
 
     setInput() {
       const g = this.app.opts.general, set = (k, v) => { g[k] = v; this.app.savePrefs(); this.refresh(); };
       return [this.setGroup(
+        this.setRow('Mouse wheel', 'Ctrl + wheel always zooms and Shift + wheel scrolls sideways. Middle-drag pans; right-drag selects, and a right click opens the menu; the side buttons undo and redo',
+          this.setSeg([['pan', 'Scrolls'], ['zoom', 'Zooms']], g.wheel === 'zoom' ? 'zoom' : 'pan', v => set('wheel', v))),
         this.setToggle('Hold to snap shapes', 'Hold the pen still at the end of a stroke to turn it into a clean line, box or circle', g.holdToSnap, v => set('holdToSnap', v)),
         this.setToggle('Scribble to erase', 'Scribble back and forth over ink to rub it out', g.scribbleErase, v => set('scribbleErase', v)),
         this.setToggle('Snap to grid', 'Shapes, notes and nodes line up with the paper', g.snapGrid, v => set('snapGrid', v)),

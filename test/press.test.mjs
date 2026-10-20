@@ -335,6 +335,53 @@ test('the eraser and the mouse do not long-press; a right click opens the menu',
   assert.equal(m.press.menus[0].pointerType, 'mouse');
 });
 
+test('each mouse button has its own job: right-drag selects, middle-drag pans, the side buttons undo and redo', () => {
+  const MOUSE = { pointerType: 'mouse' };
+  const RIGHT = { ...MOUSE, button: 2, buttons: 2 }, MIDDLE = { ...MOUSE, button: 1, buttons: 4 };
+  const r = rig({ items: D => [D.make.note({ x: 300, y: 200, w: 100, h: 100 }), D.make.note({ x: 500, y: 200, w: 100, h: 100 })] });
+  const strokes = () => r.app.scene.items.filter(it => it.type === 'stroke').length;
+
+  r.down(250, 150, RIGHT);
+  r.drag([[400, 250], [650, 350]], { ...RIGHT, button: -1 });
+  r.up(650, 350, RIGHT);
+  assert.equal(r.app.selection.length, 2, 'the box took in both notes');
+  assert.equal(menus(r), 0, 'a drag is not a click: no menu');
+  assert.equal(r.app.toolName, 'pen', 'with the pen still out');
+  assert.equal(strokes(), 0, 'and no ink');
+
+  const cam = r.app.camera.toJSON();
+  r.down(800, 600, MIDDLE);
+  r.drag([[860, 640], [900, 700]], { ...MIDDLE, button: -1 });
+  r.up(900, 700, MIDDLE);
+  assert.notDeepEqual(r.app.camera.toJSON(), cam, 'the middle button moved the board');
+  assert.equal(strokes(), 0);
+  assert.equal(menus(r), 0);
+
+  r.down(800, 600, MOUSE); r.drag([[850, 620], [900, 640]], { ...MOUSE, button: -1 }); r.up(900, 640, MOUSE);
+  assert.equal(strokes(), 1, 'the left button draws');
+  r.down(10, 10, { ...MOUSE, button: 3, buttons: 8 });
+  assert.equal(strokes(), 0, 'back undoes');
+  r.down(10, 10, { ...MOUSE, button: 4, buttons: 16 });
+  assert.equal(strokes(), 1, 'forward redoes');
+});
+
+test('the wheel scrolls, or zooms when Settings say so; Ctrl always zooms', () => {
+  const r = rig();
+  const wheel = o => r.app.onWheel({ deltaX: 0, deltaY: 100, deltaMode: 0, clientX: 400, clientY: 300, preventDefault() {}, ...o });
+  const z = r.app.camera.zoom;
+  wheel({});
+  assert.equal(r.app.camera.zoom, z, 'scrolls by default');
+  wheel({ ctrlKey: true });
+  assert.ok(r.app.camera.zoom < z, 'Ctrl zooms');
+  r.app.opts.general.wheel = 'zoom';
+  const z2 = r.app.camera.zoom;
+  wheel({ deltaY: -100 });
+  assert.ok(r.app.camera.zoom > z2, 'the plain wheel zooms');
+  const z3 = r.app.camera.zoom;
+  wheel({ shiftKey: true });
+  assert.equal(r.app.camera.zoom, z3, 'Shift still scrolls');
+});
+
 test('holding on an item selects it, whatever the tool; putting the pen down again lets go', () => {
   const r = rig({ items: D => [D.make.note({ x: 400, y: 200, w: 190, h: 190, text: 'Units?' })] });
   const note = r.items[0];

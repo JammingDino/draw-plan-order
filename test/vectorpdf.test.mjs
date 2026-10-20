@@ -215,3 +215,33 @@ test('ink is vector: the file barely grows with the zoom it is read at, and opaq
   assert.ok(fills <= 3, `the paper, then the ink in one fill (${fills})`);
   assert.ok(bytes.length < 60000, `${bytes.length} bytes`);
 });
+
+test('a region of the board: one sheet at its actual size, or fitted to paper, turned its way, and clipped to it', async () => {
+  const P2 = P.PAPER;
+  const box = D.util.box(100, 100, 700, 400);
+  const [actual] = P.plan(null, null, { box });
+  assert.deepEqual([actual.x, actual.y, actual.w, actual.h], [100, 100, 600, 300], 'the region itself');
+  assert.ok(!actual.clip && !actual.pt);
+
+  const [a4] = P.plan(null, null, { box, paper: 'a4' });
+  assert.deepEqual([a4.pt.w, a4.pt.h], [P2.a4[1], P2.a4[0]], 'a wide region lies on landscape paper');
+  assert.ok(Math.abs(a4.w / a4.h - a4.pt.w / a4.pt.h) < 1e-9, 'the sheet has the paper’s shape');
+  assert.ok(a4.x < box.x && a4.x + a4.w > box.x2 && a4.y <= box.y && a4.y + a4.h >= box.y2, 'and holds the region, with room round it');
+  assert.ok(Math.abs((a4.x + a4.w / 2) - 400) < 1e-9 && Math.abs((a4.y + a4.h / 2) - 250) < 1e-9, 'centred on it');
+  assert.equal(P.plan(null, null, { box: D.util.box(0, 0, 100, 500), paper: 'letter' })[0].pt.h, 792, 'a tall one on upright paper');
+  assert.equal(P.plan(null, null, { box: D.util.box(0, 0, 0, 10) }).length, 0, 'an empty region is nothing to print');
+
+  // in the file: the paper's size, and the drawing clipped to the region
+  const scene = new D.Scene();
+  scene.add(D.make.stroke({ id: 'in', pts: inked([150, 150, 600, 300]), size: 3 }));
+  scene.add(D.make.stroke({ id: 'out', pts: inked([2000, 2000, 2100, 2050]), size: 3 }));
+  const bytes = await P.vector(L, { scene }, [a4], {}, { paint: async () => null });
+  const out = await L.PDFDocument.load(bytes);
+  const [page] = out.getPages();
+  assert.ok(Math.abs(page.getWidth() - P2.a4[1]) < 0.01 && Math.abs(page.getHeight() - P2.a4[0]) < 0.01);
+  const ops = contentOf(out, page);
+  assert.match(ops, /re\nW\nn/, 'a clip round the region');
+  const clipAt = ops.indexOf('W\nn'), bg = ops.indexOf(' rg\n');
+  assert.ok(bg < clipAt, 'after the paper, which fills the whole sheet');
+  assert.ok(ops.lastIndexOf(' m\n') > clipAt, 'and before the ink, which is drawn inside it');
+});

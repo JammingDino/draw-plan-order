@@ -1,7 +1,8 @@
-/* ── symbols.js ── circuits and mechanics, drawn as fast as by hand ────
+/* ── symbols.js ── circuits, logic and mechanics, drawn as fast as by hand
    Resistors, capacitors, inductors, diodes, sources, a battery, a switch,
-   ground and an op-amp; pin and roller supports, a fixed wall, springs,
-   dampers, a mass and a pulley.
+   ground and an op-amp; AND, OR, NOT, NAND, NOR, XOR and XNOR gates, a
+   buffer, flip-flops and a latch; pin and roller supports, a fixed wall,
+   springs, dampers, a mass and a pulley.
 
    It has to be quicker than drawing them with the pen, so the symbol
    tool (S) works the way a circuit is sketched:
@@ -34,6 +35,7 @@
      ['f', x, y, …]              a filled polygon   ['c', cx, cy, r] a circle
      ['d', cx, cy, r]            a filled dot       ['a', cx, cy, r, from°, to°] an arc
      ['t', x, y, text]           a small mark (+, −, m)
+     ['o', x, y, x, y]           a bar over a mark (Q̄): a line, but a mark
    with `pins`: { key: [x, y] } its terminals. A two-terminal part also
    has `body`: [x0, x1], the span between its leads, and its pins on
    either end at the same height: stretched wider than W, only the leads
@@ -58,6 +60,47 @@
     for (let i = 0; i <= 16; i++) { const t = i / 16; o.push(cx - w / 2 + w * t, cy - Math.sin(t * Math.PI * 2) * a); }
     return o;
   };
+
+  /** a quadratic curve, as the points of a polyline (without its first) */
+  const quad = (x0, y0, cx, cy, x1, y1, n = 10) => {
+    const o = [];
+    for (let i = 1; i <= n; i++) {
+      const t = i / n, u = 1 - t;
+      o.push(u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1);
+    }
+    return o;
+  };
+
+  /* The gates share one frame, 84 × 50: inputs at 15 and 35, the output
+     at 25. An AND is a flat back and a half-round nose; an OR a curved
+     back and a pointed one, which XOR doubles. The bubble of a NAND, NOR
+     or XNOR sits on the nose, its output lead beyond it. */
+  const andBody = { tip: 60, back: 14, parts: [['l', 40, 5, 14, 5, 14, 45, 40, 45], ['a', 40, 25, 20, -90, 90]] };
+  const orBody = { tip: 66, back: 15.75, parts: [['p', 12, 5, ...quad(12, 5, 50, 5, 66, 25), ...quad(66, 25, 50, 45, 12, 45), ...quad(12, 45, 22, 25, 12, 5)]] };
+  function gate(name, body, invert, exclusive) {
+    const parts = body.parts.slice(), lead = exclusive ? 9.75 : body.back;
+    if (exclusive) parts.push(['l', 6, 5, ...quad(6, 5, 16, 25, 6, 45)]);
+    parts.push(['l', 0, 15, lead, 15], ['l', 0, 35, lead, 35]);
+    if (invert) parts.push(['c', body.tip + 4, 25, 4], ['l', body.tip + 8, 25, 84, 25]);
+    else parts.push(['l', body.tip, 25, 84, 25]);
+    return { label: name + ' gate', group: 'logic', W: 84, H: 50, parts, pins: { a: [0, 15], b: [0, 35], y: [84, 25] } };
+  }
+  /* A flip-flop or latch: a box with its inputs down the left (a clock
+     drawn as the wedge on the box's edge), Q and Q̄ on the right. */
+  function latch(label, ins) {
+    const top = ins[0][1], bot = ins[ins.length - 1][1];
+    const parts = [['p', 16, 5, 64, 5, 64, 85, 16, 85], ['l', 64, top, 80, top], ['l', 64, bot, 80, bot],
+      ['t', 55, top, 'Q'], ['t', 55, bot, 'Q'], ['o', 50.5, bot - 8, 59.5, bot - 8]];
+    const pins = {};
+    for (const [k, y] of ins) {
+      parts.push(['l', 0, y, 16, y]);
+      if (k === 'clk') parts.push(['l', 16, y - 6, 24, y, 16, y + 6]);
+      else parts.push(['t', 24, y, k]);
+      pins[k] = [0, y];
+    }
+    pins.q = [80, top]; pins.qn = [80, bot];
+    return { label, group: 'logic', W: 80, H: 90, parts, pins };
+  }
 
   /* prefix: what an automatic name starts with (R1, C1…); none for parts with no name */
   const SYMBOLS = {
@@ -89,6 +132,17 @@
     opamp: { label: 'Op-amp', group: 'circuit', prefix: 'U', W: 90, H: 80,
       parts: [['p', 15, 5, 15, 75, 80, 40], ['l', 0, 25, 15, 25], ['l', 0, 55, 15, 55], ['l', 80, 40, 90, 40], ['t', 24, 25, '−'], ['t', 24, 55, '+']],
       pins: { inn: [0, 25], inp: [0, 55], out: [90, 40] } },
+    // ── logic: inputs on the left, the output on the right ──
+    and: gate('AND', andBody, false), nand: gate('NAND', andBody, true),
+    or: gate('OR', orBody, false), nor: gate('NOR', orBody, true),
+    xor: gate('XOR', orBody, false, true), xnor: gate('XNOR', orBody, true, true),
+    buffer: { label: 'Buffer', group: 'logic', W: 80, H: 40, body: [18, 58],
+      parts: [['l', 0, 20, 18, 20], ['p', 18, 6, 18, 34, 58, 20], ['l', 58, 20, 80, 20]], pins: { a: [0, 20], y: [80, 20] } },
+    not: { label: 'NOT (inverter)', group: 'logic', W: 80, H: 40, body: [18, 62],
+      parts: [['l', 0, 20, 18, 20], ['p', 18, 6, 18, 34, 54, 20], ['c', 58, 20, 4], ['l', 62, 20, 80, 20]], pins: { a: [0, 20], y: [80, 20] } },
+    dff: latch('D flip-flop', [['D', 25], ['clk', 65]]),
+    jkff: latch('JK flip-flop', [['J', 20], ['clk', 45], ['K', 70]]),
+    srlatch: latch('SR latch', [['S', 25], ['R', 65]]),
     // ── mechanics ──
     spring: { label: 'Spring', group: 'mech', prefix: 'k', W: 80, H: 24, body: [14, 66],
       parts: [['l', 0, 12, 14, 12], ['l', ...zig(14, 66, 12, 9, 8)], ['l', 66, 12, 80, 12]], pins: { a: [0, 12], b: [80, 12] } },
@@ -131,9 +185,10 @@
     return { S, k: Math.min(Math.abs(sx), Math.abs(sy)), X: v => it.x + v * sx, Y: v => it.y + v * sy };
   }
 
-  function placed(it) {
+  /** the parts in the item's box; without `marks`, no letters or bars over them */
+  function placed(it, marks = true) {
     const { S, k, X, Y } = mapper(it);
-    return { S, k, parts: S.parts.map(p => {
+    return { S, k, parts: (marks ? S.parts : S.parts.filter(p => p[0] !== 't' && p[0] !== 'o')).map(p => {
       const [t, ...a] = p;
       if (t === 'c' || t === 'd') return [t, X(a[0]), Y(a[1]), a[2] * k];
       if (t === 'a') return [t, X(a[0]), Y(a[1]), a[2] * k, a[3], a[4]];
@@ -195,8 +250,9 @@
   }
 
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  function svg(it) {
-    const { k, parts } = placed(it), r = v => U.round(v, 2);
+  const svg = it => markup(it, true);
+  function markup(it, marks) {
+    const { k, parts } = placed(it, marks), r = v => U.round(v, 2);
     const col = U.color(it.color || 'ink'), sw = r(it.size || 2);
     const o = [];
     for (const p of parts) {
@@ -226,7 +282,9 @@
   function icon(kind, px = 32) {
     const S = SYMBOLS[kind], s = Math.min((px - 2) / Math.max(S.W, S.H), 0.9);   // a dot stays a dot
     const it = { kind, x: (px - S.W * s) / 2, y: (px - S.H * s) / 2, w: S.W * s, h: S.H * s, size: 1.6, color: 'currentColor' };
-    return `<svg viewBox="0 0 ${px} ${px}" width="${px}" height="${px}">${svg(it).replace(/stroke-width="[\d.]+"/g, 'stroke-width="1.6"')}</svg>`;
+    /* marks too small to read (a flip-flop's D and Q at button size) are
+       only blots: the shape alone says which part it is */
+    return `<svg viewBox="0 0 ${px} ${px}" width="${px}" height="${px}">${markup(it, 14 * s >= 6).replace(/stroke-width="[\d.]+"/g, 'stroke-width="1.6"')}</svg>`;
   }
 
   /* ── the item ──────────────────────────────────────────────────── */
@@ -473,8 +531,10 @@
   /* ── the strip: the parts, along the bottom, while the tool is out ── */
   const STRIP = {
     circuit: ['resistor', 'capacitor', 'inductor', 'dcSource', 'acSource', 'diode', 'switch', 'ground', 'opamp', 'junction'],
+    logic: ['and', 'or', 'not', 'nand', 'nor', 'xor', 'xnor', 'buffer', 'dff', 'jkff', 'srlatch', 'junction'],
     mech: ['spring', 'damper', 'mass', 'pin', 'roller', 'fixed', 'pulley']
   };
+  const GROUPS = [['circuit', 'Circuit', 'Circuits'], ['logic', 'Logic', 'Logic'], ['mech', 'Mech', 'Mechanics']];
   let strip = null;
   function showStrip(app) {
     const o = app.opts.symbol;
@@ -483,8 +543,9 @@
       strip.addEventListener('pointerdown', e => e.stopPropagation());
       document.body.appendChild(strip);
     }
-    const group = (SYMBOLS[o.kind] || {}).group || 'circuit';
-    const pick = k => { o.kind = k; o.mode = 'part'; app.savePrefs(); showStrip(app); if (app.ui) app.ui.refresh(); };
+    /* the strip shows the group last chosen: the junction is in more than one */
+    const group = STRIP[o.group] && STRIP[o.group].includes(o.kind) ? o.group : (SYMBOLS[o.kind] || {}).group || 'circuit';
+    const pick = (k, g = group) => { o.kind = k; o.group = g; o.mode = 'part'; app.savePrefs(); showStrip(app); if (app.ui) app.ui.refresh(); };
     strip.replaceChildren(
       el('button', { class: 'symbol-mode' + (o.mode === 'wire' ? ' on' : ''), type: 'button', title: 'Wire: drag from a terminal to a terminal · W',
         html: '<svg viewBox="0 0 32 32" width="32" height="32"><path d="M4 22h10V10h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="4" cy="22" r="2.6" fill="currentColor"/><circle cx="28" cy="10" r="2.6" fill="currentColor"/></svg><span>Wire</span>',
@@ -493,31 +554,32 @@
       ...STRIP[group].map(k => el('button', { class: 'symbol-pick' + (o.mode !== 'wire' && k === o.kind ? ' on' : ''), type: 'button', title: SYMBOLS[k].label, 'aria-label': SYMBOLS[k].label,
         html: icon(k, 30), onclick: () => pick(k) })),
       el('span', { class: 'sep' }),
-      el('button', { class: 'symbol-group', type: 'button', title: group === 'circuit' ? 'Mechanics parts' : 'Circuit parts',
-        onclick: () => pick(STRIP[group === 'circuit' ? 'mech' : 'circuit'][0]) }, group === 'circuit' ? 'Mech' : 'Circuit'));
+      el('div', { class: 'symbol-groups', role: 'group', 'aria-label': 'Kind of part' },
+        ...GROUPS.map(([g, short, title]) => el('button', { class: 'symbol-group' + (g === group ? ' on' : ''), type: 'button', title: title + ' parts',
+          onclick: () => { if (g !== group) pick(STRIP[g][0], g); } }, short))));
     strip.hidden = false;
   }
   function hideStrip() { if (strip) strip.hidden = true; }
 
   function pickerGroups(ui, now, pick) {
-    return [['circuit', 'Circuits'], ['mech', 'Mechanics']].map(([g, title]) => ui.group(title, el('div', { class: 'symbol-grid' },
+    return GROUPS.map(([g, , title]) => ui.group(title, el('div', { class: 'symbol-grid' },
       ORDER.filter(k => SYMBOLS[k].group === g).map(k => el('button', {
         class: 'symbol-pick' + (k === now ? ' on' : ''), type: 'button', title: SYMBOLS[k].label, 'aria-label': SYMBOLS[k].label,
         html: icon(k), onclick: () => pick(k)
       })))));
   }
 
-  D.ext.opts.symbol = { kind: 'resistor', mode: 'part', color: 'ink', size: 2, scale: 1, names: true };
+  D.ext.opts.symbol = { kind: 'resistor', group: 'circuit', mode: 'part', color: 'ink', size: 2, scale: 1, names: true };
 
   D.ext.tools.push({
     name: 'symbol',
     create: app => new SymbolTool(app),
-    rail: { icon: 'M2 12h4|M6 12l1.5-4 3 8 3-8 3 8 1.5-4|M18 12h4', key: 's', title: 'Circuits and mechanics · S', after: 'graph' },
+    rail: { icon: 'M2.5 12h3|M5.5 12l1.5-5 3 10 3-10 3 10 1.5-5|M18.5 12h3', key: 's', title: 'Circuits, logic and mechanics · S', after: 'graph' },
     panel: ui => {
       const app = ui.app, o = app.opts.symbol;
       ui.add(
         ui.group('Mode', ui.seg([['part', 'Parts'], ['wire', 'Wires']], o.mode || 'part', v => { o.mode = v; app.savePrefs(); showStrip(app); })),
-        ...pickerGroups(ui, o.kind, k => { o.kind = k; o.mode = 'part'; app.savePrefs(); showStrip(app); ui.buildPanel(); }),
+        ...pickerGroups(ui, o.kind, k => { o.kind = k; o.group = SYMBOLS[k].group; o.mode = 'part'; app.savePrefs(); showStrip(app); ui.buildPanel(); }),
         ui.group('Size', ui.seg([[0.75, 'S'], [1, 'M'], [1.5, 'L'], [2, 'XL']], o.scale || 1, v => { o.scale = v; app.savePrefs(); })),
         ui.group('', ui.check('Name parts as they are placed (R1, C1…)', o.names !== false, v => { o.names = v; app.savePrefs(); })),
         ui.group('', el('div', { class: 'rowlbl' }, el('span', { style: 'line-height:1.5' },

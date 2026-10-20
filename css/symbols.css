@@ -33,6 +33,10 @@
   border:1.5px solid transparent;background:var(--accent-soft);color:var(--text);font:600 12.5px/1 "Segoe UI",system-ui,sans-serif;cursor:pointer;
 }
 .symbol-mode.on{border-color:var(--accent);background:var(--accent);color:#fff}
+/* circuit / logic / mechanics: one control, the group showing lit */
+.symbol-groups{flex:none;display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--accent-soft)}
+.symbol-groups .symbol-group{min-width:44px;min-height:42px;padding:0 9px;justify-content:center;background:transparent;color:var(--muted)}
+.symbol-groups .symbol-group.on{background:var(--panel-solid);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .symbol-labelb{width:100%;min-height:40px;justify-content:flex-start}
 .symbol-labelpop{
   position:fixed;z-index:40;width:300px;max-width:calc(100vw - 16px);display:flex;gap:6px;align-items:center;padding:8px;

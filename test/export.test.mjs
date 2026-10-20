@@ -105,3 +105,20 @@ test('a paper colour of your own, for each theme: on screen, in the painter, and
     assert.equal(U.paperOf('light'), U.THEMES.light.paper, 'and light, set to its own, is the theme’s');
   } finally { U.setPaper(null); r.invalidateStyle(); }
 });
+
+test('what to export: the whole board or the selection with a margin, a region as drawn', () => {
+  const X = load('util.js', 'freehand.js', 'recognize.js', 'scene.js', 'exportdlg.js');
+  const scene = new X.Scene();
+  const a = scene.add(X.make.note({ x: 0, y: 0, w: 100, h: 100 }));
+  scene.add(X.make.note({ x: 400, y: 300, w: 100, h: 100 }));
+  const app = { scene, selection: [], selectionBounds() { return scene.bbox(a); } };
+  const box = (area, o) => { const b = X.exportDialog.areaBox(app, area, o); return b && [b.x, b.y, b.w, b.h].map(Math.round); };
+  const all = scene.contentBounds();
+  assert.deepEqual(box('all', { margin: 20 }), [all.x - 20, all.y - 20, all.w + 40, all.h + 40].map(Math.round));
+  assert.equal(box('selection'), null, 'nothing selected: no selection to export');
+  app.selection = [a];
+  const s = scene.bbox(a);
+  assert.deepEqual(box('selection', { margin: 0 }), [s.x, s.y, s.w, s.h].map(Math.round));
+  assert.equal(box('region', {}), null, 'no region drawn yet');
+  assert.deepEqual(box('region', { region: X.util.box(10, 20, 110, 70) }), [10, 20, 100, 50], 'a region exactly as drawn, no margin');
+});

@@ -26,7 +26,7 @@
       this.opts = {
         /* smartGuides: a dragged selection lines up with what is near it
            (snap.js); tapUndo: two fingers tapped undo, three redo (taps.js) */
-        general: { holdToSnap: true, scribbleErase: true, snapGrid: false, smartGuides: true, touchPan: true, tapUndo: true, stickyTools: true, lowLatency: true },
+        general: { wheel: 'pan', holdToSnap: true, scribbleErase: true, snapGrid: false, smartGuides: true, touchPan: true, tapUndo: true, stickyTools: true, lowLatency: true },
         /* The paper's colour, one for each theme ('' is the theme's own),
            so a cream page by day does not stay cream under white ink. */
         canvas: { paper: { light: '', dark: '' } },
@@ -41,7 +41,7 @@
         /* How PNG and SVG exports look (Settings → Export). 'auto' follows
            the theme on screen; a transparent background leaves just the
            work, to sit on a slide or a page of any colour. */
-        export: { theme: 'auto', background: 'transparent', ask: true }
+        export: { theme: 'auto', background: 'transparent', ask: true, scale: 2, margin: 48, paper: 'actual', dpi: 200 }
       };
       /* What features add (ext.js). Before start() lays the saved prefs
          over the top, so a feature's options are remembered like the rest
@@ -534,6 +534,8 @@
       stage.addEventListener('pointerleave', e => this.onPointerLeave(e));
       stage.addEventListener('contextmenu', e => e.preventDefault());
       stage.addEventListener('wheel', e => this.onWheel(e), { passive: false });
+      // the side buttons are undo and redo here (onDown), not the browser's back and forward
+      for (const t of ['mouseup', 'auxclick']) stage.addEventListener(t, e => { if (e.button === 3 || e.button === 4) e.preventDefault(); });
       stage.addEventListener('dblclick', e => this.onDoubleClick(e));
       addEventListener('keydown', e => this.onKey(e));
       addEventListener('keyup', e => {
@@ -571,6 +573,9 @@
 
     onDown(e) {
       if (e.target.closest('#overlay .text-edit')) return;
+      /* a mouse's side buttons step back and forward through the history,
+         as they step through pages in a browser */
+      if (e.button === 3 || e.button === 4) { e.preventDefault?.(); if (e.button === 3) this.undo(); else this.redo(); return; }
       this.taps.down(e);
       if (this.editor.active) this.editor.close();
       if (this.press) this.press.closeLabel(true);
@@ -616,15 +621,21 @@
       const middle = e.button === 1, right = e.button === 2;
       const selecting = SELECTING.has(this.toolName);
 
+      /* Each mouse button has a job of its own: the left uses the tool,
+         the middle pans, and the right (or the pen's barrel button) is the
+         long-press made instant — drag for a box or lasso selection, with
+         whatever tool is out, or click for the menu. */
+      if (right && !this.spaceDown && e.pointerType !== 'touch') { this.armRight(e); e.preventDefault?.(); return; }
+
       let tool;
-      if (middle || right || this.spaceDown || touchPans) tool = this.tools.pan;
+      if (middle || this.spaceDown || touchPans) tool = this.tools.pan;
       else if (eraserButton) tool = this.tools.eraser;
       else tool = this.tool;
 
       /* The one exception: with the select tool out, a finger on what is
          already selected takes hold of it, so a selection can be moved and
          resized with nothing but a finger. Anywhere else it still pans. */
-      const grab = touchPans && tool === this.tools.pan && !middle && !right && !this.spaceDown && selecting && this.onSelection(e);
+      const grab = touchPans && tool === this.tools.pan && !middle && !this.spaceDown && selecting && this.onSelection(e);
       if (grab) tool = this.tool;
 
       /* A selection made with some other tool out — held and dragged
@@ -633,7 +644,7 @@
          takes hold of it (or of a handle, to resize), as the select tool
          would. Outside it, the pen draws and lets go of it, just below,
          and a finger pans. */
-      const carry = !selecting && !middle && !right && !this.spaceDown && !eraserButton &&
+      const carry = !selecting && !middle && !this.spaceDown && !eraserButton &&
         (tool === this.tool ? this.toolName !== 'eraser' : touchPans) && this.selection.length > 0 && this.inSelection(e);
       if (carry) tool = this.tools.select;
 
@@ -788,6 +799,23 @@
         this.openPress(a.x, a.y, a.type);
       }, MENU_WAIT);
       if (this.press) this.press.lock(h, a.mode);
+    }
+
+    /**
+     * A right press: armed at once, as a long-press is once it fires. A
+     * drag from here selects (dragFromHold); a release where it landed
+     * opens the menu (onUp). Nothing else answers it, so it is not a tap.
+     */
+    armRight(e) {
+      if (this.tap) this.tap.held = true;
+      if (this.press) this.press.hideBar();
+      this.active = null;
+      this.downId = e.pointerId;
+      try { $('#stage').setPointerCapture(e.pointerId); } catch (_) { }
+      this.armed = {
+        id: e.pointerId, type: e.pointerType, x: e.clientX, y: e.clientY, mode: this.holdDragMode(),
+        slop: DRAG_SLOP[e.pointerType] || DRAG_SLOP.mouse, menu: false, menuT: 0
+      };
     }
 
     /** what a drag from a hold draws: 'marquee' or 'lasso' (Settings → Touch and hold) */
@@ -1001,8 +1029,12 @@
     onWheel(e) {
       e.preventDefault();
       if (this.press) this.press.closeMenu();
-      if (e.ctrlKey || e.metaKey) {
-        const f = Math.exp(-e.deltaY * 0.0035);
+      /* Ctrl (and a touchpad's pinch, which arrives as Ctrl) always
+         zooms. The plain wheel pans unless Settings make it zoom; Shift
+         turns it sideways either way. */
+      const zooms = (e.ctrlKey || e.metaKey) || (this.opts.general.wheel === 'zoom' && !e.shiftKey);
+      if (zooms) {
+        const f = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 16 : 1) * 0.0035);
         this.camera.zoomBy(f, e.clientX, e.clientY);
         this.requestZoom();
       } else if (e.shiftKey) {
@@ -1941,11 +1973,12 @@
       return this.saveFile(safeName(this.board.name) + '.svg', 'svg', () => this.svgBlob());
     }
 
-    async svgBlob(look = this.exportLook()) {
-      const b = this.scene.contentBounds();
+    /** the board as an SVG — or, given `box` (world units), just that part of it, edge to edge */
+    async svgBlob(look = this.exportLook(), box = null) {
+      const b = box || this.scene.contentBounds();
       if (!b) return null;
       if (this.scene.items.some(i => i.type === 'pdfpage')) this.ui.toast('Exporting…', null, null, 60000);
-      const svg = await this.renderer.toSVG(this.scene, b, look);
+      const svg = await this.renderer.toSVG(this.scene, b, look, box ? { pad: 0 } : {});
       return new Blob([svg], { type: 'image/svg+xml' });
     }
 
@@ -1954,13 +1987,18 @@
       return this.saveFile(safeName(this.board.name) + '.png', 'png', () => this.pngBlob());
     }
 
-    async pngBlob() {
-      const b = this.scene.contentBounds();
-      if (!b) return null;
+    /**
+     * The board as a PNG: everything, with a margin, at twice its size — or
+     * opts.box (world units), edge to edge, and opts.scale px a board unit.
+     */
+    async pngBlob(opts = {}) {
+      const cb = opts.box ? null : this.scene.contentBounds();
+      if (!opts.box && !cb) return null;
+      const b = opts.box || U.growBox(cb, 48);
       const c = document.createElement('canvas');
       const kept = new Map();              // PDF pages rendered once, for every tile they cross
       const drop = it => { const bmp = kept.get(it); if (bmp && bmp.width) { bmp.width = 0; bmp.height = 0; } kept.delete(it); };
-      try { return await this.paintPNG(b, c, kept, drop); }
+      try { return await this.paintPNG(b, c, kept, drop, U.clamp(+opts.scale || 2, 0.25, 8)); }
       finally {
         for (const it of [...kept.keys()]) drop(it);
         c.width = 0; c.height = 0;          // a full-size export is a lot of memory to wait on GC for
@@ -1968,7 +2006,7 @@
     }
 
     /**
-     * The board round `b` as a PNG at twice its size, however big.
+     * The box `b` of the board as a PNG, `scale` px a board unit, however big.
      *
      * A canvas cannot hold a big board (and canvas.toBlob needs it all on
      * one), so it is painted in tiles of at most PNG_TILE px, a band of
@@ -1978,11 +2016,10 @@
      * part of it comes out at full resolution rather than scaled down to
      * fit. Tiles meet on whole pixels, so there are no seams.
      */
-    async paintPNG(b, c, kept, drop) {
+    async paintPNG(b, c, kept, drop, scale = 2) {
       const look = this.exportLook(), r = this.renderer, scene = this.scene;
-      const scale = 2, pad = 48;
-      const x0 = b.x - pad, y0 = b.y - pad;
-      const W = Math.max(1, Math.round((b.w + pad * 2) * scale)), H = Math.max(1, Math.round((b.h + pad * 2) * scale));
+      const x0 = b.x, y0 = b.y;
+      const W = Math.max(1, Math.round(b.w * scale)), H = Math.max(1, Math.round(b.h * scale));
       const band = Math.max(1, Math.min(PNG_TILE, Math.floor(PNG_BAND_BYTES / (W * 4))));
       const paper = look.transparent ? null : U.paintAs(look.theme, () => U.color('paper'));
       const bands = Math.ceil(H / band), big = bands > 1 || W > PNG_TILE;
@@ -2306,7 +2343,7 @@
   const DOUBLE_SLOP = { touch: 28, pen: 12 };             // how far apart the two may land
   const DOUBLE_GUARD = 450;      // the browser's dblclick for a pair already handled
   const GRAB_GRACE = 300;        // longer to hold, for the menu, on what the select tool can drag
-  const DRAG_SLOP = { touch: 16, pen: 10 };              // CSS px from the press, once armed, that is a drag
+  const DRAG_SLOP = { touch: 16, pen: 10, mouse: 5 };              // CSS px from the press, once armed, that is a drag
   const MENU_WAIT = 350;         // armed and still this long: the menu opens without waiting for the lift
   const PEN_NEAR_MS = 1000;      // a finger held this soon after the pen was about is a palm
   const PALM_PX = 70;            // and so is a contact this wide (fingertips are 20–45)

@@ -136,3 +136,32 @@ test('junction dots: where three conductors meet, and nowhere a wire only turns 
   scene.remove(w2);
   assert.equal(D.wires.dotsOf(scene, w1).length, 0, 'one wire on a terminal is just a connection');
 });
+
+test('logic gates: two inputs and an output on their frame, each drawn and exported; NOT spans a drag', () => {
+  const scene = new D.Scene();
+  for (const kind of ['and', 'nand', 'or', 'nor', 'xor', 'xnor']) {
+    const g = scene.add(S.make(app, kind, { x: 0, y: 0 }));
+    const pins = Object.fromEntries(scene.snapPoints(g).map(p => [p.k, p]));
+    assert.ok(pins.a && pins.b && pins.y, kind + ' has a, b and y');
+    assert.ok(near(pins.a.x, pins.b.x) && pins.a.x < pins.y.x, kind + ': inputs on the left, output on the right');
+    assert.ok(near(pins.y.y, (pins.a.y + pins.b.y) / 2), kind + ': the output midway between the inputs');
+    const out = D.ext.items.symbol.svg(g, null);
+    assert.ok(/<path/.test(out) && !/NaN/.test(out), kind + ' exports');
+  }
+  // the inverting gates carry a bubble the plain ones do not
+  const circles = k => (D.ext.items.symbol.svg(S.make(app, k, { x: 0, y: 0 })).match(/<circle/g) || []).length;
+  assert.equal(circles('nand') - circles('and'), 1);
+  assert.equal(circles('xnor') - circles('xor'), 1);
+  const inv = S.spanning(app, 'not', { x: 0, y: 0 }, { x: 200, y: 0 });
+  const p = Object.fromEntries(scene.snapPoints(scene.add(inv)).map(q => [q.k, q]));
+  assert.ok(near(p.a.x, 0) && near(p.y.x, 200), 'a NOT laid between two points has its terminals on them');
+});
+
+test('a flip-flop has its inputs, a clock and both outputs; the button icon leaves out marks too small to read', () => {
+  const ff = S.make(app, 'jkff', { x: 0, y: 0 });
+  const keys = new D.Scene().snapPoints(ff).map(p => p.k);
+  for (const k of ['J', 'K', 'clk', 'q', 'qn']) assert.ok(keys.includes(k), k);
+  assert.ok(/>Q</.test(D.ext.items.symbol.svg(ff)), 'Q is written on the part');
+  assert.ok(!/<text/.test(S.icon('jkff', 30)), 'but not on its button');
+  assert.ok(/<text/.test(S.icon('dcSource', 32)), 'a mark big enough to read stays');
+});

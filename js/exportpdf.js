@@ -44,8 +44,11 @@
    drawing and its picture — and a cross-reference table of where each
    starts. CompressionStream does the deflating.
 
-   D.exportPdf(app, { frames? }) → Promise   frames: only these pages
-   D.exportPdf.plan(scene) → [{ x, y, w, h, frame? }]   the sheets
+   D.exportPdf(app, { frames?, box?, paper?, dpi? }) → Promise
+     frames: only these pages;  box: instead, just this part of the board,
+     on one sheet of its own size or of paper ('a4', 'a3', 'letter');
+     dpi: what the painted parts are painted at (200)
+   D.exportPdf.plan(scene, frames?, { box?, paper? }) → [{ x, y, w, h, frame?, pt?, clip? }]
    D.exportPdf.layers(items, canCopy) → [{ kind: 'pdf'|'ink'|'paint', items }]
    D.exportPdf.vector(L, app, sheets, info, hooks?) → Promise<Uint8Array>
      L: pdf-lib; hooks.paint(items, crop) → { png, x, y, w, h } | null,
@@ -57,12 +60,39 @@
   const U = D.util, FH = D.freehand;
 
   const DPI = 200;
+  let dpi = DPI;                         // for the export under way (opts.dpi); one at a time
   const PT = 72 / 96;                   // points in a board unit (a CSS px)
   const MAX_SIDE = 12000, MAX_AREA = 60e6;
   const PAD = 40;                        // round the content, for a board with no pages
 
-  /** the sheets to print: the pages, or one round everything */
-  function plan(scene, only) {
+  /* paper, in points, upright: the sizes a region can be fitted to */
+  const PAPER = { a4: [595.28, 841.89], a3: [841.89, 1190.55], letter: [612, 792] };
+  const MARGIN_PT = 28;                  // round the region on a sheet of paper: about 1 cm
+
+  /**
+   * One sheet for a box of the board (world units). At its actual size
+   * the sheet is the box. On paper (A4, A3, Letter) it is the paper, turned
+   * to lie the way the box does, with the box scaled to fit inside a margin
+   * and centred: the sheet is then a bigger box of the board round it, and
+   * `clip` keeps what lies outside the asked-for box off the page.
+   */
+  function boxSheet(box, paper) {
+    const size = PAPER[paper];
+    if (!size) return { x: box.x, y: box.y, w: box.w, h: box.h };
+    const [a, b] = size, wide = box.w > box.h;
+    const PW = wide ? b : a, PH = wide ? a : b;
+    const k = Math.min((PW - MARGIN_PT * 2) / box.w, (PH - MARGIN_PT * 2) / box.h);
+    const w = PW / k, h = PH / k, cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+    return { x: cx - w / 2, y: cy - h / 2, w, h, pt: { w: PW, h: PH }, clip: U.box(box.x, box.y, box.x + box.w, box.y + box.h) };
+  }
+
+  /**
+   * The sheets to print: the pages, or one round everything — or, given
+   * opts.box, one sheet of just that part of the board (opts.paper: what
+   * to fit it to, 'a4' | 'a3' | 'letter', or its actual size).
+   */
+  function plan(scene, only, opts = {}) {
+    if (opts.box) return opts.box.w > 0 && opts.box.h > 0 ? [boxSheet(opts.box, opts.paper)] : [];
     const pages = only && only.length ? only : D.frames ? D.frames.sheets(scene) : [];
     if (pages.length) return pages.map(f => ({ x: f.x, y: f.y, w: f.w, h: f.h, frame: f, pt: D.frames.pointsOf(f) }));
     const b = scene.contentBounds();
@@ -130,7 +160,7 @@
   /* ── painting a sheet ──────────────────────────────────────────── */
   async function sheet(app, s, look) {
     const r = app.renderer, scene = app.scene;
-    const scale = Math.min(DPI / 96, MAX_SIDE / s.w, MAX_SIDE / s.h, Math.sqrt(MAX_AREA / (s.w * s.h)));
+    const scale = Math.min(dpi / 96, MAX_SIDE / s.w, MAX_SIDE / s.h, Math.sqrt(MAX_AREA / (s.w * s.h)));
     const c = document.createElement('canvas');
     c.width = Math.max(1, Math.round(s.w * scale));
     c.height = Math.max(1, Math.round(s.h * scale));
@@ -307,8 +337,10 @@
       page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: L.rgb(paper.r, paper.g, paper.b), borderWidth: 0 });
       // board (x, y) → page: x right from the sheet's left, y up from its foot
       const at = { x: -s.x * k, y: H + s.y * k, scale: k };
-      const box = U.box(s.x, s.y, s.x + s.w, s.y + s.h);
+      const box = s.clip || U.box(s.x, s.y, s.x + s.w, s.y + s.h);
       const items = scene.items.filter(it => U.boxesOverlap(scene.bbox(it), box));
+      // fitted to paper: nothing drawn past the part of the board asked for
+      if (s.clip) page.pushOperators(L.pushGraphicsState(), L.rectangle((box.x - s.x) * k, H - (box.y2 - s.y) * k, box.w * k, box.h * k), L.clip(), L.endPath());
 
       for (const layer of layers(items, canCopy)) {
         if (layer.kind === 'ink') { U.paintAs('light', () => drawInk(L, page, layer.items, at)); continue; }
@@ -339,6 +371,7 @@
           page.drawImage(img, { x: (pic.x - s.x) * k, y: H - (pic.y - s.y + pic.h) * k, width: pic.w * k, height: pic.h * k });
         }
       }
+      if (s.clip) page.pushOperators(L.popGraphicsState());
       bigUnits(L, page);
     }
     return doc.save();
@@ -400,7 +433,7 @@
   async function paintRun(app, items, crop) {
     const x = Math.floor(crop.x), y = Math.floor(crop.y);
     const w = Math.ceil(crop.x2) - x, h = Math.ceil(crop.y2) - y;
-    const scale = DPI / 96;
+    const scale = dpi / 96;
     const c = document.createElement('canvas');
     c.width = Math.max(1, Math.round(w * scale));
     c.height = Math.max(1, Math.round(h * scale));
@@ -419,10 +452,11 @@
 
   let busy = false;
   async function exportPdf(app, opts = {}) {
-    const sheets = plan(app.scene, opts.frames);
+    const sheets = plan(app.scene, opts.frames, opts);
     if (!sheets.length) { app.toast('Nothing to export'); return null; }
     if (busy) return null;
     busy = true;
+    dpi = U.clamp(+opts.dpi || DPI, 72, 600);
     const look = { theme: 'light', dark: false, transparent: false };
     const say = t => app.ui && app.ui.toast ? app.ui.toast(t, null, null, 60000) : null;
     try {
@@ -450,7 +484,7 @@
       console.error(err);
       app.toast('The export did not finish: ' + (err.message || err));
       return null;
-    } finally { busy = false; }
+    } finally { busy = false; dpi = DPI; }
   }
 
   function save(blob, name) {
@@ -465,6 +499,7 @@
   const fileName = (app, frames) => safeName(frames && frames.length === 1 && D.frames ? D.frames.nameOf(app.scene, frames[0]) : (app.board && app.board.name) || 'Board') + '.pdf';
 
   exportPdf.plan = plan;
+  exportPdf.PAPER = PAPER;
   exportPdf.fileName = fileName;
   exportPdf.layers = layers;
   exportPdf.vector = vector;

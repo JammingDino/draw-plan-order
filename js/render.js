@@ -1354,15 +1354,17 @@
       flush();
     }
 
-    async toSVG(scene, box, look) {
-      const pad = 40;
+    /** `box` of the board as an SVG, grown by opts.pad (40) — with only what reaches into it */
+    async toSVG(scene, box, look, opts = {}) {
+      const pad = opts.pad ?? 40;
       const b = U.growBox(box, pad);
+      const items = scene.items.filter(it => U.boxesOverlap(scene.bbox(it), b));
 
       /* The parts that take waiting for, gathered before the theme is
          borrowed: PDF pages rendered in the export's theme, and pictures
          as data URLs so the file stands on its own. */
       const hrefs = new Map();
-      for (const it of scene.items) {
+      for (const it of items) {
         if (it.type === 'pdfpage') {
           const bmp = await D.pdf.render(this.app, it, 2, look.dark);
           if (bmp) { hrefs.set(it, bitmapToDataUrl(bmp)); bmp.width = 0; bmp.height = 0; }
@@ -1374,7 +1376,7 @@
         out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(b.w)}" height="${Math.round(b.h)}" viewBox="${U.round(b.x)} ${U.round(b.y)} ${U.round(b.w)} ${U.round(b.h)}">`);
         if (!look.transparent)
           out.push(`<rect x="${U.round(b.x)}" y="${U.round(b.y)}" width="${U.round(b.w)}" height="${U.round(b.h)}" fill="${U.color('paper')}"/>`);
-        for (const it of scene.items) {
+        for (const it of items) {
           const s = svgItem(this, scene, it, hrefs), b = it.rot && s ? scene.bbox(it) : null;
           if (b && b.local) {
             const c = U.boxCenter(b.local);
