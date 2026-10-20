@@ -735,11 +735,13 @@ test('Solve this ink: a symbol chip is taught by picking what it really is', asy
   await D.math.ready();
   p.work();
   const chips = p.el.children.find(c => c.className === 'inkmath-chips');
-  assert.ok(chips && chips.children.length >= 3, 'a chip for each symbol');
+  // the "=" too: every symbol read can be put right, the marks the rules read included
+  assert.ok(chips && chips.children.length >= 4, 'a chip for each symbol, the "=" included');
   chips.children[2].onclick();
   const pick = p.el.children.find(c => c.className === 'inkmath-pick');
   assert.equal(pick.hidden, false, 'tapping a chip offers every symbol');
-  assert.equal(pick.children.length, IM.TEACHABLE.length);
+  assert.equal(pick.children.length, IM.FIXABLE.length - 1, 'every symbol it could be, but the one it was read as');
+  for (const ch of ['·', '.', '−', '×']) assert.ok(IM.FIXABLE.includes(ch), `${ch} can be picked`);
   assert.ok(IM.TEACHABLE.includes('/'), 'a slash can be taught, though only a rule reads one');
   IM.forget();
 });
@@ -899,4 +901,77 @@ test('a "why" note opens Solve this ink saying why', async () => {
   assert.ok(p, 'the panel opens');
   IM.reset(app);
   app.opts.inkmath.explain = false;
+});
+
+/* ── small marks, and the times sign as a star ─────────────────────
+   A dot is told by its size next to the symbols around it, not by its
+   shape: scaled up to fill a unit box, as the matcher sees everything,
+   a dabbed times dot looks like a minus or a root sign. */
+
+/** "3 ? 4 =" with the middle symbol replaced by `marks` (strokes of [x, y] about its centre, in line heights) */
+function withMiddle(marks, seed, H = 40) {
+  const r = rng(seed);
+  const ink = write(['3', '+', '4', '='], { r, size: H });
+  const plus = ink.glyphs.find(g => g.ch === '+').ink;
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  for (const s of plus) for (let i = 0; i < s.pts.length; i += 3) { x1 = Math.min(x1, s.pts[i]); x2 = Math.max(x2, s.pts[i]); y1 = Math.min(y1, s.pts[i + 1]); y2 = Math.max(y2, s.pts[i + 1]); }
+  const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+  const out = ink.filter(s => !plus.includes(s));
+  for (const m of marks) out.push(stroke(dense(m.flatMap((v, i) => [i % 2 ? cy + v * H : cx + v * H]))));
+  return out;
+}
+
+test('a times dot dabbed as a flick, a tick or a tiny loop reads as a dot, not a minus or a root', () => {
+  const flick = [[-0.12, 0.01, 0.12, -0.01]];                    // a quarter of a digit across: a dash, scaled up
+  const tick = [[-0.1, -0.02, -0.03, 0.06, 0.11, -0.08]];          // a check mark, as a root sign starts
+  const loop = [[0, -0.06, 0.06, 0, 0, 0.06, -0.06, 0, 0, -0.05]];  // a little circle
+  for (const [name, mark] of [['flick', flick], ['tick', tick], ['loop', loop]]) {
+    const got = IM.read(withMiddle(mark, 3));
+    assert.equal(got.expr, '3·4', `a ${name} between the digits is times`);
+  }
+  // a real minus is wide enough to be one
+  assert.equal(IM.read(withMiddle([[-0.3, 0.01, 0.3, -0.01]], 4)).expr, '3−4', 'a bar half a digit wide is still a minus');
+});
+
+test('a star (*) between numbers is a times sign, written large or small', () => {
+  const arm = (deg, l) => { const a = deg * Math.PI / 180, dx = Math.cos(a) * l / 2, dy = Math.sin(a) * l / 2; return [-dx, -dy, dx, dy]; };
+  for (const l of [0.5, 0.2]) {
+    const three = [arm(90, l), arm(30, l), arm(150, l)];
+    assert.equal(IM.read(withMiddle(three, 5)).expr, '3×4', `three arms, ${l} of a digit across`);
+    const four = [arm(0, l), arm(90, l), arm(45, l), arm(135, l)];
+    assert.equal(IM.read(withMiddle(four, 6)).expr, '3×4', `four arms, ${l} of a digit across`);
+  }
+  assert.ok(IM.TEACHABLE.includes('×'), 'and it can be taught');
+});
+
+test('a dot taught as times wins over the rule that read it as a minus', () => {
+  IM.forget();
+  const wide = s => withMiddle([[-0.17, 0.01, 0.17, -0.01]], s);
+  assert.equal(IM.read(wide(11)).expr, '3−4', 'a third of a digit across: past a dot, so the rule says minus');
+  const taught = IM.read(wide(14)).syms.find(s => s.ch === '−');
+  IM.teach(taught.strokes, '·');
+  assert.equal(IM.read(wide(15)).expr, '3·4', 'the same mark, written again, is read as taught');
+  IM.forget();
+});
+
+test('Solve this ink draws each symbol at its size on the line, so a dot stays a dot', async () => {
+  IM.forget();
+  const app = board();
+  app.opts.inkmath.auto = false;
+  const ink = withMiddle([[-0.05, 0, 0.05, 0]], 21);
+  draw(app, ink);
+  const p = IM.solve(app, ink, { sx: 100, sy: 100 });
+  await D.math.ready();
+  const chips = p.el.children.find(c => c.className === 'inkmath-chips');
+  const html = chips.children.map(c => c.children[0].innerHTML);
+  assert.equal(html.length, 4, 'a chip for 3, the dot, 4 and the "="');
+  // the extent of each thumbnail's path: the dot's is a small part of its square, a digit's most of it
+  const extent = h => {
+    const nums = (h.match(/d="([^"]+)"/)[1].match(/-?\d+(\.\d+)?/g) || []).map(Number);
+    const xs = nums.filter((_, i) => i % 2 === 0), ys = nums.filter((_, i) => i % 2);
+    return Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  };
+  const sizes = html.map(extent);
+  assert.ok(sizes[1] < sizes[0] * 0.4, `the dot is drawn small: ${sizes[1].toFixed(1)} against ${sizes[0].toFixed(1)}`);
+  IM.forget();
 });

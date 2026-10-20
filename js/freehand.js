@@ -117,6 +117,27 @@
   }
 
   /**
+   * How wide the nib drew a stroke, on average along its length: the
+   * width a clean shape put in its place should be drawn at, so a line
+   * snapped from a light stroke stays as light as it was written. Weighted
+   * by length rather than by sample, so the pen held still at the end
+   * (the hold that snaps it, where it often presses harder) counts for
+   * nothing. pts: [x, y, pressure, …]
+   */
+  F.meanWidth = (pts, size, thinning) => {
+    const n = pts.length / 3;
+    if (!thinning || !n) return size;
+    let sum = 0, len = 0, p = 0;
+    for (let i = 0; i < n; i++) p += pts[i * 3 + 2];
+    for (let i = 1; i < n; i++) {
+      const l = Math.hypot(pts[i * 3] - pts[i * 3 - 3], pts[i * 3 + 1] - pts[i * 3 - 2]);
+      sum += (radius(size, pts[i * 3 - 1], thinning) + radius(size, pts[i * 3 + 2], thinning)) * l;
+      len += l;
+    }
+    return len > 0 ? sum / len : 2 * radius(size, p / n, thinning);
+  };
+
+  /**
    * Drop samples that sit closer together than the nib can resolve.
    *
    * The digitiser reports in screen pixels, so zooming in packs samples ever
@@ -170,7 +191,7 @@
    */
   F.shapes = (rawPts, o) => {
     const size = o.size, thinning = o.thinning ?? 0.5, cap = o.cap !== false;
-    const pts = decimate(rawPts, F.spacing(size));
+    const pts = bend(decimate(rawPts, F.spacing(size)), size);
     const n = pts.length / 3;
     if (n === 0) return [];
     if (n === 1) return [disc(pts[0], pts[1], radius(size, pts[2], thinning))];
@@ -255,14 +276,89 @@
     return out;
   };
 
-  /** clockwise disc, matching the winding of the segment quads */
+  /* ── filling in a sparse stroke ────────────────────────────────────
+     The pen is sampled in screen pixels, so a stroke written zoomed out
+     has its points far apart on the board. Joined by straight lines they
+     look smooth at the zoom they were written at and like a polygon once
+     you zoom in on them. So where a span is long for how sharply the
+     stroke turns at its ends, it is filled in along a curve through the
+     points: a centripetal Catmull–Rom spline, which passes through every
+     sample, never loops or overshoots on uneven spacing, and is split
+     only as finely as the turn needs. The check is the gap a straight
+     chord leaves under the curve (its sagitta, about l·θ/8) against the
+     nib: a stroke written at normal zoom is fine already and is left as
+     it is, so this costs nothing for most of a board. A corner sharper
+     than BEND_CORNER (a 4, a V) stays a corner: the curve meets it head
+     on rather than rounding it off. */
+  const BEND_CORNER = 1.2;        // radians of turn at a sample that make it a corner
+  const BEND_MAX = 10;            // pieces a span may be cut into, at most
+  function turnAt(pts, i) {
+    const ax = pts[i * 3] - pts[i * 3 - 3], ay = pts[i * 3 + 1] - pts[i * 3 - 2];
+    const bx = pts[i * 3 + 3] - pts[i * 3], by = pts[i * 3 + 4] - pts[i * 3 + 1];
+    return Math.abs(Math.atan2(ax * by - ay * bx, ax * bx + ay * by));
+  }
+  function bend(pts, size) {
+    const n = pts.length / 3;
+    if (n < 3) return pts;
+    const lim = Math.max(0.45, size * 0.12);
+    const turn = new Float32Array(n);
+    for (let i = 1; i < n - 1; i++) turn[i] = turnAt(pts, i);
+    let out = null;
+    for (let i = 0; i < n - 1; i++) {
+      const x1 = pts[i * 3], y1 = pts[i * 3 + 1], x2 = pts[i * 3 + 3], y2 = pts[i * 3 + 4];
+      const l = Math.hypot(x2 - x1, y2 - y1);
+      const ca = turn[i] > BEND_CORNER, cb = turn[i + 1] > BEND_CORNER;
+      const th = Math.max(ca ? 0 : turn[i], cb ? 0 : turn[i + 1]);
+      const k = th > 0 ? Math.min(BEND_MAX, Math.ceil(Math.sqrt(l * th / lim))) : 1;
+      if (k > 1 && !out) out = pts.slice(0, i * 3);
+      if (out) out.push(x1, y1, pts[i * 3 + 2]);
+      if (k <= 1) continue;
+      /* The neighbours that set the curve's direction at each end. At a
+         corner, the span's own direction, so it meets the corner head
+         on. At the stroke's first or last span, a point carried on round
+         the curve the next two make (x0 = 3·P1 − 3·P2 + P3), so the end
+         bends as the rest does — unless that next point is a corner. */
+      let x0, y0, x3, y3;
+      if (i > 0 && !ca) { x0 = pts[i * 3 - 3]; y0 = pts[i * 3 - 2]; }
+      else if (i === 0 && n > 2 && !cb) { x0 = 3 * x1 - 3 * x2 + pts[6]; y0 = 3 * y1 - 3 * y2 + pts[7]; }
+      else { x0 = 2 * x1 - x2; y0 = 2 * y1 - y2; }
+      if (i < n - 2 && !cb) { x3 = pts[i * 3 + 6]; y3 = pts[i * 3 + 7]; }
+      else if (i === n - 2 && n > 2 && !ca) { x3 = 3 * x2 - 3 * x1 + pts[i * 3 - 3]; y3 = 3 * y2 - 3 * y1 + pts[i * 3 - 2]; }
+      else { x3 = 2 * x2 - x1; y3 = 2 * y2 - y1; }
+      const t1 = Math.sqrt(Math.hypot(x1 - x0, y1 - y0)), t2 = t1 + Math.sqrt(l), t3 = t2 + Math.sqrt(Math.hypot(x3 - x2, y3 - y2));
+      if (t1 < 1e-9 || t2 - t1 < 1e-9 || t3 - t2 < 1e-9) continue;
+      const p1 = pts[i * 3 + 2], p2 = pts[i * 3 + 5];
+      for (let j = 1; j < k; j++) {
+        const f = j / k, t = t1 + (t2 - t1) * f;
+        // Barry–Goldman: the spline between the middle two points, for knots 0, t1, t2, t3
+        const a1x = ((t1 - t) * x0 + t * x1) / t1, a1y = ((t1 - t) * y0 + t * y1) / t1;
+        const a2x = ((t2 - t) * x1 + (t - t1) * x2) / (t2 - t1), a2y = ((t2 - t) * y1 + (t - t1) * y2) / (t2 - t1);
+        const a3x = ((t3 - t) * x2 + (t - t2) * x3) / (t3 - t2), a3y = ((t3 - t) * y2 + (t - t2) * y3) / (t3 - t2);
+        const b1x = ((t2 - t) * a1x + t * a2x) / t2, b1y = ((t2 - t) * a1y + t * a2y) / t2;
+        const b2x = ((t3 - t) * a2x + (t - t1) * a3x) / (t3 - t1), b2y = ((t3 - t) * a2y + (t - t1) * a3y) / (t3 - t1);
+        out.push(((t2 - t) * b1x + (t - t1) * b2x) / (t2 - t1), ((t2 - t) * b1y + (t - t1) * b2y) / (t2 - t1), p1 + (p2 - p1) * f);
+      }
+    }
+    if (!out) return pts;
+    out.push(pts[(n - 1) * 3], pts[(n - 1) * 3 + 1], pts[(n - 1) * 3 + 2]);
+    return out;
+  }
+  F.bend = bend;
+
+  /**
+   * A disc, wound like the segment quads (angle decreasing), so one
+   * non-zero fill unions them. The polygon is what the PDF export draws;
+   * `c` keeps the circle itself, which the canvas and SVG draw as a true
+   * arc — a big nib's round end stays round however far in you zoom.
+   */
   function disc(cx, cy, r) {
-    const steps = U.clamp(Math.ceil(r * 1.6), 7, 18);
+    const steps = U.clamp(Math.ceil(r * 1.6), 7, 48);
     const out = [];
     for (let i = 0; i < steps; i++) {
       const a = -(i / steps) * Math.PI * 2;
       out.push(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
     }
+    /** @type {any} */ (out).c = [cx, cy, r];
     return out;
   }
 
@@ -271,6 +367,14 @@
     const p = new Path2D();
     for (const poly of shapes) {
       if (poly.length < 6) continue;
+      if (poly.c) {
+        // anticlockwise from 0 to −2π: the same way round as the polygon
+        const [cx, cy, r] = poly.c;
+        p.moveTo(cx + r, cy);
+        p.arc(cx, cy, r, 0, -Math.PI * 2, true);
+        p.closePath();
+        continue;
+      }
       p.moveTo(poly[0], poly[1]);
       for (let i = 2; i < poly.length; i += 2) p.lineTo(poly[i], poly[i + 1]);
       p.closePath();
@@ -283,6 +387,12 @@
     let d = '';
     for (const poly of shapes) {
       if (poly.length < 6) continue;
+      if (poly.c) {
+        // two half-turns, sweep 0: anticlockwise on screen, as the polygon goes
+        const [cx, cy, r] = poly.c.map(v => U.round(v, 2));
+        d += `M${U.round(cx + r, 2)},${cy}A${r},${r} 0 1 0 ${U.round(cx - r, 2)},${cy}A${r},${r} 0 1 0 ${U.round(cx + r, 2)},${cy}Z`;
+        continue;
+      }
       d += `M${U.round(poly[0], 1)},${U.round(poly[1], 1)}`;
       for (let i = 2; i < poly.length; i += 2) d += `L${U.round(poly[i], 1)},${U.round(poly[i + 1], 1)}`;
       d += 'Z';

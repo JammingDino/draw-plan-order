@@ -440,8 +440,10 @@
         }
         bytes = write(out, { title: name });
       }
-      if (opts.download !== false) save(new Blob([bytes], { type: 'application/pdf' }), safeName(opts.frames && opts.frames.length === 1 && D.frames ? D.frames.nameOf(app.scene, opts.frames[0]) : name) + '.pdf');
       if (app.ui && app.ui.hideToast) app.ui.hideToast();
+      // for the export dialog, which saves it where it was asked to and says so itself
+      if (opts.download === false) return bytes;
+      save(new Blob([bytes], { type: 'application/pdf' }), fileName(app, opts.frames));
       app.toast(sheets.length > 1 ? `Exported ${sheets.length} pages` : 'Exported');
       return bytes;
     } catch (err) {
@@ -459,8 +461,11 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }
   const safeName = s => String(s || 'board').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'board';
+  /** what the file is called: the page's name when it is one page of the board, else the board's */
+  const fileName = (app, frames) => safeName(frames && frames.length === 1 && D.frames ? D.frames.nameOf(app.scene, frames[0]) : (app.board && app.board.name) || 'Board') + '.pdf';
 
   exportPdf.plan = plan;
+  exportPdf.fileName = fileName;
   exportPdf.layers = layers;
   exportPdf.vector = vector;
   exportPdf.write = write;
@@ -470,6 +475,6 @@
   D.ext.pressActions.push({
     id: 'export-pdf', label: 'Export PDF', icon: 'M6 3h9l4 4v14H6z|M15 3v4h4|M12 10v7|M9 14l3 3 3-3', order: 90,
     when: ctx => ctx.source === 'menu' && !ctx.selection.length,
-    run: ctx => exportPdf(ctx.app)
+    run: ctx => ctx.app.openExport ? ctx.app.openExport('pdf') : exportPdf(ctx.app)
   });
 })(window.DPO);

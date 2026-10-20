@@ -38,6 +38,14 @@
   const zoomBucket = z => Math.round(Math.log2(z) * 3);
   const bucketZoom = b => 2 ** (b / 3);
 
+  /* The halo (Renderer.haloSoon): the board round the view at a lower
+     resolution, so a zoom out has something to show at the edges. */
+  const HALO = 3;               // views across and down that it covers
+  const HALO_PX = 6e6;          // pixels it may hold, at most
+  const HALO_RES = 0.5;         // and never sharper than this share of the screen's
+  const HALO_TILE = 512;        // device px: painted a tile at a time, when idle
+  const ZOOM_OUT_STRETCH = HALO; // how far out a zoom may go on the scaled picture, with the halo round it
+
   const INK_RETIRE = 3;          // frames a finished stroke stays on the ink layer
 
   /* Settings → Pen and touch → Low-latency ink, mirrored to localStorage
@@ -107,6 +115,7 @@
     drawScene(scroll) {
       const cam = this.app.camera, editor = this.app.editor, scene = this.app.scene;
       this.endZoom();
+      this.haloSoon();
       const st = {
         x: cam.x, y: cam.y, zoom: cam.zoom, dpr: this.dpr, w: this.w, h: this.h,
         theme: U.theme(), grid: this.grid, v: scene.version, edit: editor && editor.item,
@@ -126,7 +135,111 @@
     }
 
     /** the next paint must be a whole one: something changed that the scene cannot see */
-    invalidate() { this._painted = null; }
+    invalidate() { this._painted = null; this.gen = (this.gen || 0) + 1; }
+
+    /* ── the halo ─────────────────────────────────────────────────────
+       A zoom paints nothing new until it stops (drawZoom): it scales the
+       last sharp picture, and zooming out used to leave bare paper all
+       round it until the board was painted again, so whatever was just
+       off screen popped in a moment late. The halo is a picture of the
+       board round the view — HALO views across and down — at a lower
+       resolution, kept for that: a zoom out shows it in the margins,
+       soft for the moment it is on screen and then sharp. It is painted
+       in tiles from the middle out, in moments when nothing else is
+       happening (never while the pen is down), and painted again when
+       the view has wandered towards its edge, the zoom has moved well
+       away from it, or the board has changed under it. */
+    haloSoon() {
+      if (this._haloJob || typeof requestIdleCallback !== 'function' || !this.base.width) return;
+      this._haloJob = requestIdleCallback(d => { this._haloJob = 0; this.haloStep(d); }, { timeout: 2000 });
+    }
+
+    /** the halo for the view now: where it starts (world), its scale (device px a unit) and size */
+    haloPlan() {
+      const cam = this.app.camera, v = cam.viewport(this.w, this.h, 0);
+      const W0 = this.base.width * HALO, H0 = this.base.height * HALO;
+      const f = Math.min(HALO_RES, Math.sqrt(HALO_PX / (W0 * H0)));
+      const s = cam.zoom * this.dpr * f, W = Math.ceil(W0 * f), H = Math.ceil(H0 * f);
+      const c = U.boxCenter(v);
+      return { x: c.x - W / s / 2, y: c.y - H / s / 2, s, W, H, zoom: cam.zoom };
+    }
+
+    /** is the halo a true picture of the board as it is? (true for one only added to since) */
+    haloFresh(h = this.halo) {
+      const scene = this.app.scene;
+      return !!h && h.gen === (this.gen || 0) && h.theme === U.theme() && h.dpr === this.dpr &&
+        (h.v === scene.version || h.edits === scene.edits);
+    }
+
+    /** does the halo still suit the view: around it, with room, and near its zoom? */
+    haloSuits(h = this.halo) {
+      if (!h) return false;
+      const cam = this.app.camera, v = cam.viewport(this.w, this.h, 0), r = cam.zoom / h.zoom;
+      const mx = v.w * 0.5, my = v.h * 0.5;
+      return r < 2.2 && r > 0.6 && v.x - mx >= h.x && v.y - my >= h.y && v.x2 + mx <= h.x + h.W / h.s && v.y2 + my <= h.y + h.H / h.s;
+    }
+
+    haloStep(deadline) {
+      const app = this.app;
+      // drawing, dragging or mid-zoom: the view and the board are on the move, so later
+      if (app.active || this.zoomShot || this.lift) { this._haloRetry = setTimeout(() => this.haloSoon(), 400); return; }
+      let h = this.halo;
+      if (!h || !this.haloSuits(h) || !this.haloFresh(h) || h.w !== this.w || h.hh !== this.h) h = this.haloStart();
+      if (!h) return;
+      const scene = app.scene, keep = [this.lastDrawn, this.lastSimplified, this.lastBatches, this.paintZoom];
+      try {
+        while (h.next < h.order.length) {
+          if (deadline && !deadline.didTimeout && deadline.timeRemaining() < 3) break;
+          const t = h.order[h.next++];
+          const tx = t.x * HALO_TILE, ty = t.y * HALO_TILE, tw = Math.min(HALO_TILE, h.W - tx), th = Math.min(HALO_TILE, h.H - ty);
+          const g = h.ctx, s = h.s;
+          g.save();
+          g.setTransform(1, 0, 0, 1, 0, 0);
+          g.clearRect(tx, ty, tw, th);
+          g.beginPath(); g.rect(tx, ty, tw, th); g.clip();
+          g.setTransform(s, 0, 0, s, -h.x * s, -h.y * s);
+          g.lineCap = 'round'; g.lineJoin = 'round';
+          const pad = 60;
+          const items = scene.near(U.box(h.x + tx / s - pad, h.y + ty / s - pad, h.x + (tx + tw) / s + pad, h.y + (ty + th) / s + pad));
+          if (items.length) this.drawItems(g, items, s);
+          g.restore();
+        }
+      } finally { [this.lastDrawn, this.lastSimplified, this.lastBatches, this.paintZoom] = keep; }
+      if (h.next < h.order.length) this.haloSoon();
+    }
+
+    /** a fresh, empty halo round the view, its tiles ordered from the middle out */
+    haloStart() {
+      const p = this.haloPlan(), scene = this.app.scene;
+      if (!(p.W > 0 && p.H > 0)) return null;
+      const old = this.halo;
+      const c = old && old.canvas.width === p.W && old.canvas.height === p.H ? old.canvas : document.createElement('canvas');
+      if (c !== (old && old.canvas)) { if (old) old.canvas.width = old.canvas.height = 0; c.width = p.W; c.height = p.H; }
+      const ctx = c.getContext('2d');
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, p.W, p.H);
+      const nx = Math.ceil(p.W / HALO_TILE), ny = Math.ceil(p.H / HALO_TILE), order = [];
+      for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) order.push({ x, y, d: Math.hypot(x + 0.5 - nx / 2, y + 0.5 - ny / 2) });
+      order.sort((a, b) => a.d - b.d);
+      return this.halo = Object.assign(p, {
+        canvas: c, ctx, order, next: 0, gen: this.gen || 0, theme: U.theme(), dpr: this.dpr,
+        v: scene.version, edits: scene.edits, w: this.w, hh: this.h
+      });
+    }
+
+    /** paint the halo under a zoom's scaled picture, if it is a true one; true if it covers the view */
+    paintHalo(ctx) {
+      const h = this.halo;
+      if (!h || !h.next || !this.haloFresh(h)) return false;
+      const cam = this.app.camera, d = this.dpr, k = cam.zoom * d / h.s;
+      ctx.save();
+      ctx.setTransform(k, 0, 0, k, (h.x * cam.zoom + cam.x) * d, (h.y * cam.zoom + cam.y) * d);
+      ctx.imageSmoothingQuality = 'low';
+      ctx.drawImage(h.canvas, 0, 0);
+      ctx.restore();
+      const v = cam.viewport(this.w, this.h, 0);
+      return h.next >= h.order.length && v.x >= h.x && v.y >= h.y && v.x2 <= h.x + h.W / h.s && v.y2 <= h.y + h.H / h.s;
+    }
 
     /* ── zooming ──────────────────────────────────────────────────────
        A wheel or a pinch zooms a step every frame, and every step was a
@@ -151,13 +264,24 @@
         if (!z) return this.drawScene();
       }
       const r = cam.zoom / z.zoom;
-      if (r > ZOOM_STRETCH || r < 1 / ZOOM_STRETCH) { this.drawScene(); this.takeZoomShot(this._painted); return; }
+      /* Scaled up, the picture goes soft past ZOOM_STRETCH. Scaled down it
+         stays sharp, and what limits it is the margin it leaves: with the
+         halo there to fill that, the zoom out can go further before the
+         board must be painted again mid-gesture. */
+      const out = this.halo && this.haloFresh() && this.halo.next >= this.halo.order.length ? ZOOM_OUT_STRETCH : ZOOM_STRETCH;
+      if (r > ZOOM_STRETCH || r < 1 / out) { this.drawScene(); this.takeZoomShot(this._painted); return; }
 
       const ctx = this.bctx, css = this.tokens();
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = css.paper;
       ctx.fillRect(0, 0, this.base.width, this.base.height);
+      if (r < 1) {
+        // the margins a zoom out opens: the paper's grid, sharp, and the board round the view, soft
+        ctx.setTransform(d, 0, 0, d, 0, 0);
+        this.drawGrid(ctx, css);
+        this.paintHalo(ctx);
+      }
       ctx.setTransform(r, 0, 0, r, (cam.x - z.x * r) * d, (cam.y - z.y * r) * d);
       ctx.imageSmoothingQuality = 'low';
       ctx.drawImage(z.canvas, 0, 0);
@@ -417,13 +541,13 @@
          tokens back the moment it is over. */
       if (th !== (document.documentElement.dataset.theme || 'light')) {
         const t = U.THEMES[th === 'dark' ? 'dark' : 'light'];
-        return { theme: th, dark: th === 'dark', paper: t.paper, grid: '#0000', accent: '#4f6bff', panel: t.paper, muted: '#8a8f98' };
+        return { theme: th, dark: th === 'dark', paper: U.paperOf(th), grid: '#0000', accent: '#4f6bff', panel: t.paper, muted: '#8a8f98' };
       }
       const cs = getComputedStyle(document.documentElement);
       const v = (n, d) => cs.getPropertyValue(n).trim() || d;
       return this._tok = {
         theme: th, dark: th === 'dark',
-        paper: v('--paper', '#fff'), grid: v('--grid', '#0001'),
+        paper: U.color('paper') || v('--paper', '#fff'), grid: v('--grid', '#0001'),
         accent: v('--accent', '#4f6bff'), panel: v('--panel-solid', '#fff'),
         muted: v('--muted', '#8a8f98')
       };

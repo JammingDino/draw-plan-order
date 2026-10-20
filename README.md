@@ -75,7 +75,7 @@ saved work — handy for trying something out.
 
 | Gesture | What happens |
 | --- | --- |
-| Draw a rough shape and **hold the pen still** at the end | It snaps to a clean rectangle, ellipse, diamond, triangle, line or arrow. A label tells you what it recognised; keep moving to carry on drawing instead. |
+| Draw a rough shape and **hold the pen still** at the end | It snaps to a clean rectangle, ellipse, diamond, triangle, line or arrow. A label tells you what it recognised; keep moving to carry on drawing instead. The shape is as heavy as the stroke was written — the nib's width averaged along it, so a light stroke snaps to a light line, and pressing harder while you hold still does not count. |
 | **Scribble** back and forth over ink | The ink underneath is rubbed out, with an *Undo* toast. Handwriting and normal loops are not mistaken for scribbles. |
 | **Flip the Surface Pen** and rub | Erases, whatever tool you had selected. Let go and you are back on your previous tool. A ring shows the eraser's size, and appears as soon as the blunt end is in range — before you touch the glass — so you can see what you are about to take off. |
 | Draw a near-straight line | It is quietly straightened, and snapped to 0/45/90° if it is close. |
@@ -90,6 +90,7 @@ saved work — handy for trying something out.
 | Anything **selected** | A bar of big buttons sits just above it — copy, cut, duplicate, delete, front, back, group, edit — and follows it as you pan and zoom. It appears once a pen or finger has touched the screen; the mouse keeps to the style panel. |
 | **Double-tap** with the pen or a finger | Edits text, notes, nodes and connector labels, as a double-click does. A connector's label is typed in a field on the line itself. The two dots the pen's taps drew are taken back. |
 | With the select tool, **tap with a finger** | Selects what it lands on, and a finger on the selection drags or resizes it. Anywhere else a finger still pans, and a tap on bare board lets go. |
+| **Tap two fingers** | Undoes, and says what it undid; three fingers redo; two held still keep undoing, faster the longer they stay. If a hand resting on the screen while you write sets it off, turn it off under ☰ → Settings → Pen and touch → **Two-finger tap to undo**. |
 
 Both of the "clever" behaviours can be switched off in the style panel under
 the pen tool. The long-press menu — for fingers, for the pen, and how long
@@ -108,6 +109,24 @@ bent, polyline, force and moment arrows), text boxes, sticky notes,
 flow-chart nodes (process, decision, start/end, data), connectors that
 stay attached as you move things, dimensions, a measuring tool, laser
 pointer, lasso and marquee select, images by paste or drag-and-drop.
+
+The paper is dots, squares, ruled lines or plain (<kbd>Ctrl</kbd>+<kbd>'</kbd>
+or the grid button), and its colour is yours to pick under **Settings →
+Canvas → Paper colour**: white, cream, a yellow legal pad, grey, a blue or
+green tint, or any colour. Light and dark each keep their own — black,
+charcoal, slate, navy or a chalkboard green for dark — so a cream page by
+day does not stay cream under white ink at night. An export on the paper
+colour (Settings → Export) uses the same one.
+
+Zoomed in, ink stays smooth. A stroke written zoomed out has its pen
+samples far apart on the board, and joined by straight lines they showed
+as a polygon once you zoomed in on them; such a stroke is now drawn along
+a curve through its samples, as finely as its turns need, keeping its
+sharp corners. A thick nib's round ends and joins are true circles, not
+polygons. Zooming *out*, the board just past the edge of the screen is
+already there: a softer picture of the view's surroundings is kept up to
+date while nothing else is happening, and fills the margins until the
+sharp repaint lands.
 
 ### Engineering drawing
 
@@ -204,6 +223,20 @@ more **spaces them evenly** across or down, keeping the outermost where
 they are. A group moves as one piece, and connectors follow what they
 join.
 
+**Smart guides** line things up as you drag them, as Photoshop's do.
+The selection's edges and middle are held against those of the pages,
+pictures, shapes, text, notes and groups around it, and within a few
+pixels of one it snaps there, with a pink line to show what it lined
+up with. Spacing counts too: beside a row of things it snaps to a gap
+the row already has, and between two it snaps to the middle, and each
+equal gap is marked with its size — so a third PDF page dragged in
+beside two sits as far from the second as the second is from the
+first. Resizing snaps the edges you drag in the same way. Hold
+**Ctrl** while dragging to place it freely; ☰ → Settings → Pen and
+touch → **Smart guides** turns them off (as does *Snap to grid*, which
+would fight them). Loose handwriting is not something to line up
+with — a page of it is thousands of tiny edges — but grouped, it is.
+
 ### Pages
 
 The page tool (<kbd>F</kbd>) lays a sheet on the board: tap for A4, A3,
@@ -237,7 +270,9 @@ on them.
 
 Drag a PDF onto the canvas (or ☰ → **Add a PDF**) and its pages are laid out
 down the board for you to write on. They go behind whatever is already there,
-so annotations always sit on top.
+so annotations always sit on top. A dropped PDF lands where you drop it and
+the view stays put; one added from the menu goes on after the board's pages,
+and the view slides over to it at the zoom you had.
 
 Pages are not flattened into pictures at import. The file is stored once and
 each page is rendered on demand at a resolution that suits the current zoom —
@@ -390,9 +425,21 @@ it, or use the selection's action bar: **Solve this ink** shows what the
 strokes were read as, in a field to correct with one tap, with the
 answer, and **Insert result**, **Open in calculator** and **Teach**.
 Under the field, each symbol is shown with its own ink: tap one that was
-misread and pick what it really is, and it is learnt on the spot. Teach
-does the same for a correction typed into the field. Double-tap an
-answer for the same panel.
+misread and pick what it really is, and it is learnt on the spot. Every
+symbol has one, the dots, minus signs and `=` included, and each is drawn
+at its size on the line rather than blown up to fill its chip, so a
+times dot looks like the dot it is. Teach does the same for a
+correction typed into the field. Double-tap an answer for the same
+panel.
+
+Size matters to the reader the way it does on paper. A mark much smaller
+than the digits round it — a dabbed times dot, written as a flick, a
+tick or a tiny loop — is a dot, and the line decides whether it is a
+decimal point (on the baseline) or times (up in the line); it used to be
+scaled up to the size of the other symbols and read as a minus or a
+root sign. A **star** (`*`, three or four short strokes crossing in the
+middle) is a times sign too, written large or small, and `×` can be
+taught like any other symbol.
 
 **Train** (in that panel, or **Settings → Handwritten maths → Train…**)
 opens a pad that walks through every symbol, asking for each three
@@ -414,7 +461,10 @@ writing read as before. **Settings → Handwritten maths** also turns
 solving as you write off, sets the decimal places and the answer colour,
 and forgets what you taught.
 
-It keeps out of the way. Nothing is read until the pen rests; a line
+It keeps out of the way. Nothing is read until the pen rests — and while
+the pen hovers just past an `=` waiting to be answered, as it does when
+you are about to write the answer yourself, it waits for that too, so an
+answer does not appear under the nib; a line
 that uses a letter nothing defines, or does not work out, is left
 alone without a word; and the pen's own behaviours — hold to snap a
 shape, scribble to erase — are untouched. A sum of numbers it found
@@ -473,7 +523,8 @@ most of the rest, against one in twelve before; the notes themselves —
 `Ctrl+G` group · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+0` reset zoom · `Shift+1` zoom to fit · `Ctrl+'` cycle grid ·
 `Ctrl+F` search the board (`Enter` / `Shift+Enter` next and previous, `F3` too) ·
-`Ctrl+M` boards · `Alt`+drag duplicates · `Shift` constrains (15° steps
+`Ctrl+M` boards · `Alt`+drag duplicates · `Ctrl`+drag moves without
+smart guides · `Shift` constrains (15° steps
 for lines; square or circle for shapes) · `Alt` draws from the centre
 
 ## Searching the board
@@ -499,6 +550,16 @@ are re-rendered when you leave a board and every few seconds while you work.
 
 It also holds export to **PDF**, `.board` (loss-free JSON), PNG and SVG,
 and import of anything exported.
+
+Exporting opens a **preview** first: each sheet of a PDF, or the whole
+picture for a PNG or SVG — over a checkerboard where it will be
+transparent — with the theme and background beside it, the file's name,
+and **Save…**. Save opens the system's Save dialog, so you choose the
+folder and the name, before the file is made (in Edge, Chrome and the
+desktop app; a browser without that dialog downloads instead, and
+**Settings → Export → Ask where to save** turns the dialog off). A
+`.board` file has nothing to preview, and goes straight to the Save
+dialog.
 
 **Export → Document (.pdf)** prints a sheet for each page on the board
 (see *Pages*), in their order and at their size, or one sheet round
@@ -587,6 +648,7 @@ anything is written over it.
 | `js/camera.js` | Infinite-canvas viewport |
 | `js/render.js` | Canvas painting and SVG export |
 | `js/tools.js` | One small state machine per tool |
+| `js/guides.js` | Smart guides: a dragged selection lines up with edges, middles and gaps |
 | `js/pdf.js` | Lazy page rendering for dropped PDFs |
 | `js/editor.js` | In-place text editing |
 | `js/store.js` | IndexedDB / localStorage persistence |
@@ -600,6 +662,7 @@ anything is written over it.
 | `js/inkmath.js` | Handwritten maths, recognised and answered |
 | `js/frames.js` | Pages: sheets on the board, their rulings and the Pages list |
 | `js/exportpdf.js` | Export to PDF, a sheet per page, written by hand |
+| `js/exportdlg.js` | The export dialog: a preview of the file, its options, and Save |
 | `js/graph.js` | Graphs of y = f(x), plotted through the maths engine |
 | `js/symbols.js` | Circuit and mechanics symbols, with terminals to wire to |
 | `js/search.js` | Search the board, PDFs' words included |

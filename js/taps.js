@@ -34,6 +34,10 @@
 
     down(e) {
       if (e.pointerType !== 'touch') { if (this.s) this.s.dead = true; return; }
+      /* Settings → Pen and touch can turn the taps off: a hand resting on
+         the glass beside the pen lands like two fingers, and undid work. */
+      const g = this.app.opts && this.app.opts.general;
+      if (g && g.tapUndo === false) { this.stop(); this.s = null; return; }
       const t = this.now();
       let s = this.s;
       if (!s) s = this.s = { t0: t, fingers: new Map(), live: 0, most: 0, moved: false, dead: false, cam: this.app.camera.toJSON(), repeats: 0 };

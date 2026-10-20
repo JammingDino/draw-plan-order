@@ -227,7 +227,7 @@
         one ? ui.group('', el('div', { class: 'frames-acts' },
           el('button', { class: 'btn', type: 'button', onclick: () => selectWithContents(app, it) }, 'Select with what is on it'),
           el('button', { class: 'btn', type: 'button', onclick: () => addAfter(app, it) }, 'Add a page after'),
-          D.exportPdf ? el('button', { class: 'btn', type: 'button', onclick: () => D.exportPdf(app, { frames: [it] }) }, 'This page as PDF') : null)) : null
+          D.exportPdf ? el('button', { class: 'btn', type: 'button', onclick: () => app.openExport ? app.openExport('pdf', { frames: [it] }) : D.exportPdf(app, { frames: [it] }) }, 'This page as PDF') : null)) : null
       );
     }
   };
@@ -410,7 +410,7 @@
       listEl || el('p', { class: 'frames-note' }, 'A page is a sheet on the board: what you print and export to PDF. The page tool (F) lays them down.'),
       el('div', { class: 'frames-acts' },
         el('button', { class: 'btn primary', type: 'button', onclick: () => { closePages(); addAfter(app, null); } }, pages.length ? 'Add a page' : 'Add the first page'),
-        D.exportPdf ? el('button', { class: 'btn', type: 'button', onclick: () => { closePages(); D.exportPdf(app); } }, 'Export PDF') : null));
+        D.exportPdf ? el('button', { class: 'btn', type: 'button', onclick: () => { closePages(); if (app.openExport) app.openExport('pdf'); else D.exportPdf(app); } }, 'Export PDF') : null));
     document.body.appendChild(box);
     const btn = document.getElementById('btn-pages');
     const r = btn && btn.getBoundingClientRect ? btn.getBoundingClientRect() : { left: 16, top: innerHeight - 60 };

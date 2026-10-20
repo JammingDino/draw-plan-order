@@ -88,3 +88,20 @@ test('the dashboard thumbnail takes cached pages only', () => {
 
 /** a 2d context that is not the renderer's own screen canvas */
 function offscreen(app) { return new D.Renderer(app).bctx; }
+
+test('a paper colour of your own, for each theme: on screen, in the painter, and in an export in the other theme', () => {
+  const app = { scene: new D.Scene(), camera: new D.Camera(), requestDraw() {}, opts: {} };
+  const r = new D.Renderer(app);
+  try {
+    U.setPaper({ light: '#fbf6e9', dark: '' });
+    r.invalidateStyle();
+    assert.equal(U.color('paper'), '#fbf6e9', 'the light theme on screen: cream');
+    assert.equal(r.tokens().paper, '#fbf6e9', 'and the painter fills with it');
+    assert.equal(U.paintAs('dark', () => U.color('paper')), U.THEMES.dark.paper, 'the dark theme keeps its own');
+    U.setPaper({ light: '', dark: '#17251e' });
+    r.invalidateStyle();
+    assert.equal(U.paintAs('dark', () => U.color('paper')), '#17251e', 'an export in the dark theme takes the dark paper');
+    assert.equal(U.paintAs('dark', () => r.tokens().paper), '#17251e');
+    assert.equal(U.paperOf('light'), U.THEMES.light.paper, 'and light, set to its own, is the theme’s');
+  } finally { U.setPaper(null); r.invalidateStyle(); }
+});

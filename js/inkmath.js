@@ -134,8 +134,14 @@
   /* What a template-matched label may be read as. The rules below the
      matcher give "−", "=", ".", "·", "/", "÷", "1", "+" and "x" too. */
   const LABELS = [...new Set(GLYPHS.map(g => g[0]))];
-  /* what can be taught: the shapes above, and the ones only rules read */
-  const TEACHABLE = LABELS.concat(['/', '÷']);
+  /* what can be taught: the shapes above, and the ones only rules read
+     (× is the times sign however it is written — a star, a cross) */
+  const TEACHABLE = LABELS.concat(['/', '÷', '×']);
+  /* and what a misread symbol can be put right as, in Solve this ink: all
+     of those, and the marks the rules read — the dots, the minus, the "=" */
+  const FIXABLE = TEACHABLE.concat(['·', '.', '−', '=']);
+  /** a symbol's name on a button, where the glyph alone is ambiguous */
+  const NAMED = { '×': '× *', '·': '· times', '.': '. point' };
   const DIGIT = /[0-9]/, LETTER = /[a-zπθ]/;
 
   /* ══ synthesis ═══════════════════════════════════════════════════════ */
@@ -454,6 +460,42 @@
   const median = a => { if (!a.length) return 0; const s = a.slice().sort((p, q) => p - q); return s[s.length >> 1]; };
   const flat = (s, H) => s.dash && s.w > 0.18 * H;
   const isDot = (s, H) => Math.max(s.w, s.h) < 0.2 * H && s.len < 0.5 * H;
+  /* A mark too small, next to the rest of the line, to be a digit, a
+     letter or a sign: a dot, however it was dabbed — a short flick, a
+     tick, a tiny loop. Scaled up to the size of the other symbols, as
+     the matcher sees everything, such a dot looked like a minus or a
+     root sign, and a times dot was read as one. */
+  const SPECK = 0.28;
+  const isSpeck = (s, H) => Math.max(s.w, s.h) < SPECK * H && s.len < 0.8 * H;
+
+  /**
+   * A times sign written as a star: three or four short straight strokes
+   * crossing at their middles, each at its own angle (* or ✳). Two such
+   * strokes are an x or a +, which have their own rules.
+   */
+  function asterisk(strokes) {
+    const n = strokes.length;
+    if (n < 3 || n > 4) return false;
+    const box = boxOf(strokes), size = Math.max(box.w, box.h);
+    if (!(size > 0)) return false;
+    const longest = Math.max(...strokes.map(s => s.chord));
+    const angs = [];
+    for (const s of strokes) {
+      if (s.chord < 0.4 * longest || s.dev > 0.25 || s.len > s.chord * 1.35) return false;
+      // its middle near the middle of the whole
+      if (Math.hypot(s.cx - box.cx, s.cy - box.cy) > 0.28 * size) return false;
+      const a = Math.atan2(s.xy[s.xy.length - 1] - s.xy[1], s.xy[s.xy.length - 2] - s.xy[0]);
+      angs.push(((a % Math.PI) + Math.PI) % Math.PI);
+    }
+    // no two strokes the same way, and every two crossing near their middles: a star's arms fan out from one point
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      const d = Math.abs(angs[i] - angs[j]), sep = Math.min(d, Math.PI - d);
+      if (sep < 0.3) return false;
+      const t = crossing(strokes[i], strokes[j]);
+      if (!t || t[0] < 0.15 || t[0] > 0.85 || t[1] < 0.15 || t[1] > 0.85) return false;
+    }
+    return box.w < 2.2 * box.h && box.h < 2.2 * box.w;
+  }
 
   /** how tall a symbol is on this line: the middle of the tall ones, dashes and dots aside */
   function lineHeight(strokes) {
@@ -481,16 +523,21 @@
      shapes, or teaching a 1 that leans like a / could never take. But
      only when it is plainly theirs: close, clear of anything else they
      taught, and a better match than the shape the rules settled on. The
-     dot, the dash and the "=" stay with the rules: the reading of a whole
-     line hangs on them. */
+     dot, the dash and the "=" are the rules' (STRUCTURAL): the reading of
+     a whole line hangs on them, so what was taught overrides them only
+     when it matches very closely (MINE_ALONE, as there is no built-in
+     shape to compare with) — a times dot someone writes as a little
+     flick, taught once, is read as theirs from then on. The "=" a line
+     was found by is never overridden. */
   const MINE = 0.85;          // a taught symbol must match at least this well…
   const MINE_ALONE = 0.55;    // …or this well, against a rule's symbol with no shape to compare
   const STRUCTURAL = new Set(['.', '−', '=']);
   function yoursFirst(strokes, H, base) {
     const top = base[0];
-    if (!top || STRUCTURAL.has(top.ch)) return base;
+    if (!top || (top.ch === '=' && strokes.some(s => s.eqBar))) return base;
     const n = strokes.length, box = boxOf(strokes);
-    const c = cloud(strokes.filter(s => !isDot(s, H) || n === 1).map(s => s.xy));
+    const ink = strokes.filter(s => !isDot(s, H) || n === 1);
+    const c = cloud((ink.length ? ink : strokes).map(s => s.xy));
     const near = [];
     for (const t of learned()) {
       if (Math.abs(t.c.a - c.a) > 1.15 || (ALLOW && !ALLOW(t.ch))) continue;
@@ -522,7 +569,11 @@
     const n = strokes.length;
     const dots = strokes.filter(s => isDot(s, H));
 
+    if (n === 2 && strokes[0].eqBar && strokes[1].eqBar) return [{ ch: '=', d: SURE }];
+    if (asterisk(strokes)) return [{ ch: '×', d: SURE }];
     if (n === dots.length) return [{ ch: '.', d: SURE }];
+    // small beside the line's symbols: a dot, whatever its shape (the line decides decimal point or times)
+    if (n <= 2 && strokes.every(s => isSpeck(s, H))) return [{ ch: '.', d: SURE }];
     if (n === 1) {
       const s = strokes[0];
       if (s.dash) return [{ ch: '−', d: SURE }];
@@ -540,7 +591,6 @@
         return [{ ch: mid < (ys[0] + ys[ys.length - 2]) / 2 ? '(' : ')', d: SURE }, { ch: '1', d: SURE * 3 }];
       }
     }
-    if (n === 2 && strokes[0].eqBar && strokes[1].eqBar) return [{ ch: '=', d: SURE }];
     if (n === 2 && strokes.every(s => s.dash)) return [{ ch: '=', d: SURE }];
     if (n === 2 && strokes.every(s => s.straight)) {
       const [a, b] = strokes;
@@ -642,6 +692,8 @@
   const SMALL = new Set(['x', 'z', 'a', 'c', 'n', 'π']);
   function sizePenalty(ch, box, H) {
     const r = box.h / H;
+    // a dot taught as · or . is a small thing: the same shape written full size is something else
+    if (ch === '.' || ch === '·') { const big = Math.max(box.w, box.h) / H; return big > 0.35 ? (big - 0.35) * 4 : 0; }
     // read as a sum of numbers, an x is a times sign, and may be any size
     if (ch === 'x' && ALLOW && !ALLOW('y')) return 0;
     if (SMALL.has(ch) && r > 1.05) return (r - 1.05) * 1.2;
@@ -816,6 +868,13 @@
     const dots = strokes.map(s => isDot(s, H));
     for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
       const a = strokes[i], b = strokes[j];
+      /* Two short strokes crossing at their middles are one symbol, dots
+         or not: the arms of a star (a small one's arms are dots). Dots
+         otherwise stay apart — a colon, the dots of a ÷. */
+      if ((dots[i] || dots[j]) && a.len < 0.7 * H && b.len < 0.7 * H && a.chord > 0 && b.chord > 0) {
+        const t = crossing(a, b);
+        if (t && t[0] > 0.1 && t[0] < 0.9 && t[1] > 0.1 && t[1] < 0.9) { parent[find(i)] = find(j); continue; }
+      }
       if (dots[i] && dots[j]) continue;
       if (dots[i] || dots[j]) {
         const [d, o] = dots[i] ? [a, b] : [b, a];
@@ -1164,6 +1223,8 @@
     // (a lift that never arrived — the window lost focus mid-stroke — is given up on)
     if ((S.down && Date.now() - S.downAt < 8000) || (app.scene && app.scene.tx)) { arm(app); return; }
     S.down = 0;
+    if (poised(app)) { arm(app); return; }
+    S.poisedSince = 0;
     D.math.ready().then(() => work(app)).catch(err => console.warn('[dpo] inkmath', err));
   }
 
@@ -1745,9 +1806,34 @@
     if (typeof addEventListener !== 'function') return;
     const down = () => { S.down++; S.downAt = Date.now(); if (S.timer) { clearTimeout(S.timer); S.timer = 0; } };
     const up = () => { S.down = Math.max(0, S.down - 1); if (S.jobs.size && S.app) arm(S.app); };
+    // where the pen hovers, nib up: see poised()
+    const hover = e => { if (e.pointerType === 'pen' && !e.buttons) { S.hoverAt = Date.now(); S.hoverX = e.clientX; S.hoverY = e.clientY; } };
     addEventListener('pointerdown', down, true);
     addEventListener('pointerup', up, true);
     addEventListener('pointercancel', up, true);
+    addEventListener('pointermove', hover, { capture: true, passive: true });
+  }
+
+  /* The pen still hovering over the line of an "=" that is waiting to be
+     answered, just past it, is someone about to write the answer
+     themselves: an answer appearing then lands under the nib. So the
+     reading waits while the pen hovers there — up to POISED_MAX, in case
+     the pen is simply resting in range. */
+  const POISED_MS = 450, POISED_MAX = 6000;
+  function poised(app) {
+    if (!S.hoverAt || Date.now() - S.hoverAt > POISED_MS || !app.camera || !app.camera.toWorld) return false;
+    const now = Date.now();
+    if (S.poisedSince && now - S.poisedSince > POISED_MAX) return false;
+    const p = app.camera.toWorld(S.hoverX, S.hoverY);
+    for (const j of S.jobs.values()) {
+      const e = j.kind === 'eq' && S.eqs.get(keyOf(j.ids));
+      if (!e) continue;
+      if (p.x > e.x - 2 * e.L && p.x < e.x2 + 10 * e.L && Math.abs(p.y - e.cy) < 2.5 * e.L) {
+        if (!S.poisedSince) S.poisedSince = now;
+        return true;
+      }
+    }
+    return false;
   }
 
   /* ══ the answer item ═════════════════════════════════════════════════ */
@@ -1844,7 +1930,7 @@
 
   const shown = r => r.eq === 'mid' ? r.lhs + ' = ' + r.rhs : r.expr;
   /** what can be typed for a symbol, as the recogniser names it */
-  const TYPED = { '*': 'x', '×': 'x', '-': '−', 'p': 'π', 'π': 'π' };
+  const TYPED = { '*': '×', '-': '−', 'p': 'π', 'π': 'π' };
 
   /**
    * Open the popover for these strokes. opts: { sx, sy } where to put it
@@ -1884,22 +1970,30 @@
       work();
       drawChips();
     };
+    /* Every symbol gets a chip — the dots, the minus and the "=" too,
+       which used to be left out, so a star read as a dot, or a dot read
+       as a minus, could not be put right. Each is drawn at its size on
+       the line rather than blown up to fill its chip: a times dot is a
+       dot there, as it was on the page, not a dash or a tick. */
     const drawChips = () => {
       chips.replaceChildren();
       pick.hidden = true;
+      const line = lineWindow(reading);
       reading.syms.forEach(sym => {
-        if (sym.frac || sym.roof || STRUCTURAL.has(sym.ch) || sym.ch === '·' || !sym.strokes || !sym.strokes.length) return;
-        const b = el('button', { class: 'inkmath-chip' + (sym.d != null && sym.d > MARGIN_FROM ? ' unsure' : ''), type: 'button', title: `Read as ${sym.ch}: tap to teach what it really is` },
-          el('span', { class: 'inkmath-thumb', html: thumb(sym.strokes, 26) }), el('b', {}, sym.ch));
+        if (sym.frac || sym.roof || !sym.strokes || !sym.strokes.length) return;
+        const b = el('button', { class: 'inkmath-chip' + (sym.d != null && sym.d > MARGIN_FROM ? ' unsure' : ''), type: 'button', title: `Read as ${NAMED[sym.ch] || sym.ch}: tap to teach what it really is` },
+          el('span', { class: 'inkmath-thumb', html: thumb(sym.strokes, 26, line) }), el('b', {}, sym.ch));
         b.onclick = () => {
           const on = !b.classList.contains('on');
           for (const c of chips.children) c.classList.toggle('on', on && c === b);
           if (!on) { pick.hidden = true; return; }
-          pick.replaceChildren(...TEACHABLE.map(ch => el('button', { class: 'btn', type: 'button', onclick: () => {
-            teach(sym.strokes, ch);
-            if (app.toast) app.toast(`Learnt: that is ${ch}, in your hand`, 'Undo', () => { undoTeach(); reread(); });
-            reread();
-          } }, ch)));
+          pick.replaceChildren(...FIXABLE.filter(ch => ch !== sym.ch).map(ch => el('button', {
+            class: 'btn', type: 'button', title: NAMED[ch] || ch, onclick: () => {
+              teach(sym.strokes, ch);
+              if (app.toast) app.toast(`Learnt: that is ${NAMED[ch] || ch}, in your hand`, 'Undo', () => { undoTeach(); reread(); });
+              reread();
+            }
+          }, ch)));
           pick.hidden = false;
         };
         chips.appendChild(b);
@@ -1988,7 +2082,7 @@
     for (let i = 0; i < from.length; i++) {
       const sym = reading.syms[mapAt(p + i)];
       const ch = TYPED[to[i]] || to[i];
-      if (!sym || sym.frac || sym.roof || !TEACHABLE.includes(ch) || from[i] === to[i]) continue;
+      if (!sym || sym.frac || sym.roof || !FIXABLE.includes(ch) || from[i] === to[i]) continue;
       teach(sym.strokes, ch, one);
       n++;
     }
@@ -2145,13 +2239,37 @@
     return writer;
   }
 
-  /** strokes as a little SVG, fitted to a `px` square */
-  function thumb(strokes, px) {
-    const b = boxOf(strokes), k = (px - 4) / Math.max(b.w, b.h, 1);
-    const ox = (px - b.w * k) / 2, oy = (px - b.h * k) / 2;
+  /** the band of a line its symbols sit in, for drawing them at their size: { H, mid } */
+  function lineWindow(r) {
+    const H = r && (r.size || r.H);
+    if (!(H > 0)) return null;
+    const mid = r.base != null ? r.base - (r.size || r.H) / 2 : r.box ? r.box.cy : null;
+    return mid == null ? null : { H, mid };
+  }
+
+  /**
+   * Strokes as a little SVG in a `px` square. With the line's band
+   * (lineWindow) they are drawn at their size on the line — a symbol a
+   * full line high fills the square, a dot stays a dot, where it sat —
+   * else fitted to the square.
+   */
+  function thumb(strokes, px, line) {
+    const b = boxOf(strokes);
+    let k, ox, oy;
+    if (line) {
+      k = (px - 4) / Math.max(b.w, b.h, line.H * 1.15, 1e-9);
+      ox = (px - b.w * k) / 2;
+      // where it sat on the line, as far as the square allows
+      oy = U.clamp(px / 2 + (b.y - line.mid) * k, 2, Math.max(2, px - 2 - b.h * k));
+    } else {
+      k = (px - 4) / Math.max(b.w, b.h, 1);
+      ox = (px - b.w * k) / 2; oy = (px - b.h * k) / 2;
+    }
     const d = strokes.map(s => {
       let o = '';
       for (let i = 0; i < s.xy.length; i += 2) o += (i ? 'L' : 'M') + U.round(ox + (s.xy[i] - b.x) * k, 1) + ' ' + U.round(oy + (s.xy[i + 1] - b.y) * k, 1);
+      // a dab with no length still shows, as a round dot
+      if (s.xy.length <= 2 || s.len * k < 0.3) o += 'l0.3 0';
       return o;
     }).join('');
     return `<svg viewBox="0 0 ${px} ${px}" width="${px}" height="${px}"><path d="${d}"/></svg>`;
@@ -2245,7 +2363,7 @@
     const show = () => {
       const ch = current();
       if (st.mode === 'teach') {
-        prompt.replaceChildren(el('span', {}, 'Write'), el('b', {}, ch), el('span', {}, `${Math.min(st.k + 1, TRAIN_EACH)} of ${TRAIN_EACH}`));
+        prompt.replaceChildren(el('span', {}, 'Write'), el('b', {}, NAMED[ch] || ch), el('span', {}, `${Math.min(st.k + 1, TRAIN_EACH)} of ${TRAIN_EACH}`));
       } else prompt.replaceChildren(el('span', {}, 'Write any symbol. If it is misread, tap what it really is'));
       strip.replaceChildren(...TEACHABLE.map(c => {
         const n = taughtOf(c);
@@ -2541,7 +2659,7 @@
   D.inkmath = {
     read, classify: (strokes, H) => classify(strokes.map(s => s.xy ? s : feature(s)), H), feature, namesIn,
     readLines, writePad, closeWriter,
-    teach, forget, undoTeach, forgetSymbol, forgetSample, samplesOf, learned: () => learned().length, flush, solve, reset, train, closeTrainer, TEACHABLE,
+    teach, forget, undoTeach, forgetSymbol, forgetSample, samplesOf, learned: () => learned().length, flush, solve, reset, train, closeTrainer, TEACHABLE, FIXABLE,
     get state() { return S; },
     GLYPHS, LABELS, _cloud: cloud, _spline: spline, _gather: gather, _eq: rememberEq, _pairs: pairs, _ask: m => ask(m)
   };

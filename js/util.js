@@ -226,10 +226,11 @@ window.DPO = window.DPO || {};
     const th = U.theme();
     if (th !== _theme) {
       _theme = th;
-      if (th !== document.documentElement.dataset.theme) _sem = U.THEMES[th === 'dark' ? 'dark' : 'light'];
+      const own = _paper[th === 'dark' ? 'dark' : 'light'];
+      if (th !== document.documentElement.dataset.theme) _sem = { ink: U.THEMES[th === 'dark' ? 'dark' : 'light'].ink, paper: U.paperOf(th) };
       else {
         const cs = getComputedStyle(document.documentElement);
-        _sem = { ink: cs.getPropertyValue('--text').trim() || '#14161c', paper: cs.getPropertyValue('--paper').trim() || '#fff' };
+        _sem = { ink: cs.getPropertyValue('--text').trim() || '#14161c', paper: own || cs.getPropertyValue('--paper').trim() || '#fff' };
       }
     }
     return _sem[c];
@@ -245,6 +246,17 @@ window.DPO = window.DPO || {};
     light: { ink: '#14161c', paper: '#fbfbfd' },
     dark: { ink: '#e9ecf2', paper: '#14171d' }
   };
+
+  /* A paper colour of the person's own for either theme (Settings →
+     Canvas), '' for the theme's. The app also sets it as --paper on the
+     page, so the chrome that shows the paper agrees. */
+  let _paper = { light: '', dark: '' };
+  U.setPaper = map => {
+    _paper = { light: (map && map.light) || '', dark: (map && map.dark) || '' };
+    _theme = null;
+  };
+  /** the paper colour for `theme`: the person's, or the theme's own */
+  U.paperOf = theme => _paper[theme === 'dark' ? 'dark' : 'light'] || U.THEMES[theme === 'dark' ? 'dark' : 'light'].paper;
 
   /* The theme the painter works in: the page's, unless an export has
      taken it over for the length of one synchronous paint (see paintAs). */

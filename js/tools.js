@@ -80,6 +80,11 @@
          a line someone wants. Snapped, it would leave the ink for a shape
          and never pair with the other bar (see inkmath.js). */
       if (shape.kind === 'line' && Math.hypot(shape.x2 - shape.x1, shape.y2 - shape.y1) * this.app.camera.zoom < 30) return;
+      /* As wide as the stroke was written, not as wide as the pen could
+         go: pressure thins a stroke, and a shape drawn at the full size
+         came out bolder and darker than the line it replaced. */
+      const o = this.opt;
+      shape.size = U.round(FH.meanWidth(this.item.pts, o.size, this.item.thinning), 2);
       this.snapped = shape;
       this.incremental = false;
       this.app.haptic();
@@ -201,7 +206,7 @@
   }
 
   function shapeFromRecognised(s, o) {
-    const base = { color: o.color, size: o.size, alpha: o.alpha, fill: 'none' };
+    const base = { color: o.color, size: s.size || o.size, alpha: o.alpha, fill: 'none' };
     if (s.kind === 'line' || s.kind === 'arrow')
       return mk.shape({ ...base, kind: s.kind, x: s.x1, y: s.y1, w: s.x2 - s.x1, h: s.y2 - s.y1 });
     return mk.shape({ ...base, kind: s.kind, x: s.box.x, y: s.box.y, w: s.box.w, h: s.box.h });
@@ -810,6 +815,8 @@
             }
             this.mode = 'resize'; this.handle = h.k;
             this.origBox = app.selectionBounds();
+            this.guides = null;
+            this.guideTo = guidesWanted(app) ? D.guides.targets(app, app.selection) : null;
             // a turned selection resizes along its own sides
             const f = app.selRot && app.selectionFrame ? app.selectionFrame() : null;
             this.frame = f && f.rot ? f : null;
@@ -909,8 +916,8 @@
       }
       if (this.mode === 'line') return this.moveLine(ev);
       if (this.mode === 'move') {
-        let dx = ev.x - this.start.x, dy = ev.y - this.start.y;
-        if (ev.shift || (app.opts.cad && app.opts.cad.axisDrag)) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+        let dx = ev.x - this.start.x, dy = ev.y - this.start.y, axes = 'xy';
+        if (ev.shift || (app.opts.cad && app.opts.cad.axisDrag)) { if (Math.abs(dx) > Math.abs(dy)) { dy = 0; axes = 'x'; } else { dx = 0; axes = 'y'; } }
         if (!this.moved) {
           if (Math.hypot(ev.sx - this.start.sx, ev.sy - this.start.sy) < 3) return;
           this.moved = true;
@@ -925,6 +932,17 @@
              dimension, moves its line instead — see cad.js). */
           this.moving = new Set(app.selection.map(it => it.id));
           this.lifted = app.renderer.liftBegin(app.selection);
+          // what it may line up with, and the box that does the lining up (guides.js)
+          this.guideOn = guidesWanted(app);
+          this.guideBox = this.guideOn ? app.selectionBounds() : null;
+          this.guideTo = this.guideBox ? D.guides.targets(app, app.selection) : null;
+        }
+        /* Smart guides: the selection's box snaps to the edges, middles and
+           spacing of what is round it. Ctrl, held, places it freely. */
+        this.guides = null;
+        if (this.guideTo && this.guideTo.length && !ev.ctrl) {
+          const s = D.guides.snap(this.guideBox, this.guideTo, dx, dy, D.guides.tolerance(app, ev.pointerType), axes);
+          dx = s.dx; dy = s.dy; this.guides = s;
         }
         if (this.lifted && app.renderer.lift) { app.renderer.lift.dx = dx; app.renderer.lift.dy = dy; }
         // re-apply from the original positions so the drag never drifts
@@ -969,6 +987,13 @@
           b = U.box(f.cx - f.w / 2, f.cy - f.h / 2, f.cx + f.w / 2, f.cy + f.h / 2);
         }
         if (this.grabOff) { px += this.grabOff.x; py += this.grabOff.y; }
+        // the edges being dragged snap to the edges and middles round them (guides.js); not a turned frame's
+        const snapping = !f && this.guideTo && this.guideTo.length && !ev.ctrl;
+        if (snapping) {
+          const tol = D.guides.tolerance(app, ev.pointerType);
+          if (h.includes('e') || h.includes('w')) px = D.guides.edge(px, 'x', this.guideTo, tol);
+          if (h.includes('n') || h.includes('s')) py = D.guides.edge(py, 'y', this.guideTo, tol);
+        }
         let sx = 1, sy = 1;
         const ox = { x: b.x, y: b.y };
         if (h.includes('e')) { sx = (px - b.x) / (b.w || 1); ox.x = b.x; }
@@ -990,6 +1015,12 @@
           scene.scaleItem(it, ox, sx, sy);
           scene.rotateItem(it, piv, f.rot);
         });
+        this.guides = null;
+        if (snapping) {
+          const tol = D.guides.tolerance(app, ev.pointerType), axes = (/[ew]/.test(h) ? 'x' : '') + (/[ns]/.test(h) ? 'y' : '');
+          const g = D.guides.found(app.selectionBounds(), this.guideTo, tol * 0.04, axes);
+          this.guides = { lines: g.lines, gaps: [] };
+        }
         app.requestDraw();
       }
       else if (this.mode === 'turn') {
@@ -1101,6 +1132,7 @@
         }
       }
       if (this.lifted) { app.renderer.liftEnd(); this.lifted = false; }
+      this.guides = null; this.guideTo = null;
       if (this.mode === 'move' && !this.moved) app.scene.cancel();
       else if (this.mode) app.scene.commit();
       if (this.mode === 'marquee' || this.mode === 'lasso') { this.poly = null; app.renderer.clearLive(); }
@@ -1120,10 +1152,11 @@
         this.app.scene.dirty(it);
         this.app.requestDraw();
       }
-      this.mode = null; this.pending = null; this.poly = null; this.lineSnap = null; this.app.scene.cancel();
+      this.mode = null; this.pending = null; this.poly = null; this.lineSnap = null; this.guides = null; this.guideTo = null; this.app.scene.cancel();
     }
 
     paint(r) {
+      if ((this.mode === 'move' || this.mode === 'resize') && this.guides && D.guides) D.guides.paint(r, this.guides, this.app);
       if (this.mode === 'turn' && D.cad) {
         // anticlockwise counts up, as every other angle on the board does
         const deg = -this.turned * 180 / Math.PI;
@@ -1164,6 +1197,13 @@
         ctx.restore();
       }
     }
+  }
+
+  /* Smart guides are on (Settings → Pen and touch), and the move is not
+     already snapping each item to the grid, which would fight them. */
+  function guidesWanted(app) {
+    const g = app.opts && app.opts.general;
+    return !!D.guides && !!g && g.smartGuides !== false && !g.snapGrid;
   }
 
   /** run `fn` the first time only, on this machine — for one-off tips */

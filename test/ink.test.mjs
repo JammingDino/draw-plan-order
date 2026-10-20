@@ -177,3 +177,66 @@ test('deliberate scribble reads as a scribble, a plain line does not', () => {
 test('xy strips pressure and keeps order', () => {
   assert.deepEqual(Array.from(RG.xy([1, 2, 0.5, 3, 4, 0.9])), [1, 2, 3, 4]);
 });
+
+/* ── zooming in on ink ───────────────────────────────────────────────
+   A stroke written zoomed out has its samples far apart on the board;
+   zoomed in, joined by straight lines, they showed as a polygon. And a
+   big nib's round ends and joins were polygons of at most 18 sides. */
+
+test('a sparse curve is filled in along the curve; a dense one is left alone', () => {
+  // an arc of radius 100, a sample every 24 units: what writing it at 25% zoom leaves
+  const R = 100, sparse = [];
+  for (let a = 0; a <= Math.PI; a += 0.24) sparse.push(Math.cos(a) * R, Math.sin(a) * R, 0.5);
+  const out = FH.bend(sparse, 3);
+  assert.ok(out.length > sparse.length * 3, `filled in: ${sparse.length / 3} -> ${out.length / 3} points`);
+  let worst = 0, gap = 0;
+  for (let i = 0; i < out.length; i += 3) {
+    worst = Math.max(worst, Math.abs(Math.hypot(out[i], out[i + 1]) - R));
+    if (i) gap = Math.max(gap, Math.hypot(out[i] - out[i - 3], out[i + 1] - out[i - 2]));
+  }
+  assert.ok(worst < 0.3, `every point on the circle, within ${worst.toFixed(3)}`);
+  assert.ok(gap < 9, `no chord left long: ${gap.toFixed(1)}`);
+  for (let i = 0; i < sparse.length; i += 3) assert.ok(out.some((v, k) => k % 3 === 0 && v === sparse[i] && out[k + 1] === sparse[i + 1]), 'every sample is kept');
+  // a stroke written at normal zoom: samples a unit or two apart
+  const dense = [];
+  for (let a = 0; a <= Math.PI; a += 0.015) dense.push(Math.cos(a) * R, Math.sin(a) * R, 0.5);
+  assert.equal(FH.bend(dense, 3), dense, 'nothing to fill in: the same array back');
+});
+
+test('a corner stays a corner when its arms are filled in', () => {
+  // a V, sampled sparsely: down 60 and up again, one sample every 20
+  const v = inked([0, 0, 20, 30, 40, 60, 60, 30, 80, 0]);
+  const out = FH.bend(v, 3);
+  assert.ok(out.some((x, k) => k % 3 === 0 && x === 40 && out[k + 1] === 60), 'the point of the V is still there');
+  // nothing bulges past the arms: each point within a unit of the straight line it is on
+  for (let i = 0; i < out.length; i += 3) {
+    const x = out[i], y = out[i + 1], onArm = x <= 40 ? Math.abs(y - x * 1.5) : Math.abs(y - (120 - x * 1.5));
+    assert.ok(onArm < 1, `(${x.toFixed(1)}, ${y.toFixed(1)}) is ${onArm.toFixed(2)} off its arm`);
+  }
+});
+
+test('the discs at a stroke\'s ends are true circles on canvas and in SVG, wound like the rest', () => {
+  const tap = FH.shapes([10, 10, 0.8], { size: 60, thinning: 0 });
+  assert.equal(tap.length, 1);
+  assert.deepEqual(Array.from(tap[0].c), [10, 10, 30], 'it carries the circle it stands for');
+  assert.ok(tap[0].length >= 2 * 40, `and a polygon fine enough for the PDF: ${tap[0].length / 2} sides`);
+  // the polygon goes round with the angle falling, as an anticlockwise arc does
+  const [x0, y0, x1, y1] = tap[0];
+  assert.ok(x0 > 39.9 && y1 < y0, 'starting at angle 0 and turning towards −y');
+  const d = FH.svgPath(tap);
+  assert.match(d, /^M40,10A30,30 0 1 0 -20,10A30,30 0 1 0 40,10Z$/, 'two half-turns, sweep 0');
+  const p = FH.path(tap);
+  assert.ok(p.ops >= 8, 'drawn as an arc');
+  assert.ok(x1 < x0);
+});
+
+test('a snapped shape is as wide as the stroke was written, not as the pen could go', () => {
+  const light = inked([0, 0, 50, 0, 100, 0], 0.2), firm = inked([0, 0, 50, 0, 100, 0], 1);
+  const wl = FH.meanWidth(light, 10, 0.6), wf = FH.meanWidth(firm, 10, 0.6);
+  assert.ok(Math.abs(wf - 10) < 1e-9, 'pressed fully: the full width');
+  assert.ok(wl < 6, `pressed lightly: thinner (${wl.toFixed(2)})`);
+  // held still at the end, pressing harder (the hold that snaps it): no length there, so no weight
+  const held = light.concat([100, 0, 1, 100, 0, 1, 100, 0, 1, 100, 0, 1]);
+  assert.ok(Math.abs(FH.meanWidth(held, 10, 0.6) - wl) < 1e-9, 'the hold counts for nothing');
+  assert.equal(FH.meanWidth(light, 10, 0), 10, 'no thinning: the pen\'s size');
+});

@@ -208,7 +208,9 @@
       for (const b of menu.querySelectorAll('[data-export]')) {
         b.onclick = () => {
           menu.hidden = true;
-          ({ pdf: () => D.exportPdf && D.exportPdf(app), png: () => app.exportPNG(), svg: () => app.exportSVG(), board: () => app.exportJSON() })[b.dataset.export]();
+          // the board file has nothing to preview, so it goes straight to the Save dialog
+          if (b.dataset.export === 'board') app.exportJSON();
+          else app.openExport(b.dataset.export);
         };
       }
       const t = $('#board-title');
@@ -1204,7 +1206,41 @@
         this.setRow('Theme', 'Also on the moon button in the top bar', this.setSeg([['light', 'Light'], ['dark', 'Dark']], dark() ? 'dark' : 'light',
           v => { if ((v === 'dark') !== dark()) app.toggleTheme(); })),
         this.setRow('Paper', 'What the board is printed with', this.setSeg([['dots', 'Dots'], ['lines', 'Grid'], ['lined', 'Ruled'], ['none', 'Plain']], app.renderer.grid,
-          v => { app.renderer.grid = v; app.requestDraw(); app.savePrefs(); })))];
+          v => { app.renderer.grid = v; app.requestDraw(); app.savePrefs(); })),
+        this.paperRow())];
+    }
+
+    /* The paper's colour, for the theme on screen: the other theme keeps
+       its own, so switching to dark never leaves white ink on cream. The
+       swatches are the papers that suit the theme; the last one is any
+       colour at all. */
+    paperRow() {
+      const app = this.app, dark = document.documentElement.dataset.theme === 'dark', key = dark ? 'dark' : 'light';
+      const p = app.opts.canvas.paper;
+      const choices = dark
+        ? [['', 'The dark theme’s own'], ['#000000', 'Black'], ['#1b1d21', 'Charcoal'], ['#18202c', 'Slate'], ['#111a2e', 'Navy'], ['#17251e', 'Chalkboard']]
+        : [['', 'The light theme’s own'], ['#ffffff', 'White'], ['#fbf6e9', 'Cream'], ['#fdf9d6', 'Legal pad'], ['#eef0f3', 'Grey'], ['#edf3fb', 'Blue'], ['#edf6ee', 'Green']];
+      const wrap = el('div', { class: 'set-swatches', role: 'radiogroup', 'aria-label': 'Paper colour' });
+      const pick = v => {
+        p[key] = v;
+        app.applyPaper(); app.savePrefs();
+        for (const b of wrap.children) b.classList.toggle('on', b.dataset.v === v || (b.dataset.custom === '1' && !!v && !choices.some(c => c[0] === v)));
+      };
+      for (const [v, name] of choices) {
+        const b = el('button', { class: 'set-swatch' + ((p[key] || '') === v ? ' on' : ''), type: 'button', title: name, 'aria-label': name,
+          style: `background:${v || U.THEMES[key].paper}` });
+        b.dataset.v = v;
+        b.onclick = () => pick(v);
+        wrap.append(b);
+      }
+      const own = p[key] && !choices.some(c => c[0] === p[key]);
+      const input = el('input', { type: 'color', 'aria-label': 'Any colour' });
+      input.value = p[key] || U.THEMES[key].paper;
+      const custom = el('label', { class: 'set-swatch custom' + (own ? ' on' : ''), title: 'Any colour', style: own ? `background:${p[key]}` : '' }, input);
+      custom.dataset.custom = '1';
+      input.oninput = () => { custom.style.background = input.value; pick(input.value); };
+      wrap.append(custom);
+      return this.setRow('Paper colour', dark ? 'For the dark theme — the light theme keeps its own' : 'For the light theme — the dark theme keeps its own', wrap);
     }
 
     /* PNG and SVG exports. The theme decides what "ink" comes out as and
@@ -1217,8 +1253,11 @@
         this.setRow('Theme', 'Sets the colour of default ink and of PDF pages, whatever the app is showing',
           this.setSeg([['auto', 'Match the app'], ['light', 'Light'], ['dark', 'Dark']], o.theme, v => { o.theme = v; save(); })),
         this.setRow('Background', 'Transparent keeps only what is on the board, ready for a slide or page of any colour',
-          this.setSeg([['transparent', 'Transparent'], ['paper', 'Paper colour']], o.background, v => { o.background = v; save(); }))),
-        this.setNote('Export from the download button in the top bar.')];
+          this.setSeg([['transparent', 'Transparent'], ['paper', 'Paper colour']], o.background, v => { o.background = v; save(); })),
+        this.setToggle('Ask where to save', typeof self.showSaveFilePicker === 'function'
+          ? 'Each export opens a Save dialog to choose the folder and name. Off: straight to Downloads'
+          : 'This browser has no Save dialog for the page to open, so exports go to Downloads', o.ask !== false, v => { o.ask = v; save(); })),
+        this.setNote('Export from the download button in the top bar: it shows a preview of the file first, with these options beside it.')];
     }
 
     setInput() {
@@ -1228,6 +1267,8 @@
         this.setToggle('Scribble to erase', 'Scribble back and forth over ink to rub it out', g.scribbleErase, v => set('scribbleErase', v)),
         this.setToggle('Snap to grid', 'Shapes, notes and nodes line up with the paper', g.snapGrid, v => set('snapGrid', v)),
         this.setToggle('Fingers pan and zoom', 'A finger moves the board instead of drawing, so a resting hand leaves no marks', g.touchPan, v => set('touchPan', v)),
+        this.setToggle('Two-finger tap to undo', 'Tap two fingers to undo and three to redo; hold two still to keep undoing. Turn off if a hand resting on the screen sets it off', g.tapUndo !== false, v => set('tapUndo', v)),
+        this.setToggle('Smart guides', 'Something dragged lines up with what is beside it — edges, middles and equal gaps — and snaps there. Hold Ctrl while dragging to place it freely', g.smartGuides !== false, v => set('smartGuides', v)),
         this.setToggle('Keep the tool', 'Stay on the shape, note or node tool after making one', g.stickyTools, v => set('stickyTools', v)),
         this.setToggle('Low-latency ink', 'The pen’s ink skips a step on its way to the screen, so it keeps closer to the nib. Turn off if ink tears on your screen; changes the next time the app starts', g.lowLatency !== false, v => {
           set('lowLatency', v);

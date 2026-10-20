@@ -24,7 +24,12 @@
       this.anim = false;
 
       this.opts = {
-        general: { holdToSnap: true, scribbleErase: true, snapGrid: false, touchPan: true, stickyTools: true, lowLatency: true },
+        /* smartGuides: a dragged selection lines up with what is near it
+           (snap.js); tapUndo: two fingers tapped undo, three redo (taps.js) */
+        general: { holdToSnap: true, scribbleErase: true, snapGrid: false, smartGuides: true, touchPan: true, tapUndo: true, stickyTools: true, lowLatency: true },
+        /* The paper's colour, one for each theme ('' is the theme's own),
+           so a cream page by day does not stay cream under white ink. */
+        canvas: { paper: { light: '', dark: '' } },
         pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.6, smooth: 0.5 },
         highlighter: { color: '#ffe066', size: 22, alpha: 0.4, smooth: 0.5 },
         eraser: { mode: 'object', size: 26 },
@@ -36,7 +41,7 @@
         /* How PNG and SVG exports look (Settings → Export). 'auto' follows
            the theme on screen; a transparent background leaves just the
            work, to sit on a slide or a page of any colour. */
-        export: { theme: 'auto', background: 'transparent' }
+        export: { theme: 'auto', background: 'transparent', ask: true }
       };
       /* What features add (ext.js). Before start() lays the saved prefs
          over the top, so a feature's options are remembered like the rest
@@ -1338,10 +1343,20 @@
     async insertPdf(file, at, opts) {
       try {
         const items = await D.pdf.import(this, file, at, opts);
-        if (items.length) {
-          this.camera.fit(this.scene.bbox(items[0]), innerWidth, innerHeight);
-          this.requestDraw();
+        if (!items.length) return;
+        /* Dropped or pasted, the PDF lands where it was put, and the view
+           stays where it is: zooming in on its first page took you away
+           from what you were doing. Added from the menu it goes on after
+           the board's pages, perhaps off screen, so the view slides over
+           to the top of it, at the zoom it already had. */
+        if (opts && opts.flow) {
+          const b = this.scene.bbox(items[0]), cam = this.camera;
+          if (!U.boxesOverlap(cam.viewport(innerWidth, innerHeight), b)) {
+            cam.centerOn(b.x + b.w / 2, b.y + Math.max(0, innerHeight / 2 - 80) / cam.zoom, innerWidth, innerHeight);
+            this.saveView();
+          }
         }
+        this.requestDraw();
       } catch (err) {
         this.toast('Could not read that PDF');
         console.error(err);
@@ -1555,7 +1570,22 @@
       /* PDF pages are baked light or dark at render time, so the cache
          is stale the moment the board flips. */
       D.pdf.themeChanged();
+      this.applyPaper();
+    }
+
+    /**
+     * Put the paper colour from Settings → Canvas on the page, for the
+     * theme showing: the painter's "paper", and --paper for the chrome
+     * that shows it (the board cards). Each theme keeps its own.
+     */
+    applyPaper() {
+      const p = this.opts.canvas.paper, dark = document.documentElement.dataset.theme === 'dark';
+      U.setPaper(p);
+      const own = p[dark ? 'dark' : 'light'], css = document.documentElement.style;
+      if (css && css.setProperty) { if (own) css.setProperty('--paper', own); else css.removeProperty('--paper'); }
+      this.renderer.invalidateStyle();
       this.renderer.invalidate();
+      this.requestDraw();
     }
 
     /* ── feedback ─────────────────────────────────────────────────── */
@@ -1829,6 +1859,12 @@
       const open = id === this.board.id;
       const b = open ? this.board : await D.store.load(id);
       if (!b) return this.toast('Could not read that board');
+      const name = open ? $('#board-title').value || b.name : b.name;
+      return this.saveFile(safeName(name) + '.board', 'board', () => this.boardBlob(b, open));
+    }
+
+    /** a board as a .board file: its items, and the PDFs and pictures they use */
+    async boardBlob(b, open) {
       const doc = open ? this.scene.toJSON() : b.doc;
       const name = open ? $('#board-title').value || b.name : b.name;
       const assets = {};
@@ -1839,7 +1875,51 @@
         assets[aid] = { name: meta.name, type: meta.type, b64: D.store.toB64(bytes) };
       }
       const data = JSON.stringify({ app: 'draw-plan-order', v: 1, name, doc, assets });
-      download(new Blob([data], { type: 'application/json' }), safeName(name) + '.board');
+      return new Blob([data], { type: 'application/json' });
+    }
+
+    /**
+     * Save a file the person asked for, where they say. With Settings →
+     * Export → "Ask where to save" on (the default) and a system Save
+     * dialog to hand — showSaveFilePicker, in Edge, Chrome and the
+     * desktop app — that dialog asks where, before anything is made: it
+     * has to open while the click that asked for it is still fresh, and
+     * a big export can take longer than that. Then `make` makes the file
+     * (a Blob) and it is written there. Without the dialog, or with the
+     * setting off, it goes to Downloads as before. Gives the name it was
+     * saved as, or null if it was cancelled or failed.
+     */
+    async saveFile(name, kind, make) {
+      if (this._exporting) return null;
+      const ask = this.opts.export.ask !== false && typeof self.showSaveFilePicker === 'function';
+      let handle = null;
+      if (ask) {
+        try {
+          handle = await self.showSaveFilePicker({ suggestedName: name, id: 'dpo-export', types: FILE_TYPES[kind] ? [FILE_TYPES[kind]] : undefined });
+        } catch (err) {
+          if (err && err.name === 'AbortError') return null;           // they cancelled the dialog
+          console.warn('[dpo] no save dialog, so to Downloads', err);
+        }
+      }
+      this._exporting = true;
+      try {
+        const blob = await make();
+        if (!blob) return null;
+        if (handle) {
+          const w = await handle.createWritable();
+          await w.write(blob);
+          await w.close();
+          this.ui.toast('Saved ' + (handle.name || name));
+          return handle.name || name;
+        }
+        download(blob, name);
+        this.ui.hideToast();
+        return name;
+      } catch (err) {
+        console.error(err);
+        this.toast('The export did not finish: ' + (err.message || err));
+        return null;
+      } finally { this._exporting = false; }
     }
 
     /** the theme and background an export is painted with — see opts.export */
@@ -1850,41 +1930,40 @@
       return { theme, dark: theme === 'dark', transparent: o.background !== 'paper' };
     }
 
+    /** the export dialog, on `format` (exportdlg.js): a preview, the options, and Save */
+    openExport(format, opts) {
+      if (D.exportDialog) return D.exportDialog(this, Object.assign({ format }, opts));
+      return format === 'png' ? this.exportPNG() : format === 'svg' ? this.exportSVG() : format === 'pdf' && D.exportPdf ? D.exportPdf(this) : this.exportJSON();
+    }
+
     async exportSVG() {
+      if (!this.scene.contentBounds()) return this.toast('Nothing to export');
+      return this.saveFile(safeName(this.board.name) + '.svg', 'svg', () => this.svgBlob());
+    }
+
+    async svgBlob(look = this.exportLook()) {
       const b = this.scene.contentBounds();
-      if (!b) return this.toast('Nothing to export');
-      if (this._exporting) return;
-      this._exporting = true;
-      try {
-        if (this.scene.items.some(i => i.type === 'pdfpage')) this.ui.toast('Exporting…', null, null, 60000);
-        const svg = await this.renderer.toSVG(this.scene, b, this.exportLook());
-        download(new Blob([svg], { type: 'image/svg+xml' }), safeName(this.board.name) + '.svg');
-        this.ui.hideToast();
-      } catch (err) {
-        console.error(err);
-        this.toast('The export did not finish: ' + (err.message || err));
-      } finally { this._exporting = false; }
+      if (!b) return null;
+      if (this.scene.items.some(i => i.type === 'pdfpage')) this.ui.toast('Exporting…', null, null, 60000);
+      const svg = await this.renderer.toSVG(this.scene, b, look);
+      return new Blob([svg], { type: 'image/svg+xml' });
     }
 
     async exportPNG() {
+      if (!this.scene.contentBounds()) return this.toast('Nothing to export');
+      return this.saveFile(safeName(this.board.name) + '.png', 'png', () => this.pngBlob());
+    }
+
+    async pngBlob() {
       const b = this.scene.contentBounds();
-      if (!b) return this.toast('Nothing to export');
-      if (this._exporting) return;
-      this._exporting = true;
+      if (!b) return null;
       const c = document.createElement('canvas');
       const kept = new Map();              // PDF pages rendered once, for every tile they cross
       const drop = it => { const bmp = kept.get(it); if (bmp && bmp.width) { bmp.width = 0; bmp.height = 0; } kept.delete(it); };
-      try {
-        const blob = await this.paintPNG(b, c, kept, drop);
-        download(blob, safeName(this.board.name) + '.png');
-        this.ui.hideToast();
-      } catch (err) {
-        console.error(err);
-        this.toast('The export did not finish: ' + (err.message || err));
-      } finally {
+      try { return await this.paintPNG(b, c, kept, drop); }
+      finally {
         for (const it of [...kept.keys()]) drop(it);
         c.width = 0; c.height = 0;          // a full-size export is a lot of memory to wait on GC for
-        this._exporting = false;
       }
     }
 
@@ -2186,6 +2265,15 @@
      are 32767px a side and 268M pixels in all), a band across at a time,
      each band at most this much RGBA in memory. */
   const PNG_TILE = 4096, PNG_BAND_BYTES = 64 * 1024 * 1024;
+
+  /* what the Save dialog offers to save each kind of export as (App.saveFile) */
+  const FILE_TYPES = {
+    png: { description: 'PNG picture', accept: { 'image/png': ['.png'] } },
+    svg: { description: 'SVG drawing', accept: { 'image/svg+xml': ['.svg'] } },
+    pdf: { description: 'PDF document', accept: { 'application/pdf': ['.pdf'] } },
+    board: { description: 'Board file', accept: { 'application/json': ['.board'] } }
+  };
+  D.safeName = safeName;
 
   function dataUrlOf(file) {
     return new Promise((res, rej) => {

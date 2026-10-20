@@ -7,4 +7,9 @@ interface Window {
   pdfjsLib?: any;
   math?: any;
   MathJax?: any;
+  /* the File System Access API's Save dialog (Chromium only, so not in the DOM lib yet) */
+  showSaveFilePicker?: (opts?: {
+    suggestedName?: string; id?: string;
+    types?: { description?: string; accept: Record<string, string[]> }[];
+  }) => Promise<{ name: string; createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }> }>;
 }

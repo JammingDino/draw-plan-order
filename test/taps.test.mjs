@@ -116,3 +116,22 @@ test('holding stops when there is nothing left to undo, or a finger moves', asyn
   assert.equal(b.app.undone, at);
   b.taps.up(b.ev(1, 100, 160)); b.taps.up(b.ev(2, 150, 100));
 });
+
+test('turned off in Settings, two fingers tapped (or a resting hand) undo nothing, and nor does holding them', async () => {
+  const { app, taps, log, ev, at } = rig();
+  app.opts = { general: { tapUndo: false } };
+  taps.down(ev(1, 100, 100)); at(20); taps.down(ev(2, 160, 110));
+  at(90); taps.up(ev(1, 101, 100)); at(10); taps.up(ev(2, 160, 111));
+  for (const id of [1, 2, 3]) { taps.down(ev(id, id * 50, 100)); at(15); }
+  for (const id of [1, 2, 3]) { taps.up(ev(id, id * 50, 100)); at(5); }
+  taps.down(ev(4, 100, 100)); taps.down(ev(5, 160, 100));
+  await sleep(D.Taps.HOLD_MS + 400);
+  taps.up(ev(4, 100, 100)); taps.up(ev(5, 160, 100));
+  assert.equal(app.undone, 0); assert.equal(app.redone, 0);
+  assert.deepEqual(log, []);
+  // and back on, as before
+  app.opts.general.tapUndo = true;
+  taps.down(ev(1, 100, 100)); at(20); taps.down(ev(2, 160, 110));
+  at(90); taps.up(ev(1, 101, 100)); at(10); taps.up(ev(2, 160, 111));
+  assert.equal(app.undone, 1);
+});
