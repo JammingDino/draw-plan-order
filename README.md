@@ -703,6 +703,18 @@ mirrored to `localStorage` on the way out (synchronous, so it always
 completes) and replayed on the next start, with a *Recovered N unsaved items*
 toast. Hiding the tab also forces a full save.
 
+### Board history
+
+As a board is saved, a copy of it is kept now and then — at most every
+ten minutes of work — and thinned out as it ages: every copy from the
+last hour, one every three hours for the last day, one a day for a
+fortnight, and one a week for eight weeks. **Board history** (the
+long-press menu on the board, or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd>)
+lists them with a picture of each: **Restore this** puts that copy on the
+board in place of what is there, as one step that undo takes back, and
+**Open as a new board** keeps it beside this one. The copies are kept
+compressed, alongside the board's pictures, so they go wherever it goes.
+
 ### A board changed on two machines
 
 Boards saved as files (the desktop app's **Settings → Saving**) are often
@@ -778,6 +790,7 @@ anything is written over it.
 | `js/zoompad.js` | The zoom pad: write large, and it lands small |
 | `js/audio.js` | Recording sound, kept in step with the ink |
 | `js/present.js` | Presenting the pages full screen |
+| `js/history.js` | Board history: copies kept as you work, to restore |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after

@@ -1812,6 +1812,7 @@
       this._dirty = false;
       $('#save-state').textContent = 'saved';
       clearRescue();
+      D.ext.emit('saved', this, board);
     }
 
     /**

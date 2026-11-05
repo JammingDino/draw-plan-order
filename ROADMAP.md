@@ -28,8 +28,6 @@ into `master` (every push to `master` ships an update to installed copies).
 
 Roughly in order of how much each would help a student working with a pen.
 
-- **Version history.** "This board as it was yesterday": keep snapshots on
-  each save (thinned out with age) and let one be opened or restored.
 - **Handwriting to text.** Generalise the handwritten-maths reader to turn
   selected writing into a text box — which would also make handwriting
   searchable (search finds typed words and PDFs' words today).

@@ -378,6 +378,8 @@
     for (const b of await S.list()) {
       const full = await S.load(b.id);
       for (const it of (full?.doc?.items || [])) if (it.asset) used.add('a:' + it.asset);
+      // the copies of it kept for its history (history.js)
+      for (const h of (Array.isArray(full?.history) ? full.history : [])) if (h && h.asset) used.add('a:' + h.asset);
     }
     let n = 0;
     for (const k of keys) if (!used.has(k)) { await backend.del(k); n++; }

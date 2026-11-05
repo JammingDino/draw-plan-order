@@ -163,6 +163,8 @@
      adjust   app, ev       App.mkEv, for every pointer sample made into
                             an ev: a feature may move ev.x/ev.y (a pen
                             drawing along a ruler's edge). Return nothing.
+     saved    app, board    App.saveNow, once the board is written and
+                            nothing was changed meanwhile
      key      app, e        App.onKey, straight after the input/textarea
                             guard — so also while the boards sheet is open.
                             Return true to consume the key.

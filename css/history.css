@@ -1,0 +1,19 @@
+/* ── board history (js/history.js) ─────────────────────────────────────── */
+.hist{position:fixed;inset:max(16px,6vh) max(16px,8vw);z-index:70;display:flex;flex-direction:column;
+  background:var(--panel-solid);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.hist-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 8px 18px;border-bottom:1px solid var(--stroke)}
+.hist-head h3{margin:0;font-size:16px}
+.hist-body{flex:1;min-height:0;display:flex}
+.hist-list{width:220px;flex:none;overflow:auto;padding:8px;border-right:1px solid var(--stroke);display:flex;flex-direction:column;gap:2px}
+.hist-row{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:9px 12px;border-radius:10px;text-align:left}
+.hist-row b{font-weight:600;font-size:13.5px}
+.hist-row span{font-size:12px;color:var(--muted)}
+.hist-row:hover{background:var(--accent-soft)}
+.hist-row.on{background:var(--accent);color:#fff}
+.hist-row.on span{color:#fffc}
+.hist-side{flex:1;min-width:0;display:flex;flex-direction:column;padding:12px;gap:8px}
+.hist-preview{flex:1;min-height:0;position:relative;border-radius:10px;overflow:hidden;background:var(--paper);border:1px solid var(--stroke);touch-action:none}
+.hist-preview canvas{position:absolute;inset:0;width:100%;height:100%}
+.hist-status{margin:0;font-size:13px;color:var(--muted)}
+.hist-acts{display:flex;gap:8px;justify-content:flex-end}
+@media (max-width:640px){.hist-body{flex-direction:column}.hist-list{width:auto;max-height:34%;border-right:0;border-bottom:1px solid var(--stroke)}}
