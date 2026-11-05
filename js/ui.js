@@ -605,6 +605,11 @@
         this.group('Colour', this.swatches(colors, o.color, c => o.color = c)),
         this.group('Size', this.sizes(sizeList, o.size, s => o.size = s, o.color)),
         this.slider('Opacity', o.alpha, 0.1, 1, 0.05, v => o.alpha = v, v => Math.round(v * 100) + '%'),
+        kind === 'pen' ? this.group('Nib', this.iconSeg([
+          ['round', '<svg viewBox="0 0 24 24"><path d="M4 16c3-8 6-8 8-3s5 5 8-3" style="stroke-width:2.6"/></svg>', 'Round'],
+          ['chisel', '<svg viewBox="0 0 24 24"><path d="M5 18L9.5 6" style="stroke-width:3.6;stroke-linecap:butt"/><path d="M9.5 6c4 1.5 4.5 11 9.5 9" style="stroke-width:1.1"/></svg>', 'Chisel — broad across, thin along, as a calligraphy pen']
+        ], o.nib || 'round', v => o.nib = v),
+          o.nib === 'chisel' ? this.slider('Angle', o.nibAngle ?? 40, 0, 90, 5, v => o.nibAngle = v, v => v + '°') : null) : null,
         kind === 'pen' ? this.slider('Pressure', o.thinning, 0, 0.95, 0.05, v => o.thinning = v, v => Math.round(v * 100) + '%') : null,
         this.slider('Smoothing', o.smooth || 0, 0, 1, 0.05, v => o.smooth = v, v => v ? Math.round(v * 100) + '%' : 'Off'),
         kind === 'pen' ? this.group('Behaviour',

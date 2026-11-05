@@ -28,8 +28,10 @@
         color: o.color, size: o.size, alpha: o.alpha,
         thinning: this.kind === 'highlighter' ? 0 : o.thinning,
         blend: this.kind === 'highlighter' ? 'multiply' : 'source-over',
-        taper: this.kind === 'highlighter' ? 0 : o.size * 2.5
+        taper: this.kind === 'highlighter' || o.nib === 'chisel' ? 0 : o.size * 2.5
       });
+      // a chisel nib (calligraphy): kept on the stroke, so it is drawn as it was written whatever the pen is now
+      if (this.kind === 'pen' && o.nib === 'chisel') { this.item.nib = 'chisel'; this.item.nibAngle = o.nibAngle ?? 40; }
       this.raw = [];
       this.sm = null;
       this.snapped = null;
@@ -184,7 +186,7 @@
         const from = Math.max(0, this.lastDrawn - 4);      // overlap so tails join seamlessly
         const tail = pts.slice(from * 3);
         if (tail.length >= 3) {
-          const poly = FH.shapes(tail, { size: this.item.size, thinning: this.item.thinning });
+          const poly = FH.shapes(tail, { ...FH.optsOf(this.item), taper: 0, cap: true });
           ctx.fill(FH.path(poly));
         }
         this.lastDrawn = pts.length / 3;
@@ -195,7 +197,7 @@
         c2.globalAlpha = this.item.alpha;
         c2.globalCompositeOperation = r.blendFor(this.item);
         c2.fillStyle = U.color(this.item.color);
-        const poly = FH.shapes(this.item.pts, { size: this.item.size, thinning: this.item.thinning, taper: this.item.taper });
+        const poly = FH.shapes(this.item.pts, FH.optsOf(this.item));
         c2.fill(FH.path(poly));
       }
     }

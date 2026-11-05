@@ -755,7 +755,7 @@
 
     drawStroke(ctx, it) {
       if (!it._path) {
-        const poly = FH.shapes(it.pts, { size: it.size, thinning: it.thinning, taper: it.taper || 0, cap: it.cap !== false });
+        const poly = FH.shapes(it.pts, FH.optsOf(it));
         it._path = FH.path(poly);
         it._at = [it.pts[0], it.pts[1]];
       }
@@ -1471,7 +1471,7 @@
     switch (it.type) {
       case 'stroke': {
         // the same outline the canvas fills, taper and caps included
-        const poly = FH.shapes(it.pts, { size: it.size, thinning: it.thinning, taper: it.taper || 0, cap: it.cap !== false });
+        const poly = FH.shapes(it.pts, FH.optsOf(it));
         const blend = r.blendFor(it) === 'multiply' ? ' style="mix-blend-mode:multiply"' : '';
         return `<path d="${FH.svgPath(poly)}" fill="${U.color(it.color)}"${op}${blend}/>`;
       }

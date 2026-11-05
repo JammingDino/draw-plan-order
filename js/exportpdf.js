@@ -254,7 +254,7 @@
   const r2 = v => Math.round(v * 100) / 100;
   /** a stroke's outline: the polygons it fills, in board units */
   function strokePolys(it) {
-    return FH.shapes(it.pts, { size: it.size, thinning: it.thinning, taper: it.taper || 0, cap: it.cap !== false }).filter(p => p.length >= 6);
+    return FH.shapes(it.pts, FH.optsOf(it)).filter(p => p.length >= 6);
   }
 
   /* Operators go into the page this many at a time. pdf-lib's own

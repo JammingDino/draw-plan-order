@@ -30,7 +30,7 @@
         /* The paper's colour, one for each theme ('' is the theme's own),
            so a cream page by day does not stay cream under white ink. */
         canvas: { paper: { light: '', dark: '' } },
-        pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.6, smooth: 0.5 },
+        pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.6, smooth: 0.5, nib: 'round', nibAngle: 40 },
         highlighter: { color: '#ffe066', size: 22, alpha: 0.4, smooth: 0.5 },
         eraser: { mode: 'object', size: 26 },
         /* Pens kept to come back to: [{ tool: 'pen' | 'highlighter', o: { …that tool's opts } }] (UI.favourites) */

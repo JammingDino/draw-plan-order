@@ -215,6 +215,7 @@
       }
       rad[i] = Math.max(r, 0.15);
     }
+    if (o.nib === 'chisel') return chisel(pts, rad, o.nibAngle ?? 40, cap);
     if (total < 0.6) return [disc(pts[0], pts[1], rad[0])];
 
     const out = [];
@@ -351,6 +352,57 @@
    * `c` keeps the circle itself, which the canvas and SVG draw as a true
    * arc — a big nib's round end stays round however far in you zoom.
    */
+  /* ── a chisel nib ─────────────────────────────────────────────────
+     A calligraphy pen's nib is a flat edge held at one angle, so a stroke
+     is broad drawn across the edge and thin drawn along it. Here the nib
+     is a slim rectangle — half as long as the stroke's radius allows,
+     with a sliver of thickness so a line along the edge still shows —
+     and the stroke is the region it sweeps: per segment, the
+     parallelogram the edge sweeps and a thin band for the thickness;
+     the nib itself at each end. Every piece is wound the way the round
+     nib's are, so one non-zero fill unions them. `angle` is in degrees,
+     anticlockwise from east. */
+  const NIB_THICK = 0.14;          // the nib's thickness, as a fraction of its length
+  function wound(poly) {
+    let a = 0;
+    for (let i = 0, n = poly.length; i < n; i += 2) {
+      const j = (i + 2) % n;
+      a += poly[i] * poly[j + 1] - poly[j] * poly[i + 1];
+    }
+    if (a > 0) {
+      const out = [];
+      for (let i = poly.length - 2; i >= 0; i -= 2) out.push(poly[i], poly[i + 1]);
+      return out;
+    }
+    return poly;
+  }
+  function chisel(pts, rad, angle, cap) {
+    const n = pts.length / 3, t = angle * Math.PI / 180;
+    const ex = Math.cos(t), ey = -Math.sin(t);          // along the edge (y runs down the page)
+    const out = [];
+    const nibAt = i => {
+      const x = pts[i * 3], y = pts[i * 3 + 1], r = rad[i], w = Math.max(0.15, r * NIB_THICK);
+      return wound([x + ex * r - ey * w, y + ey * r + ex * w, x + ex * r + ey * w, y + ey * r - ex * w,
+        x - ex * r + ey * w, y - ey * r - ex * w, x - ex * r - ey * w, y - ey * r + ex * w]);
+    };
+    if (n === 1) return [nibAt(0)];
+    for (let i = 0; i < n - 1; i++) {
+      const ax = pts[i * 3], ay = pts[i * 3 + 1], bx = pts[i * 3 + 3], by = pts[i * 3 + 4];
+      const ra = rad[i], rb = rad[i + 1];
+      out.push(wound([ax + ex * ra, ay + ey * ra, bx + ex * rb, by + ey * rb, bx - ex * rb, by - ey * rb, ax - ex * ra, ay - ey * ra]));
+      const dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy);
+      if (l > 1e-9) {
+        const nx = -dy / l, ny = dx / l, wa = Math.max(0.15, ra * NIB_THICK), wb = Math.max(0.15, rb * NIB_THICK);
+        out.push(wound([ax + nx * wa, ay + ny * wa, bx + nx * wb, by + ny * wb, bx - nx * wb, by - ny * wb, ax - nx * wa, ay - ny * wa]));
+      }
+    }
+    if (cap) out.push(nibAt(0), nibAt(n - 1));
+    return out;
+  }
+
+  /** what F.shapes is asked for a stroke item: its nib, as it was written */
+  F.optsOf = it => ({ size: it.size, thinning: it.thinning, taper: it.taper || 0, cap: it.cap !== false, nib: it.nib, nibAngle: it.nibAngle });
+
   function disc(cx, cy, r) {
     const steps = U.clamp(Math.ceil(r * 1.6), 7, 48);
     const out = [];
