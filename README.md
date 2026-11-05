@@ -195,6 +195,19 @@ drawings, and for a pen alone — nothing needs a key held down.
 Long-press anywhere for *Measure from here*; on a line, *Dimension this*
 and *Set drawing scale…*.
 
+### Ruler and protractor
+
+The ruler and protractor buttons in the zoom bar lay one over the board,
+as OneNote's are. Drag it — with a finger, the pen or the mouse — to move
+it, and turn it by the knob on it (it settles on whole degrees and on 15°
+steps, and says its angle as it goes). Start a pen or highlighter stroke
+at the ruler's edge and it runs dead straight along it, however the hand
+wobbles; start one at the protractor's curve and it follows the curve,
+reading out the angle as it goes, or at its flat side for a straight line.
+The ruler is marked in the board's units at its drawing scale. Neither is
+part of the board: they are not saved, undone or exported, and they keep
+their size on screen whatever the zoom.
+
 ### Circuit, logic and mechanics symbols
 
 The symbol tool (<kbd>S</kbd>) is built to be quicker than drawing the
@@ -722,6 +735,7 @@ anything is written over it.
 | `js/symbols.js` | Circuit and mechanics symbols, with terminals to wire to |
 | `js/search.js` | Search the board, PDFs' words included |
 | `js/style.js` | Copy style and paste style |
+| `js/stencils.js` | The ruler and protractor |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after

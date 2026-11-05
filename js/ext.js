@@ -137,6 +137,13 @@
        render builds the body with ui.setGroup/setRow/setToggle/setSeg/
        setStack/setLabel/setNote/setButton. icon is optional.
 
+   D.ext.routes.push(fn(app, e) → tool | null)
+       Asked as a press lands (not a right or middle button, Space, or the
+       pen's eraser end), before the tool would take it: return an object
+       with the tools.js interface (down move up cancel) to take this press
+       for something of the feature's own — a ruler lying on the board to
+       be moved — or null to let it be. A taken press arms no long-press.
+
    D.ext.on(name, fn) / off(name, fn) / emit(name, …args) → bool
        Handlers run in the order they were added. emit stops at the first
        handler that returns true and returns true; otherwise false. A
@@ -153,6 +160,9 @@
      stroke   app, item     after the pen tool commits a stroke (not the
                             highlighter, nor a snapped shape or a scribble
                             that erased)
+     adjust   app, ev       App.mkEv, for every pointer sample made into
+                            an ev: a feature may move ev.x/ev.y (a pen
+                            drawing along a ruler's edge). Return nothing.
      key      app, e        App.onKey, straight after the input/textarea
                             guard — so also while the boards sheet is open.
                             Return true to consume the key.
@@ -177,6 +187,7 @@
     items: Object.create(null),
     buttons: [],
     pressActions: [],
+    routes: [],
     settings: [],
 
     on(name, fn) {

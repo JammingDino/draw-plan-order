@@ -573,6 +573,7 @@
         pointerType: e.pointerType, e
       };
       ev.samples = samples || [ev];
+      if (D.ext.has('adjust')) D.ext.emit('adjust', this, ev);
       return ev;
     }
 
@@ -636,6 +637,23 @@
       if (middle || this.spaceDown || touchPans) tool = this.tools.pan;
       else if (eraserButton) tool = this.tools.eraser;
       else tool = this.tool;
+
+      /* Something a feature lays on the board — a ruler — may take the
+         press for itself, to be moved (D.ext.routes). */
+      let routed = null;
+      if (!middle && !this.spaceDown && !eraserButton)
+        for (const r of D.ext.routes) { routed = r(this, e) || null; if (routed) break; }
+      if (routed) {
+        this.active = routed; this.activeName = 'route';
+        if (this.tap) this.tap.held = true;          // not a tap on whatever lies under it
+        const ev = this.mkEv(e);
+        this.pointer = ev; this.downId = e.pointerId;
+        try { $('#stage').setPointerCapture(e.pointerId); } catch (_) { }
+        routed.down(ev);
+        this.requestDrawLive();
+        e.preventDefault?.();
+        return;
+      }
 
       /* The one exception: with the select tool out, a finger on what is
          already selected takes hold of it, so a selection can be moved and
