@@ -726,6 +726,16 @@ mirrored to `localStorage` on the way out (synchronous, so it always
 completes) and replayed on the next start, with a *Recovered N unsaved items*
 toast. Hiding the tab also forces a full save.
 
+### Links
+
+Anything on the board can link to a page on this board or to another
+board: **Link to…** on its long-press menu. A linked thing wears a small
+blue chain badge at its corner — tap it, with the pen, a finger or the
+mouse, to go there, and the toast that follows has **Back**. A contents
+page for a course, or a "see the derivation" from one board to the next.
+*Follow the link* is on the long-press menu too, and **Remove the link**
+in the chooser.
+
 ### Board history
 
 As a board is saved, a copy of it is kept now and then — at most every
@@ -815,6 +825,7 @@ anything is written over it.
 | `js/present.js` | Presenting the pages full screen |
 | `js/history.js` | Board history: copies kept as you work, to restore |
 | `js/repeat.js` | Repeat: copies in a row, or round a centre |
+| `js/links.js` | Links from a thing to a page or another board |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after

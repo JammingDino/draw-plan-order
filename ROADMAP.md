@@ -31,7 +31,6 @@ Roughly in order of how much each would help a student working with a pen.
 - **Handwriting to text.** Generalise the handwritten-maths reader to turn
   selected writing into a text box — which would also make handwriting
   searchable (search finds typed words and PDFs' words today).
-- **Links.** From an item to another board, or to a place on this one.
 
 ## Follow-ups to this release
 
