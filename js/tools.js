@@ -205,7 +205,7 @@
   }
 
   function labelFor(k) {
-    return { line: 'Straight line', arrow: 'Arrow', rect: 'Rectangle', ellipse: 'Ellipse', diamond: 'Diamond', triangle: 'Triangle', polygon: 'Polygon' }[k] || 'Shape';
+    return { line: 'Straight line', arrow: 'Arrow', rect: 'Rectangle', ellipse: 'Ellipse', diamond: 'Diamond', triangle: 'Triangle', polygon: 'Polygon', arc: 'Arc' }[k] || 'Shape';
   }
 
   function shapeFromRecognised(s, o) {
@@ -362,6 +362,7 @@
     down(ev) {
       const o = this.opt;
       if (o.kind === 'polyline') return this.polyDown(ev);
+      if (o.kind === 'arc') return this.arcDown(ev);
       const lineish = LINE_KINDS[o.kind];
       const s = snapTo(this.app, ev);
       this.start = s;
@@ -381,6 +382,7 @@
 
     move(ev) {
       if (this.poly) return this.polyMove(ev);
+      if (this.arc) return this.arcMove(ev);
       if (!this.item) return;
       const it = this.item, s = this.start, cad = this.cad;
       if (Math.hypot(ev.x - s.x, ev.y - s.y) * this.app.camera.zoom > 3) this.moved = true;
@@ -409,6 +411,7 @@
 
     up() {
       if (this.poly) return this.polyUp();
+      if (this.arc) return this.arcUp();
       const it = this.item; this.item = null;
       const end = this.snapNow;
       this.snapNow = null;
@@ -483,7 +486,77 @@
       return true;
     }
 
+    /* ── arcs ───────────────────────────────────────────────────────
+       In two goes, as a pen wants: drag out the first part and lift,
+       then press (or drag) for the rest. Through three points: drag from
+       one end to the other, then put the arc through a point. Centre,
+       start, end: drag from the centre to where the arc starts, then
+       round to where it ends — whichever way round the pen goes. The arc
+       is a moment arrow with no heads, so it is measured, snapped to,
+       dimensioned and turned like one. */
+    arcDown(ev) {
+      const s = snapTo(this.app, ev, this.arc ? { from: this.arc.a } : {});
+      this.snapNow = s;
+      if (!this.arc) {
+        this.arc = { stage: 1, a: s, b: s, turned: 0 };
+        this.app.hint(ev.sx, ev.sy, this.opt.arcMode === 'centre' ? 'Drag from the centre to the start' : 'Drag from one end to the other');
+      } else this.arc.stage = 2;
+      this.arcMove(ev, s);
+    }
+    arcMove(ev, snapped) {
+      const A = this.arc;
+      if (!A) return;
+      const s = this.snapNow = snapped || snapTo(this.app, ev, { from: A.a, force15: A.stage === 1 && this.cad.ortho });
+      if (A.stage === 1) { A.b = s; this.item = null; }
+      else this.item = this.arcThrough(s);
+      this.app.requestDrawLive();
+    }
+    arcUp() {
+      const A = this.arc, app = this.app;
+      if (!A) return;
+      if (A.stage === 1) {
+        if (U.dist(A.a.x, A.a.y, A.b.x, A.b.y) * app.camera.zoom < 6) { this.cancel(); return; }
+        A.stage = 1.5;
+        if (app.pointer) app.hint(app.pointer.sx, app.pointer.sy, this.opt.arcMode === 'centre' ? 'Now drag round to where it ends' : 'Now press where the arc passes');
+        return;
+      }
+      const it = this.item;
+      this.cancel();
+      if (!it || it.kind !== 'moment' || !(Math.abs(it.sweep) > 0.5)) return;
+      app.scene.begin('arc'); app.scene.add(it); app.scene.commit();
+      app.finishCreate(it);
+      app.afterEdit();
+    }
+    /** the arc for a pointer at p, at the second go */
+    arcThrough(p) {
+      const A = this.arc, o = this.opt;
+      const base = { color: o.color, size: o.size, alpha: o.alpha, dash: o.dash, fill: 'none', head1: 'none', head2: 'none', headScale: o.headScale || 1 };
+      const deg = (c, q) => Math.atan2(c.y - q.y, q.x - c.x) * 180 / Math.PI;   // anticlockwise from east, as on paper
+      let c, r, a0, sweep;
+      if (o.arcMode === 'centre') {
+        c = A.a; r = Math.hypot(A.b.x - c.x, A.b.y - c.y);
+        a0 = deg(c, A.b);
+        // which way round: followed as the pen goes, so past a half turn it keeps going
+        const want = ((deg(c, p) - a0) % 360 + 540) % 360 - 180, was = A.turned;
+        let t = want;
+        while (t - was > 180) t -= 360;
+        while (t - was < -180) t += 360;
+        A.turned = sweep = t;
+      } else {
+        const a = A.a, b = A.b, d = 2 * (a.x * (b.y - p.y) + b.x * (p.y - a.y) + p.x * (a.y - b.y));
+        if (Math.abs(d) < 1e-9) return mk.shape({ ...base, kind: 'line', x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y });
+        const a2 = a.x * a.x + a.y * a.y, b2 = b.x * b.x + b.y * b.y, p2 = p.x * p.x + p.y * p.y;
+        c = { x: (a2 * (b.y - p.y) + b2 * (p.y - a.y) + p2 * (a.y - b.y)) / d, y: (a2 * (p.x - b.x) + b2 * (a.x - p.x) + p2 * (b.x - a.x)) / d };
+        r = Math.hypot(a.x - c.x, a.y - c.y);
+        a0 = deg(c, a);
+        const span = ((deg(c, b) - a0) % 360 + 360) % 360, toP = ((deg(c, p) - a0) % 360 + 360) % 360;
+        sweep = toP <= span ? span : span - 360;            // the way round that passes through p
+      }
+      return mk.shape({ ...base, kind: 'moment', x: c.x - r, y: c.y - r, w: 2 * r, h: 2 * r, a0, sweep });
+    }
+
     cancel() {
+      this.arc = null;
       this.item = null; this.poly = null; this.snapNow = null;
       this.app.hideHint();
       this.app.renderer.clearLive();
@@ -500,6 +573,28 @@
 
     paint(r) {
       const app = this.app;
+      if (this.arc && !this.item) {
+        // the first go: the chord, or the radius, as a faint line
+        const A = this.arc, ctx = r.liveWorld(), z = app.camera.zoom;
+        ctx.save();
+        ctx.strokeStyle = '#4f6bff'; ctx.lineWidth = 1.2 / z; ctx.setLineDash([5 / z, 4 / z]);
+        ctx.beginPath(); ctx.moveTo(A.a.x, A.a.y); ctx.lineTo(A.b.x, A.b.y); ctx.stroke();
+        ctx.restore();
+        if (D.cad) {
+          D.cad.paintSnap(r, this.snapNow, A.a);
+          if (A.stage === 1) D.cad.paintReadout(r, app.pointer, this.opt.arcMode === 'centre'
+            ? ['R ' + D.cad.fmtLen(app.scene, U.dist(A.a.x, A.a.y, A.b.x, A.b.y))] : D.cad.lineReadout(app.scene, A.a, A.b));
+        }
+        return;
+      }
+      if (this.arc && this.item) {
+        r.drawItem(r.liveWorld(), this.item);
+        if (D.cad && this.item.kind === 'moment') {
+          D.cad.paintSnap(r, this.snapNow, null);
+          D.cad.paintReadout(r, app.pointer, ['R ' + D.cad.fmtLen(app.scene, this.item.w / 2), '∠ ' + D.cad.fmtAng(Math.abs(this.item.sweep))]);
+        }
+        return;
+      }
       if (this.poly) {
         const ctx = r.liveWorld();
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';

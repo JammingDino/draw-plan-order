@@ -52,6 +52,7 @@
     diamond: svg('M12 3l9 9-9 9-9-9z'),
     triangle: svg('M12 4l8 15H4z'),
     polygon: svg('M12 3.5l7.4 4.25v8.5L12 20.5l-7.4-4.25v-8.5z'),
+    arc: svg('M4 18a9 9 0 0 1 16 0|M4 18h.01|M20 18h.01'),
     text: svg('M5 6V4h14v2|M12 4v16|M9 20h6'),
     note: svg('M5 4h14v10l-5 6H5z|M19 14h-5v6'),
     node: svg('M9 3.2h6v4.4H9z|M2.6 16h5v4.4h-5z|M16.4 16h5v4.4h-5z|M12 7.6v2.9|M5.1 16v-5.5h13.8V16'),
@@ -119,7 +120,7 @@
             ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle'], ['polygon', ICON.polygon, 'Polygon'],
             ['line', ICON.line, 'Line · L'], ['arrow', ICON.arrow, 'Arrow · A'],
             ['polyline', ICON.polyline, 'Polyline — tap the last point to finish'],
-            ['force', ICON.force, 'Force arrow'], ['moment', ICON.moment, 'Moment arrow']
+            ['force', ICON.force, 'Force arrow'], ['moment', ICON.moment, 'Moment arrow'], ['arc', ICON.arc, 'Arc — through three points, or centre, start and end']
           ], get: () => app.opts.shape.kind, set: k => { app.opts.shape.kind = k; }
         },
         { id: 'text', icon: ICON.text, key: 'T', title: 'Text · T' },
@@ -684,14 +685,14 @@
 
     panelShape() {
       const app = this.app, o = app.opts.shape, cad = app.opts.cad;
-      const lineish = ['line', 'arrow', 'force', 'polyline'].includes(o.kind), open = lineish || o.kind === 'moment';
+      const lineish = ['line', 'arrow', 'force', 'polyline'].includes(o.kind), open = lineish || o.kind === 'moment' || o.kind === 'arc';
       const pick = v => { if (app.tools.shape.poly) app.tools.shape.cancel(); o.kind = v; this.refresh(); };
       const heads = lineish && o.heads ? (o.heads[o.kind] || ['none', 'none']) : null;
       const setHead = (i, v) => { const h = heads.slice(); h[i] = v; o.heads[o.kind] = h; };
       this.add(
         this.group('Shape',
           this.iconSeg([['rect', ICON.rect, 'Rectangle'], ['ellipse', ICON.ellipse, 'Ellipse'], ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle'], ['polygon', ICON.polygon, 'Polygon']], o.kind, pick),
-          this.iconSeg([['line', ICON.line, 'Line'], ['arrow', ICON.arrow, 'Arrow'], ['polyline', ICON.polyline, 'Polyline'], ['force', ICON.force, 'Force arrow'], ['moment', ICON.moment, 'Moment arrow']], o.kind, pick)),
+          this.iconSeg([['line', ICON.line, 'Line'], ['arrow', ICON.arrow, 'Arrow'], ['polyline', ICON.polyline, 'Polyline'], ['force', ICON.force, 'Force arrow'], ['moment', ICON.moment, 'Moment arrow'], ['arc', ICON.arc, 'Arc']], o.kind, pick)),
         app.tools.shape.poly ? this.group('', el('button', { class: 'btn primary', onclick: () => app.tools.shape.finishPoly() }, 'Finish the line')) : null,
         this.group('Stroke', this.swatches(this.palette(), o.color, c => o.color = c)),
         !open ? this.group('Fill', this.swatches(FILL, o.fill, c => o.fill = c, false), this.hatchSeg(o.hatch, v => o.hatch = v)) : null,
@@ -699,6 +700,7 @@
         this.group('Line', this.lineStyles(o.dash, v => o.dash = v)),
         heads ? this.endsGroup(heads, setHead) : null,
         open ? this.group('Head size', this.seg([[0.7, 'S'], [1, 'M'], [1.4, 'L'], [2, 'XL']], o.headScale || 1, v => o.headScale = v)) : null,
+        o.kind === 'arc' ? this.group('Arc', this.seg([['3pt', 'Through 3 points'], ['centre', 'Centre, start, end']], o.arcMode || '3pt', v => { app.tools.shape.cancel(); o.arcMode = v; })) : null,
         o.kind === 'moment' ? this.group('Turns', this.seg([[true, '↺ Anticlockwise'], [false, '↻ Clockwise']], o.ccw !== false, v => o.ccw = v)) : null,
         !open && cad ? this.group('Draw',
           this.check('Square / circle', !!cad.square, v => { cad.square = v; }),
@@ -850,7 +852,8 @@
         const heads = D.headsOf(lines[0]);
         out.push(this.endsGroup(heads, (i, v) => apply(it => { if (D.isLine(it)) { const h = D.headsOf(it); h[i] = v; it.head1 = h[0]; it.head2 = h[1]; delete it.arrowStart; } })));
       }
-      if (opens.length) out.push(this.group('Head size', this.seg([[0.7, 'S'], [1, 'M'], [1.4, 'L'], [2, 'XL']], opens[0].headScale || 1,
+      // an arc with no heads has no head to size
+      if (opens.some(o => D.headsOf(o).some(h => h !== 'none'))) out.push(this.group('Head size', this.seg([[0.7, 'S'], [1, 'M'], [1.4, 'L'], [2, 'XL']], opens[0].headScale || 1,
         v => apply(it => { if (D.isOpenShape(it)) it.headScale = v; }))));
       const m = sel.length === 1 && sel[0].kind === 'moment' && sel[0];
       if (m) out.push(this.group('Turns', this.seg([[true, '↺ Anticlockwise'], [false, '↻ Clockwise']], (m.sweep ?? 270) > 0,

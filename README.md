@@ -153,6 +153,14 @@ drawings, and for a pen alone — nothing needs a key held down.
   or press Enter to finish), a heavy **force** arrow and a circular
   **moment** arrow (press at the centre, lift where the head goes;
   anticlockwise or clockwise in the panel).
+- **Arcs.** The shapes flyout has an arc, drawn in two goes as a pen
+  wants. *Through 3 points*: drag from one end to the other and lift,
+  then press where the arc passes. *Centre, start, end*: drag from the
+  centre to where it starts, lift, then drag round to where it ends — as
+  far round as the pen goes, either way. Every point snaps, and the
+  radius and angle ride beside the pen. An arc is a moment arrow without
+  heads, so its panel sets the radius and sweep exactly, and it can be
+  dimensioned for its radius.
 - **Polygons.** The shapes flyout has a regular polygon — a hexagon to
   start with, and 3 to 12 sides on the *Sides* slider in its panel. In a
   square box (Shift, or *Square / circle*) it is regular, with a corner
