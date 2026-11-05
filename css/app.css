@@ -570,3 +570,7 @@ body.fold-view #viewbar-tab{display:grid}
 /* a field a pen writes into through the app's own pad (U.penField): no
    system handwriting panel over it */
 .pen-field{touch-action:none}
+/* recording sound (js/audio.js): the microphone glows red while it listens */
+#btn-record.recording{color:#e5484d;background:#e5484d1f;animation:rec-pulse 1.6s ease-in-out infinite}
+@keyframes rec-pulse{50%{background:#e5484d38}}
+@media (prefers-reduced-motion:reduce){#btn-record.recording{animation:none}}

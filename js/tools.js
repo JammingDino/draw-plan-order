@@ -30,6 +30,7 @@
         blend: this.kind === 'highlighter' ? 'multiply' : 'source-over',
         taper: this.kind === 'highlighter' || o.nib === 'chisel' ? 0 : o.size * 2.5
       });
+      this.item._t0 = performance.now();      // when it was begun (audio.js keeps it in step with a recording)
       // a chisel nib (calligraphy): kept on the stroke, so it is drawn as it was written whatever the pen is now
       if (this.kind === 'pen' && o.nib === 'chisel') { this.item.nib = 'chisel'; this.item.nibAngle = o.nibAngle ?? 40; }
       this.raw = [];

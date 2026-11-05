@@ -195,6 +195,19 @@ drawings, and for a pen alone — nothing needs a key held down.
 Long-press anywhere for *Measure from here*; on a line, *Dimension this*
 and *Set drawing scale…*.
 
+### Recording sound
+
+The microphone in the top bar records, as OneNote and Samsung Notes do,
+and every pen stroke written meanwhile remembers when in the recording it
+was begun. Tap the microphone again (it glows red while it listens) and
+the recording lands on the board as a clip: double-tap it to play or
+pause, and as it plays the ink written at each moment is picked out, so
+the writing follows the voice. Long-press any of that ink for **Play
+from here**, which starts the recording two seconds before the stroke —
+the explanation of the line you were writing. The sound is kept with
+the board like a picture, so it is saved, synced and exported in a
+`.board` with it.
+
 ### Zoom pad
 
 The zoom pad button in the zoom bar opens a strip along the bottom of the
@@ -751,6 +764,7 @@ anything is written over it.
 | `js/style.js` | Copy style and paste style |
 | `js/stencils.js` | The ruler and protractor |
 | `js/zoompad.js` | The zoom pad: write large, and it lands small |
+| `js/audio.js` | Recording sound, kept in step with the ink |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after
