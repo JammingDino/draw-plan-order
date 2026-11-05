@@ -89,6 +89,8 @@ test('a turned box exports as SVG turned about its centre', async () => {
   const { D, app, made: [r] } = rig(D => [D.make.shape({ kind: 'rect', x: 0, y: 0, w: 40, h: 20, rot: Math.PI / 6 })]);
   const svg = await app.renderer.toSVG(app.scene, app.scene.contentBounds(), { theme: 'light', dark: false, transparent: true });
   assert.match(svg, /<g transform="rotate\(30 20 10\)">/);
+  // and turned once: the outline inside is the box as it stands unturned
+  assert.match(svg, /<path d="M0,0L40,0L40,20L0,20L0,0"/);
 });
 
 test('align: left edges, centres and bottoms, a group moving as one piece', () => {

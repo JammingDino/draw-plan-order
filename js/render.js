@@ -1436,7 +1436,8 @@
           return `<g${op}><path d="${svgShaft(L)}" fill="none" stroke="${col}" stroke-width="${it.size}" stroke-linejoin="round" stroke-linecap="round"${dash}/>` +
             svgHeads(L.heads, col, it.size) + dots + '</g>';
         }
-        const pts = scene.outlinePoints(it).map(v => U.round(v, 1));
+        // unturned: the export turns the whole item about its middle (toSVG)
+        const pts = scene.outlinePoints(it, true).map(v => U.round(v, 1));
         const d = 'M' + pts.filter((_, i) => i % 2 === 0).map((x, i) => `${x},${pts[i * 2 + 1]}`).join('L');
         const fill = it.fill && it.fill !== 'none' ? U.color(it.fill) : 'none';
         return `<path d="${d}" fill="${fill}" stroke="${col}" stroke-width="${it.size}" stroke-linejoin="round" stroke-linecap="round"${dash}${op}/>`;
@@ -1456,7 +1457,7 @@
         return `<g${op}><rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" rx="6" fill="${U.color(it.color)}"/>` +
           svgText(scene, { ...it, x: it.x + 14, y: it.y + 14, w: it.w - 28, color: it.textColor || '#22252c' }) + '</g>';
       case 'node': {
-        const pts = scene.outlinePoints({ ...it, type: 'shape', kind: it.kind === 'decision' ? 'diamond' : 'rect' }).map(v => U.round(v, 1));
+        const pts = scene.outlinePoints({ ...it, type: 'shape', kind: it.kind === 'decision' ? 'diamond' : 'rect' }, true).map(v => U.round(v, 1));
         const d = 'M' + pts.filter((_, i) => i % 2 === 0).map((x, i) => `${x},${pts[i * 2 + 1]}`).join('L') + 'Z';
         const L = scene.layout({ text: it.text, size: it.textSize || 15, w: it.w - 20 });
         const top = it.y + (it.h - L.lines.length * L.lh) / 2 + L.base;
