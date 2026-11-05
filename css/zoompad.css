@@ -1,0 +1,11 @@
+/* ── the zoom pad (js/zoompad.js) ─────────────────────────────────────── */
+.zoompad{position:fixed;left:84px;right:16px;bottom:12px;height:clamp(170px,32vh,300px);z-index:40;
+  display:flex;flex-direction:column;background:var(--panel-solid);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.zp-bar{display:flex;align-items:center;gap:4px;padding:4px 6px;border-bottom:1px solid var(--stroke)}
+.zp-btn{min-width:40px;height:34px;border-radius:8px;font-size:16px;color:var(--text)}
+.zp-btn:hover{background:var(--accent-soft)}
+.zp-gap{flex:1}
+.zp-mag{min-width:48px;text-align:center;font-size:12px;color:var(--muted)}
+.zp-canvas{flex:1;min-height:0;width:100%;touch-action:none;cursor:crosshair}
+/* the zoom bar steps up out of its way */
+body.zoompad-open #viewbar{bottom:calc(clamp(170px,32vh,300px) + 22px)}

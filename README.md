@@ -195,6 +195,20 @@ drawings, and for a pen alone — nothing needs a key held down.
 Long-press anywhere for *Measure from here*; on a line, *Dimension this*
 and *Set drawing scale…*.
 
+### Zoom pad
+
+The zoom pad button in the zoom bar opens a strip along the bottom of the
+window, as Samsung Notes has: it shows a small box of the board, enlarged
+(three times at first; − and + change it), and what you write in it lands
+on the board in that box at its true size — for neat small handwriting,
+or the margins of a dense PDF, without zooming the whole board in and
+out. The box is outlined on the board; drag its tab to put it somewhere
+else. Lift the pen in the shaded end of the strip and the box moves on
+along the line, and back to the start of the next line once it reaches
+the edge of the view; ◀ ▶ and ↵ do the same by hand, and a finger
+dragged on the strip slides the board under it. The pen, highlighter or
+eraser in hand works in it, smoothing, shape snapping and undo included.
+
 ### Ruler and protractor
 
 The ruler and protractor buttons in the zoom bar lay one over the board,
@@ -736,6 +750,7 @@ anything is written over it.
 | `js/search.js` | Search the board, PDFs' words included |
 | `js/style.js` | Copy style and paste style |
 | `js/stencils.js` | The ruler and protractor |
+| `js/zoompad.js` | The zoom pad: write large, and it lands small |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after
