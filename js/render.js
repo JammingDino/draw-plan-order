@@ -970,15 +970,25 @@
 
     drawImage(ctx, it) {
       const p = this.picture(it);
-      if (p.img && (it.flipX || it.flipY)) {
-        // mirrored in its own box (Scene.flipItem)
-        ctx.save();
+      if (!p.img) { ctx.fillStyle = '#8884'; ctx.fillRect(it.x, it.y, it.w, it.h); return; }
+      ctx.save();
+      // mirrored in its own box (Scene.flipItem)
+      if (it.flipX || it.flipY) {
         ctx.translate(it.flipX ? 2 * it.x + it.w : 0, it.flipY ? 2 * it.y + it.h : 0);
         ctx.scale(it.flipX ? -1 : 1, it.flipY ? -1 : 1);
-        ctx.drawImage(p.img, it.x, it.y, it.w, it.h);
-        ctx.restore();
-      } else if (p.img) ctx.drawImage(p.img, it.x, it.y, it.w, it.h);
-      else { ctx.fillStyle = '#8884'; ctx.fillRect(it.x, it.y, it.w, it.h); }
+      }
+      const c = D.cropOf(it);
+      if (!it.crop) ctx.drawImage(p.img, it.x, it.y, it.w, it.h);
+      else {
+        const nw = p.img.naturalWidth || p.img.width, nh = p.img.naturalHeight || p.img.height;
+        // being cropped (App.startCrop): the rest of the picture, faint, to drag the edges back out over
+        if (this.app.cropping === it && ctx === this.bctx) {
+          const W = D.wholeOf(it, false);
+          ctx.globalAlpha *= 0.3; ctx.drawImage(p.img, W.x, W.y, W.w, W.h); ctx.globalAlpha /= 0.3;
+        }
+        ctx.drawImage(p.img, c[0] * nw, c[1] * nh, (c[2] - c[0]) * nw, (c[3] - c[1]) * nh, it.x, it.y, it.w, it.h);
+      }
+      ctx.restore();
     }
 
     /**
@@ -1516,7 +1526,12 @@
       case 'image': {
         const m = it.flipX || it.flipY
           ? ` transform="translate(${it.flipX ? 2 * it.x + it.w : 0} ${it.flipY ? 2 * it.y + it.h : 0}) scale(${it.flipX ? -1 : 1} ${it.flipY ? -1 : 1})"` : '';
-        return `<image x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" href="${U.escapeXml(hrefs.get(it) || '')}" preserveAspectRatio="none"${m}${op}/>`;
+        const href = U.escapeXml(hrefs.get(it) || '');
+        if (!it.crop) return `<image x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" href="${href}" preserveAspectRatio="none"${m}${op}/>`;
+        // cropped: the whole picture where it lies, clipped to the box
+        const W = D.wholeOf(it, false), id = 'c' + String(it.id).replace(/[^\w-]/g, '');
+        return `<g${op}><clipPath id="${id}"><rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}"/></clipPath>` +
+          `<g clip-path="url(#${id})"><image x="${U.round(W.x, 3)}" y="${U.round(W.y, 3)}" width="${U.round(W.w, 3)}" height="${U.round(W.h, 3)}" href="${href}" preserveAspectRatio="none"${m}/></g></g>`;
       }
       case 'pdfpage': {
         const href = hrefs.get(it);

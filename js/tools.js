@@ -980,6 +980,9 @@
         });
         app.requestDraw();
       }
+      else if (this.mode === 'resize' && app.cropping && app.selection.length === 1 && app.selection[0] === app.cropping) {
+        this.cropMove(ev);
+      }
       else if (this.mode === 'resize') {
         const f = this.frame, h = this.handle;
         /* Square, in board units; turned, in the frame's own: the pointer
@@ -1064,6 +1067,32 @@
         app.select([...new Set([...this.baseSel, ...sel])], true);
         app.requestDrawLive();
       }
+    }
+
+    /* ── cropping a picture (App.startCrop) ─────────────────────────
+       A handle moves that edge over the picture, which stays where it
+       is: as far out as the whole picture goes, and never past the
+       opposite edge. Worked in the picture's own frame, so a turned one
+       crops along its own sides. */
+    cropMove(ev) {
+      const app = this.app, it = app.selection[0], s = this.snapshot[0], h = this.handle;
+      const rot = s.rot || 0, c = { x: s.x + s.w / 2, y: s.y + s.h / 2 };
+      const q = rot ? D.turnPoints([ev.x, ev.y], c.x, c.y, -rot) : [ev.x, ev.y];
+      const px = q[0] + this.grabOff.x, py = q[1] + this.grabOff.y;
+      const W = D.wholeOf(s), min = 8 / app.camera.zoom;
+      let x0 = s.x, y0 = s.y, x1 = s.x + s.w, y1 = s.y + s.h;
+      if (h.includes('w')) x0 = U.clamp(px, W.x, x1 - min);
+      if (h.includes('e')) x1 = U.clamp(px, x0 + min, W.x + W.w);
+      if (h.includes('n')) y0 = U.clamp(py, W.y, y1 - min);
+      if (h.includes('s')) y1 = U.clamp(py, y0 + min, W.y + W.h);
+      app.scene.touch(it);
+      D.setShownCrop(it, [(x0 - W.x) / W.w, (y0 - W.y) / W.h, (x1 - W.x) / W.w, (y1 - W.y) / W.h]);
+      // the new box's middle, carried round with the picture's turn
+      let mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      if (rot) { const m = D.turnPoints([mx, my], c.x, c.y, rot); mx = m[0]; my = m[1]; }
+      it.w = x1 - x0; it.h = y1 - y0; it.x = mx - it.w / 2; it.y = my - it.h / 2;
+      this.guides = null;
+      app.requestDraw();
     }
 
     /* ── a single line's handles ────────────────────────────────────

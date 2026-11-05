@@ -111,7 +111,7 @@
     const one = sel.length === 1 ? sel[0] : null;
     const edit = one && app.canEdit(one) ? {
       id: 'edit', icon: ICON.edit, run: () => app.editItem(one),
-      label: one.type === 'edge' ? (one.label ? 'Edit label' : 'Add a label') : TEXTY.has(one.type) ? 'Edit text' : 'Edit'
+      label: one.type === 'edge' ? (one.label ? 'Edit label' : 'Add a label') : TEXTY.has(one.type) ? 'Edit text' : one.type === 'image' ? 'Crop' : 'Edit'
     } : null;
     return {
       tiles: [

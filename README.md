@@ -303,6 +303,16 @@ board that has pages goes on after the last of them. Pages are what
 PDF goes back as the same pages, at their own size, with your writing
 on them.
 
+### Cropping pictures
+
+Double-tap a picture (or *Crop* on its long-press menu or in its panel)
+and its handles move its edges over it instead of stretching it: drag
+one in to cut that side off. The part cut off stays faintly round it
+while you crop, so dragging the edge back out brings it back — nothing
+is thrown away, and *Show it all* puts the whole picture back at once.
+Enter, or selecting something else, finishes. A turned picture crops
+along its own sides, and a flipped one the way it is seen.
+
 ### PDFs
 
 Drag a PDF onto the canvas (or ☰ → **Add a PDF**) and its pages are laid out

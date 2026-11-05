@@ -28,8 +28,6 @@ into `master` (every push to `master` ships an update to installed copies).
 
 Roughly in order of how much each would help a student working with a pen.
 
-- **Crop pictures.** Pasted screenshots of lecture slides nearly always
-  need it.
 - **Version history.** "This board as it was yesterday": keep snapshots on
   each save (thinned out with age) and let one be opened or restored.
 - **Present.** Step through the pages full screen (16:9 slide pages exist

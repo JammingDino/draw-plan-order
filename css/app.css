@@ -144,6 +144,7 @@ input[type=range]{width:100%;accent-color:var(--accent);background:none}
 .actions{display:flex;gap:4px}
 .actions .icon{flex:1 1 0;width:auto;min-width:0}
 .actions .icon.danger:hover{background:#e5484d1f;color:#e5484d}
+.actions .btn{flex:1 1 0;min-width:0;padding-left:6px;padding-right:6px;white-space:nowrap}
 
 /* ── View bar ──────────────────────────────────────────────────────── */
 #viewbar{left:12px;bottom:12px;display:flex;align-items:center;gap:2px;padding:5px}

@@ -153,6 +153,34 @@
   }
   const arcPoint = (A, t) => ({ x: A.cx + A.rx * Math.cos(t), y: A.cy - A.ry * Math.sin(t) });
 
+  /* A picture cropped: `crop` [l, t, r, b], the part of the picture
+     shown, as fractions of the whole picture across and down as it is
+     stored — before flipX / flipY mirror it. Its box is what shows; the
+     whole picture lies round it, and dragging an edge out again brings
+     back what was cut off. */
+  const NO_CROP = [0, 0, 1, 1];
+  const cropOf = it => (it.crop && it.crop.length === 4 ? it.crop : NO_CROP);
+  /** the crop as it is seen, mirrored with the picture */
+  function shownCrop(it) {
+    let [l, t, r, b] = cropOf(it);
+    if (it.flipX) [l, r] = [1 - r, 1 - l];
+    if (it.flipY) [t, b] = [1 - b, 1 - t];
+    return [l, t, r, b];
+  }
+  function setShownCrop(it, c) {
+    let [l, t, r, b] = c;
+    if (it.flipX) [l, r] = [1 - r, 1 - l];
+    if (it.flipY) [t, b] = [1 - b, 1 - t];
+    if (l < 1e-6 && t < 1e-6 && r > 1 - 1e-6 && b > 1 - 1e-6) delete it.crop;
+    else it.crop = [Math.max(0, l), Math.max(0, t), Math.min(1, r), Math.min(1, b)];
+  }
+  /** where the whole picture lies, uncropped, in its own unturned frame; `shown` false: before the mirror */
+  function wholeOf(it, shown = true) {
+    const [l, t, r, b] = shown ? shownCrop(it) : cropOf(it);
+    const W = it.w / (r - l), H = it.h / (b - t);
+    return { x: it.x - l * W, y: it.y - t * H, w: W, h: H };
+  }
+
   /* A regular polygon, kind 'polygon': `sides` corners (3–12, six by
      default) on the ellipse in its box, the first straight up — so a
      square box gives a true hexagon, and the box's own handles stretch
@@ -1488,6 +1516,10 @@
   D.curveCtrl = curveCtrl;
   D.arcOf = arcOf;
   D.polygonPoints = polygonPoints;
+  D.cropOf = cropOf;
+  D.shownCrop = shownCrop;
+  D.setShownCrop = setShownCrop;
+  D.wholeOf = wholeOf;
   D.arcPoint = arcPoint;
   D.pointAlong = pointAlong;
   D.nearestAlong = nearestAlong;

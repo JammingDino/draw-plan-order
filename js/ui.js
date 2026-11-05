@@ -823,6 +823,12 @@
         has('edge') ? this.group('Route', this.seg([['elbow', 'Elbow'], ['line', 'Direct'], ['curve', 'Curve']], first.style, v => apply(it => { if (it.type === 'edge') { it.style = v; it._b = null; } }))) : null,
         ...this.lineGroups(sel),
         this.measureGroup(sel),
+        sel.length === 1 && first.type === 'image' ? this.group('Picture', el('div', { class: 'actions' },
+          app.cropping === first
+            ? el('button', { class: 'btn primary', type: 'button', onclick: () => app.endCrop() }, 'Done')
+            : el('button', { class: 'btn', type: 'button', onclick: () => app.startCrop(first) }, 'Crop'),
+          first.crop ? el('button', { class: 'btn', type: 'button', onclick: () => app.uncrop(first) }, 'Show it all') : null),
+          app.cropping === first ? this.hintText('Drag the handles to cut the edges in, or back out over the faint part. Enter when done.') : null) : null,
         this.calibrateFor(sel),
         this.arrangeGroup(sel)
       );

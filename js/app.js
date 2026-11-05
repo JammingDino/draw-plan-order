@@ -471,6 +471,8 @@
       const was = this.selection;
       // a locked thing is never selected, however it was reached: a tap, a box, Ctrl+A, a page's contents
       this.selection = items.filter(it => it && !it.locked);
+      // cropping lasts while the picture being cropped is all that is selected
+      if (this.cropping && !(this.selection.length === 1 && this.selection[0] === this.cropping)) this.endCrop();
       /* The selection box turns with what it holds: a turned box, or
          several turned alike, are framed at their angle; anything else
          starts square, and turns as it is turned (rotateSelection, the
@@ -1079,7 +1081,38 @@
     canEdit(it) {
       const xt = D.ext.items[it.type];
       if (xt) return !!xt.edit;
-      return it.type === 'text' || it.type === 'note' || it.type === 'node' || it.type === 'edge';
+      return it.type === 'text' || it.type === 'note' || it.type === 'node' || it.type === 'edge' || it.type === 'image';
+    }
+
+    /**
+     * Crop a picture: while it lasts, the picture's handles move its
+     * edges over the picture instead of stretching it, and the part cut
+     * off shows faintly round it to drag them back out over. Selecting
+     * anything else, Enter or Escape ends it.
+     */
+    startCrop(it) {
+      if (!it || it.type !== 'image' || it.locked) return;
+      this.setTool('select');
+      this.select([it]);
+      this.cropping = it;
+      this.renderer.invalidate(); this.requestDraw(); this.requestDrawLive();
+      if (this.ui) this.ui.refresh();
+    }
+    endCrop() {
+      if (!this.cropping) return;
+      this.cropping = null;
+      this.renderer.invalidate(); this.requestDraw(); this.requestDrawLive();
+      if (this.ui) this.ui.refresh();
+    }
+    /** show all of a cropped picture again, as one undo step */
+    uncrop(it) {
+      if (!it || !it.crop) return;
+      const W = D.wholeOf(it), rot = it.rot || 0, c = { x: it.x + it.w / 2, y: it.y + it.h / 2 };
+      this.scene.begin('uncrop'); this.scene.touch(it);
+      let x = W.x, y = W.y;
+      if (rot) { const m = D.turnPoints([W.x + W.w / 2, W.y + W.h / 2], c.x, c.y, rot); x = m[0] - W.w / 2; y = m[1] - W.h / 2; }
+      it.x = x; it.y = y; it.w = W.w; it.h = W.h; delete it.crop;
+      this.scene.commit(); this.afterEdit();
     }
 
     /** edit it in place, as a double-click or F2 would; selects it first */
@@ -1087,6 +1120,7 @@
       const xt = D.ext.items[it.type];
       if (xt) { if (xt.edit) { this.select([it]); xt.edit(this, it); } return; }
       if (it.type === 'edge') { this.editLabel(it); return; }
+      if (it.type === 'image') { this.startCrop(it); return; }
       if (it.type === 'text' || it.type === 'note' || it.type === 'node') { this.select([it]); this.editor.open(it, { selectAll: false }); }
     }
 
@@ -1161,6 +1195,7 @@
         return;
       }
       if (k === 'Tab' && this.selection.length === 1 && this.selection[0].type === 'node') { e.preventDefault(); this.tree.addChild(this.selection[0]); return; }
+      if (k === 'Enter' && this.cropping) { e.preventDefault(); this.endCrop(); return; }
       if (k === 'Enter' && this.selection.length === 1) {
         e.preventDefault();
         const it = this.selection[0];
