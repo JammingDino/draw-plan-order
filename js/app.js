@@ -33,6 +33,8 @@
         pen: { color: 'ink', size: 3, alpha: 1, thinning: 0.6, smooth: 0.5 },
         highlighter: { color: '#ffe066', size: 22, alpha: 0.4, smooth: 0.5 },
         eraser: { mode: 'object', size: 26 },
+        /* Pens kept to come back to: [{ tool: 'pen' | 'highlighter', o: { …that tool's opts } }] (UI.favourites) */
+        favourites: { pens: [] },
         shape: { kind: 'rect', color: 'ink', size: 3, alpha: 1, fill: 'none', dash: 0, radius: 10 },
         text: { color: 'ink', size: 20, font: 'sans', align: 'left' },
         note: { color: '#ffe58a', size: 16 },
@@ -1177,6 +1179,8 @@
       if (k === '[') { this.arrange('back'); return; }
       if (k === '!' || (e.shiftKey && k === '1')) { this.zoomToFit(); return; }
 
+      // Alt+1 … Alt+8: the favourite pens, in their order in the panel
+      if (e.altKey && /^Digit[1-8]$/.test(e.code || '')) { e.preventDefault(); this.ui.useFavourite(+e.code.slice(5) - 1); return; }
       if (/^[1-8]$/.test(k)) {
         const pal = this.ui.palette();
         const c = pal[+k - 1];

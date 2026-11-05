@@ -79,6 +79,7 @@ saved work — handy for trying something out.
 | **Scribble** back and forth over ink | The ink underneath is rubbed out, with an *Undo* toast. Handwriting and normal loops are not mistaken for scribbles. |
 | **Flip the Surface Pen** and rub | Erases, whatever tool you had selected. Let go and you are back on your previous tool. A ring shows the eraser's size, and appears as soon as the blunt end is in range — before you touch the glass — so you can see what you are about to take off. |
 | Draw a near-straight line | It is quietly straightened, and snapped to 0/45/90° if it is close. |
+| **Favourites** (pen and highlighter panels) | A row of pens kept to come back to, as Samsung Notes has. **+** keeps the pen in hand — colour, size, opacity, pressure, smoothing — and a tap on one takes it up again, switching between pen and highlighter if it needs to; <kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>8</kbd> do the same from the keyboard. With a favourite in hand the **+** becomes **−**, to forget it. |
 | **Smoothing** (pen and highlighter panels) | Steadies a shaky hand. While you draw it pulls hardest when the pen moves slowly, where a tremor shows; when you lift, the stroke is smoothed along its length, keeping its ends and its sharp corners. 50% to start with; *Off* is the old feel. |
 | **Low-latency ink** (☰ → Settings → Pen and touch) | The stroke you are writing goes on a layer of its own that skips the page's compositor on its way to the screen, so it keeps closer to the nib. Ink is only ever added to that layer while the pen is down, and a finished stroke stays on it until the board showing it has reached the screen, so nothing blinks. Selections, handles and the highlighter stay on the ordinary layer. On by default; if ink tears on your screen, turn it off (from the next start). `?perf` says which is in use. |
 | Erase over a PDF, image, sticky or node | Only your ink comes off. Those are hit-tested by their whole area, so an eraser stroke *across* one would otherwise delete the lot — remove them deliberately, with the select tool and <kbd>Delete</kbd>. |
@@ -550,7 +551,7 @@ most of the rest, against one in twelve before; the notes themselves —
 `N` node · `C` connector · `M` measure (hold its button for dimensions) · `F` page · `Y` graph · `S` symbols ·
 `Q` laser · `Space` pan (or middle-drag; the mouse's side buttons undo and redo, and Settings can make the wheel zoom) · `Enter` finishes a polyline or a measured path
 
-`1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
+`1`–`8` colour · `Alt+1`–`Alt+8` favourite pens · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
 `Ctrl+G` group · `Ctrl+Alt+C` / `Ctrl+Alt+V` copy and paste style · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Shift+H` / `Shift+V` flip · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+0` reset zoom · `Shift+1` zoom to fit · `Ctrl+'` cycle grid ·
 `Ctrl+F` search the board (`Enter` / `Shift+Enter` next and previous, `F3` too) ·

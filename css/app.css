@@ -119,6 +119,11 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .sw.on{box-shadow:0 0 0 2px var(--panel-solid),0 0 0 4px var(--accent)}
 .sw.custom{display:grid;place-items:center;overflow:hidden}
 .sw.custom input{position:absolute;inset:-8px;opacity:0;cursor:pointer}
+.favs{display:flex;flex-wrap:wrap;gap:5px}
+.fav{width:40px;height:30px;padding:2px 0;border-radius:8px;border:1px solid var(--stroke);display:grid;place-items:center}
+.fav svg{width:36px;height:22px}
+.fav.on{box-shadow:0 0 0 2px var(--accent);border-color:transparent}
+.fav.add{font-size:18px;line-height:1;color:var(--muted)}
 .swatch-rows{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;width:100%;min-width:0}
 .sw.blank{display:block;border-color:transparent;background:transparent;pointer-events:none}
 .sw.blank:hover{transform:none}

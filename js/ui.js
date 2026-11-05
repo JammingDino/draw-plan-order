@@ -591,6 +591,7 @@
     panelInk(kind, colors, sizeList) {
       const o = this.app.opts[kind];
       this.add(
+        this.favourites(kind),
         this.group('Colour', this.swatches(colors, o.color, c => o.color = c)),
         this.group('Size', this.sizes(sizeList, o.size, s => o.size = s, o.color)),
         this.slider('Opacity', o.alpha, 0.1, 1, 0.05, v => o.alpha = v, v => Math.round(v * 100) + '%'),
@@ -600,6 +601,59 @@
           this.check('Hold to snap shapes', this.app.opts.general.holdToSnap, v => this.app.opts.general.holdToSnap = v),
           this.check('Scribble to erase', this.app.opts.general.scribbleErase, v => this.app.opts.general.scribbleErase = v)) : null
       );
+    }
+
+    /* ── favourite pens ───────────────────────────────────────────
+       A row of pens kept to come back to, as Samsung Notes has: each is
+       a pen or a highlighter with everything its panel sets. A tap takes
+       it up, tool and all; + keeps the pen in hand; while a favourite is
+       in hand, − lets it go. Alt+1 … Alt+8 take them up by keys. */
+    favPens() {
+      const f = this.app.opts.favourites;
+      if (!Array.isArray(f.pens)) f.pens = [];
+      return f.pens.filter(p => p && (p.tool === 'pen' || p.tool === 'highlighter') && p.o && typeof p.o === 'object');
+    }
+    /** the favourite that is the pen in hand now, as an index, or -1 */
+    favInHand() {
+      const app = this.app, kind = app.toolName;
+      if (kind !== 'pen' && kind !== 'highlighter') return -1;
+      const o = app.opts[kind];
+      return this.favPens().findIndex(p => p.tool === kind && Object.keys(p.o).every(k => JSON.stringify(p.o[k]) === JSON.stringify(o[k])));
+    }
+    useFavourite(i) {
+      const p = this.favPens()[i];
+      if (!p) return false;
+      Object.assign(this.app.opts[p.tool], D.clone(p.o));
+      this.app.savePrefs();
+      if (this.app.toolName !== p.tool) this.app.setTool(p.tool); else this.refresh();
+      return true;
+    }
+    favourites(kind) {
+      const app = this.app, pens = this.favPens(), held = this.favInHand();
+      const row = el('div', { class: 'favs' });
+      pens.forEach((p, i) => {
+        const o = p.o, w = Math.max(1.5, Math.min(9, (o.size || 3) * (p.tool === 'highlighter' ? 0.4 : 0.9)));
+        const col = U.color(o.color || 'ink');
+        const b = el('button', {
+          class: 'fav' + (i === held ? ' on' : ''), type: 'button',
+          title: (p.tool === 'highlighter' ? 'Highlighter' : 'Pen') + (i < 8 ? ' · Alt+' + (i + 1) : ''),
+          html: `<svg viewBox="0 0 40 24"><path d="M5 17c5-9 9-11 12-6s6 5 9 0 6-6 9-3" fill="none" stroke="${U.escapeXml(col)}" stroke-width="${w}" stroke-opacity="${o.alpha ?? 1}" stroke-linecap="${p.tool === 'highlighter' ? 'butt' : 'round'}"/></svg>`
+        });
+        b.onclick = () => this.useFavourite(i);
+        row.append(b);
+      });
+      if (held >= 0) {
+        row.append(el('button', { class: 'fav add', type: 'button', title: 'Forget this favourite', 'aria-label': 'Forget this favourite', onclick: () => {
+          app.opts.favourites.pens = pens.filter((_, j) => j !== held);
+          app.savePrefs(); this.buildPanel();
+        } }, '−'));
+      } else if (pens.length < 8) {
+        row.append(el('button', { class: 'fav add', type: 'button', title: 'Keep this pen as a favourite', 'aria-label': 'Keep this pen as a favourite', onclick: () => {
+          app.opts.favourites.pens = [...pens, { tool: kind, o: D.clone(app.opts[kind]) }];
+          app.savePrefs(); this.buildPanel();
+        } }, '+'));
+      }
+      return this.group('Favourites', row);
     }
 
     panelEraser() {
