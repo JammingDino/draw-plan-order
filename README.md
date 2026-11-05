@@ -153,6 +153,11 @@ drawings, and for a pen alone — nothing needs a key held down.
   or press Enter to finish), a heavy **force** arrow and a circular
   **moment** arrow (press at the centre, lift where the head goes;
   anticlockwise or clockwise in the panel).
+- **Circles.** *Circle* in the shapes flyout is drawn out from its
+  centre — press on the centre (it snaps, to a corner or another
+  circle's centre, say) and drag out to the radius, in any direction. A
+  selected circle's panel has **Radius** and **Ø** fields in place of W
+  and H, which keep it about its centre.
 - **Arcs.** The shapes flyout has an arc, drawn in two goes as a pen
   wants. *Through 3 points*: drag from one end to the other and lift,
   then press where the arc passes. *Centre, start, end*: drag from the

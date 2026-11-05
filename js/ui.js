@@ -53,6 +53,7 @@
     triangle: svg('M12 4l8 15H4z'),
     polygon: svg('M12 3.5l7.4 4.25v8.5L12 20.5l-7.4-4.25v-8.5z'),
     arc: svg('M4 18a9 9 0 0 1 16 0|M4 18h.01|M20 18h.01'),
+    circle: svg('M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z|M12 12h8|M12 12h.01'),
     text: svg('M5 6V4h14v2|M12 4v16|M9 20h6'),
     note: svg('M5 4h14v10l-5 6H5z|M19 14h-5v6'),
     node: svg('M9 3.2h6v4.4H9z|M2.6 16h5v4.4h-5z|M16.4 16h5v4.4h-5z|M12 7.6v2.9|M5.1 16v-5.5h13.8V16'),
@@ -116,7 +117,7 @@
         { div: true },
         {
           id: 'shape', icon: ICON.shape, key: 'R', title: 'Shapes and arrows · R', flyout: [
-            ['rect', ICON.rect, 'Rectangle · R'], ['ellipse', ICON.ellipse, 'Ellipse · O'],
+            ['rect', ICON.rect, 'Rectangle · R'], ['ellipse', ICON.ellipse, 'Ellipse · O'], ['circle', ICON.circle, 'Circle — from its centre'],
             ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle'], ['polygon', ICON.polygon, 'Polygon'],
             ['line', ICON.line, 'Line · L'], ['arrow', ICON.arrow, 'Arrow · A'],
             ['polyline', ICON.polyline, 'Polyline — tap the last point to finish'],
@@ -691,7 +692,7 @@
       const setHead = (i, v) => { const h = heads.slice(); h[i] = v; o.heads[o.kind] = h; };
       this.add(
         this.group('Shape',
-          this.iconSeg([['rect', ICON.rect, 'Rectangle'], ['ellipse', ICON.ellipse, 'Ellipse'], ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle'], ['polygon', ICON.polygon, 'Polygon']], o.kind, pick),
+          this.iconSeg([['rect', ICON.rect, 'Rectangle'], ['ellipse', ICON.ellipse, 'Ellipse'], ['circle', ICON.circle, 'Circle, from its centre'], ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle'], ['polygon', ICON.polygon, 'Polygon']], o.kind, pick),
           this.iconSeg([['line', ICON.line, 'Line'], ['arrow', ICON.arrow, 'Arrow'], ['polyline', ICON.polyline, 'Polyline'], ['force', ICON.force, 'Force arrow'], ['moment', ICON.moment, 'Moment arrow'], ['arc', ICON.arc, 'Arc']], o.kind, pick)),
         app.tools.shape.poly ? this.group('', el('button', { class: 'btn primary', onclick: () => app.tools.shape.finishPoly() }, 'Finish the line')) : null,
         this.group('Stroke', this.swatches(this.palette(), o.color, c => o.color = c)),
@@ -900,7 +901,13 @@
       const norm = () => { if (it.w < 0) { it.x += it.w; it.w = -it.w; } if (it.h < 0) { it.y += it.h; it.h = -it.h; } };
       // turned anticlockwise, as angles are read everywhere else; `rot` itself is clockwise on screen
       const turn = it.rot ? -it.rot * 180 / Math.PI : 0;
+      // a circle is sized by its radius or diameter, about its centre
+      const round = it.type === 'shape' && it.kind === 'ellipse' && Math.abs(g.w - g.h) < 1e-6 * Math.max(1, g.w);
+      const across = d => { norm(); const c = { x: it.x + it.w / 2, y: it.y + it.h / 2 }; it.w = it.h = Math.max(d, 1e-6); it.x = c.x - it.w / 2; it.y = c.y - it.h / 2; };
       return this.group('Size and position',
+        round ? el('div', { class: 'num-pair' },
+          len('Radius', g.w / 2, r => across(2 * r), { min: 1e-6 }),
+          len('Ø', g.w, across, { min: 1e-6 })) :
         el('div', { class: 'num-pair' },
           len('W', g.w, w => { norm(); it.w = Math.max(w, 1e-6); }, { min: 1e-6 }),
           len('H', g.h, h => { norm(); it.h = Math.max(h, 1e-6); }, { min: 1e-6 })),

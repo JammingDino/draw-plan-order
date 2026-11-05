@@ -205,7 +205,7 @@
   }
 
   function labelFor(k) {
-    return { line: 'Straight line', arrow: 'Arrow', rect: 'Rectangle', ellipse: 'Ellipse', diamond: 'Diamond', triangle: 'Triangle', polygon: 'Polygon', arc: 'Arc' }[k] || 'Shape';
+    return { line: 'Straight line', arrow: 'Arrow', rect: 'Rectangle', ellipse: 'Ellipse', diamond: 'Diamond', triangle: 'Triangle', polygon: 'Polygon', arc: 'Arc', circle: 'Circle' }[k] || 'Shape';
   }
 
   function shapeFromRecognised(s, o) {
@@ -372,7 +372,8 @@
       if (lineish) this.item = mk.shape({ ...base, ...lineStyle(o, o.kind), fill: 'none' });
       else if (o.kind === 'moment') this.item = mk.shape({ ...base, kind: 'moment', fill: 'none', head1: 'none', head2: 'filled', headScale: o.headScale || 1, a0: 0, sweep: o.ccw === false ? -270 : 270 });
       else {
-        this.item = mk.shape({ ...base, kind: o.kind, fill: o.fill, radius: o.radius });
+        // a circle is an ellipse drawn out from its centre, as far as the pen goes in any direction
+        this.item = mk.shape({ ...base, kind: o.kind === 'circle' ? 'ellipse' : o.kind, fill: o.fill, radius: o.radius });
         if (o.kind === 'polygon') this.item.sides = o.sides || 6;
         if (o.hatch && o.hatch !== 'none') this.item.hatch = o.hatch;
       }
@@ -396,6 +397,10 @@
         // the head lands where you let go, the arc running back round from there
         const at = Math.atan2(s.y - e.y, e.x - s.x) * 180 / Math.PI;
         it.a0 = at - (it.sweep ?? 270);
+      } else if (this.opt.kind === 'circle') {
+        const e = this.snapNow = snapTo(this.app, ev, { from: s });
+        const r = Math.hypot(e.x - s.x, e.y - s.y);
+        it.x = s.x - r; it.y = s.y - r; it.w = it.h = 2 * r;
       } else {
         const e = this.snapNow = snapTo(this.app, ev);
         let x2 = e.x, y2 = e.y;
@@ -621,11 +626,12 @@
       r.drawItem(ctx, this.item);
       if (!D.cad) return;
       const it = this.item;
-      D.cad.paintSnap(r, this.snapNow, D.isLine(it) ? this.start : null);
+      D.cad.paintSnap(r, this.snapNow, D.isLine(it) || this.opt.kind === 'circle' ? this.start : null);
       if (!this.moved) return;
       const scene = app.scene;
       if (D.isLine(it)) D.cad.paintReadout(r, app.pointer, D.cad.lineReadout(scene, this.start, { x: it.x + it.w, y: it.y + it.h }));
       else if (it.kind === 'moment') D.cad.paintReadout(r, app.pointer, ['R ' + D.cad.fmtLen(scene, it.w / 2)]);
+      else if (this.opt.kind === 'circle') D.cad.paintReadout(r, app.pointer, ['R ' + D.cad.fmtLen(scene, it.w / 2) + '   Ø ' + D.cad.fmtLen(scene, it.w)]);
       else D.cad.paintReadout(r, app.pointer, D.cad.boxReadout(scene, Math.abs(it.w), Math.abs(it.h), it.kind));
     }
   }
