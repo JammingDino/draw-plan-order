@@ -426,7 +426,13 @@
       this._settle(t);
       this.tx = null;
       const updates = [];
+      /* Something made within the step and then changed in it — a copy
+         Duplicate makes and then moves along — is in `adds` as it ends
+         up. Recorded as changed too, undo took it off and then put it
+         back from its "before", so undoing a duplicate did nothing. */
+      const made = new Set(t.adds.map(it => it.id));
       for (const [id, before] of t.before) {
+        if (made.has(id)) continue;
         const now = this.byId.get(id);
         /* A click that selects but does not move still runs through touch().
            Recording that as an undo step means the first Ctrl+Z after it
@@ -439,8 +445,8 @@
          anyway, as a stray duplicate over the restored stroke. */
       let adds = t.adds, removes = t.removes;
       if (adds.length && removes.length) {
-        const made = new Set(adds);
-        const passing = new Set(removes.filter(r => made.has(r.item)).map(r => r.item));
+        const madeHere = new Set(adds);
+        const passing = new Set(removes.filter(r => madeHere.has(r.item)).map(r => r.item));
         if (passing.size) {
           adds = adds.filter(it => !passing.has(it));
           removes = removes.filter(r => !passing.has(r.item));

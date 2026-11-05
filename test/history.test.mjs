@@ -96,3 +96,20 @@ test('small steps still keep two hundred of them', () => {
   for (let i = 0; i < 250; i++) { s.begin('draw'); s.add(D.make.stroke({ pts: inked([i, 0, i, 10]) })); s.commit(); }
   assert.equal(s.undoStack.length, 200);
 });
+
+test('something made and then moved in one step is undone and redone as made', () => {
+  const s = new D.Scene();
+  const r = D.make.shape({ kind: 'rect', x: 0, y: 0, w: 10, h: 10 });
+  s.begin('draw'); s.add(r); s.commit();
+  // Duplicate: a copy, moved along, as one step
+  s.begin('duplicate');
+  const { copies } = D.cloneSet([r]);
+  for (const c of copies) { s.add(c); s.translate(c, 24, 24); }
+  s.commit();
+  assert.equal(s.items.length, 2);
+  s.undo();
+  assert.equal(s.items.length, 1, 'the copy is gone again');
+  s.redo();
+  assert.equal(s.items.length, 2);
+  assert.equal(s.items[1].x, 24, 'and comes back where it was moved to');
+});
