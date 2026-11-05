@@ -79,6 +79,8 @@
     hold: svg('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z|M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17z'),
     turn: svg('M19.5 9.5A8 8 0 1 0 18 17|M19.5 4.5v5h-5'),
     flip: svg('M12 3v18|M9 6.5L3.5 17H9z|M15 6.5l5.5 10.5H15z'),
+    lock: svg('M6 11h12v9.5H6z|M8.5 11V8a3.5 3.5 0 0 1 7 0v3'),
+    unlock: svg('M6 11h12v9.5H6z|M8.5 11V8a3.5 3.5 0 0 1 6.8-1.2'),
     align: svg('M4 3.5v17|M7 7h11v3.5H7z|M7 13.5h7V17H7z'),
     al_left: svg('M4 3.5v17|M7 7h11v3.5H7z|M7 13.5h7V17H7z'),
     al_hcentre: svg('M12 3.5v17|M6 7h12v3.5H6z|M8.5 13.5h7V17h-7z'),
@@ -126,6 +128,7 @@
         : { id: 'group', label: 'Group', icon: ICON.group, run: () => app.toggleGroup(), off: sel.length < 2 },
       turn: { id: 'turn', label: 'Turn 90°', icon: ICON.turn, run: () => app.rotateSelection(90) },
       flip: { id: 'flip', label: 'Flip', icon: ICON.flip, run: () => app.flipSelection('x') },
+      lock: { id: 'lock', label: 'Lock in place', icon: ICON.lock, run: () => app.lockSelection() },
       // opens a second menu of its own, in place of this one
       align: units >= 2 ? { id: 'align', label: 'Align…', icon: ICON.align, run: ctx => app.press.openMenu(Object.assign({}, ctx, { align: true })) } : null
     };
@@ -252,7 +255,7 @@
         const s = selectionActions(app, ctx.selection);
         m.append(el('div', { class: 'press-tiles' }, s.tiles.map(tile)));
         if (s.edit) list.push(row(s.edit));
-        list.push(pair(s.front, s.back), pair(s.turn, s.flip), ...(s.align ? [row(s.align)] : []), row(s.group), row(here));
+        list.push(pair(s.front, s.back), pair(s.turn, s.flip), ...(s.align ? [row(s.align)] : []), pair(s.group, s.lock), row(here));
       } else {
         m.append(el('div', { class: 'press-tiles' }, [
           { id: 'paste', label: 'Paste', icon: ICON.paste, run: () => app.pasteFromClipboard(null) },
@@ -260,7 +263,14 @@
           { id: 'insert', label: 'Picture or PDF', icon: ICON.insert, run: () => app.pickFile({ x: ctx.x, y: ctx.y }) },
           { id: 'select-all', label: 'Select all', icon: ICON.all, run: () => { app.setTool('select'); app.select(app.scene.items.slice()); }, off: !app.scene.items.length }
         ].map(tile)));
-        if (ctx.hit && D.backdrop(ctx.hit)) {
+        const locked = ctx.hit && ctx.hit.locked ? ctx.hit : null;
+        if (locked) list.push(row({ id: 'unlock', label: 'Unlock', icon: ICON.unlock, run: () => app.unlock([locked]) }));
+        else if (!ctx.hit && app.scene.items.some(i => i.locked)) {
+          const n = app.scene.items.filter(i => i.locked).length;
+          list.push(row({ id: 'unlock-all', label: n === 1 ? 'Unlock the locked thing' : `Unlock all ${n} locked things`, icon: ICON.unlock,
+            run: () => app.unlock(app.scene.items.filter(i => i.locked)) }));
+        }
+        if (ctx.hit && D.backdrop(ctx.hit) && !locked) {
           const it = ctx.hit;
           list.push(row({ id: 'select-page', label: it.type === 'pdfpage' ? 'Select this page' : it.type === 'image' ? 'Select this picture' : 'Select this',
             icon: ICON.page, run: () => app.select(app.groupOf(it)) }));

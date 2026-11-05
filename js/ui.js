@@ -22,6 +22,7 @@
     turnL: svg('M4.5 9.5A8 8 0 1 1 6 17|M4.5 4.5v5h5'),
     turnR: svg('M19.5 9.5A8 8 0 1 0 18 17|M19.5 4.5v5h-5'),
     turnH: svg('M5 12a7 7 0 0 1 13.4-2.8|M19 4.5v5h-5|M19 12a7 7 0 0 1-13.4 2.8|M5 19.5v-5h5'),
+    lock: svg('M6 11h12v9.5H6z|M8.5 11V8a3.5 3.5 0 0 1 7 0v3'),
     flipH: svg('M12 3v18|M9 6.5L3.5 17H9z|M15 6.5l5.5 10.5H15z'),
     flipV: svg('M3 12h18|M6.5 9L17 3.5V9z|M6.5 15L17 20.5V15z'),
     al_left: svg('M4 3.5v17|M7 7h11v3.5H7z|M7 13.5h7V17H7z'),
@@ -916,6 +917,7 @@
           iconBtn(ICON.dup, 'Duplicate · Ctrl+D', () => app.duplicate()),
           grouped ? iconBtn(ICON.ungroup, 'Ungroup · Ctrl+Shift+G', () => app.toggleGroup())
                   : iconBtn(ICON.group, 'Group · Ctrl+G', () => app.toggleGroup()),
+          iconBtn(ICON.lock, 'Lock in place — long-press it to unlock', () => app.lockSelection()),
           iconBtn(ICON.trash, 'Delete · Del', () => app.deleteSelection(), 'danger'))),
         this.group('Turn', el('div', { class: 'actions' },
           iconBtn(ICON.turnL, 'Turn 90° anticlockwise · Ctrl+Shift+R', () => app.rotateSelection(-90)),

@@ -469,7 +469,8 @@
 
     select(items, quiet) {
       const was = this.selection;
-      this.selection = items.filter(Boolean);
+      // a locked thing is never selected, however it was reached: a tap, a box, Ctrl+A, a page's contents
+      this.selection = items.filter(it => it && !it.locked);
       /* The selection box turns with what it holds: a turned box, or
          several turned alike, are framed at their angle; anything else
          starts square, and turns as it is turned (rotateSelection, the
@@ -1063,7 +1064,7 @@
 
     /** what a double-click at (x, y) would do, as a function to call; null for nothing */
     doubleAction(x, y, type, ignore) {
-      const hit = this.scene.hitTest(x, y, this.hitPx(type) / this.camera.zoom, ignore && ignore.size ? it => !ignore.has(it.id) : undefined);
+      const hit = this.scene.hitTest(x, y, this.hitPx(type) / this.camera.zoom, it => !it.locked && !(ignore && ignore.has(it.id)));
       if (hit) return this.canEdit(hit) ? () => this.editItem(hit) : null;
       if (this.toolName !== 'select') return null;
       return () => {
@@ -1508,6 +1509,34 @@
       this.selRot = turnOf((this.selRot || 0) + deg * Math.PI / 180);
       this.scene.commit();
       this.afterEdit();
+    }
+
+    /**
+     * Lock what is selected in place: a PDF page, a picture, a page or a
+     * background to write over without picking it up. One undo step; it
+     * is let go of, and the long-press menu on it unlocks it again.
+     */
+    lockSelection() {
+      const sel = this.selection;
+      if (!sel.length) return;
+      this.scene.begin('lock');
+      for (const it of sel) { this.scene.touch(it); it.locked = true; }
+      this.scene.commit();
+      this.select([]);
+      this.afterEdit();
+      this.toast(sel.length === 1 ? 'Locked — long-press it to unlock' : `${sel.length} things locked — long-press one to unlock`);
+    }
+
+    /** unlock these (and whatever is grouped with them), and select them */
+    unlock(items) {
+      const ids = new Set(items.map(i => i.group).filter(Boolean));
+      const all = this.scene.items.filter(it => it.locked && (items.includes(it) || (it.group && ids.has(it.group))));
+      if (!all.length) return;
+      this.scene.begin('unlock');
+      for (const it of all) { this.scene.touch(it); delete it.locked; }
+      this.scene.commit();
+      this.afterEdit();
+      if (this.toolName === 'select' || this.toolName === 'lasso') this.select(all);
     }
 
     /**

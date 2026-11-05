@@ -28,8 +28,6 @@ into `master` (every push to `master` ships an update to installed copies).
 
 Roughly in order of how much each would help a student working with a pen.
 
-- **Lock.** Pin a PDF page, a picture, a page or a background in place so
-  that writing over it never moves or selects it.
 - **Crop pictures.** Pasted screenshots of lecture slides nearly always
   need it.
 - **Version history.** "This board as it was yesterday": keep snapshots on

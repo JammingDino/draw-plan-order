@@ -737,7 +737,7 @@
       if (this.handleAt(ev)) return;
 
       // 3 · item under the pointer
-      let hit = scene.hitTest(ev.x, ev.y, this.hitPx(ev) / app.camera.zoom);
+      let hit = scene.hitTest(ev.x, ev.y, this.hitPx(ev) / app.camera.zoom, it => !it.locked);
 
       /* A PDF page or a picture is the thing you write on, and it is hit
          by its whole area, so a press in the gaps between your notes used
@@ -747,7 +747,7 @@
          drag draws a marquee over it — the way to gather up the notes —
          a tap selects it, and press-and-hold picks it up to move. */
       if (D.backdrop(hit) && !app.selection.includes(hit)) {
-        const over = scene.hitTest(ev.x, ev.y, GRAB_TOL / app.camera.zoom, it => !D.backdrop(it) && it._z > hit._z);
+        const over = scene.hitTest(ev.x, ev.y, GRAB_TOL / app.camera.zoom, it => !D.backdrop(it) && !it.locked && it._z > hit._z);
         if (over) hit = over;
         else {
           this.mode = 'pending';

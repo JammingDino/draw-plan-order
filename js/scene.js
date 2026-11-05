@@ -1457,8 +1457,9 @@
    * out the entire thing — annotating a PDF would delete the PDF. Those are
    * removed deliberately, with the select tool and Delete.
    */
-  D.erasable = it => it.type === 'stroke' || it.type === 'shape' || it.type === 'edge' ||
-    !!(XT[it.type] && XT[it.type].erasable);
+  /* locked (App.lockSelection): left where it is — never selected, moved or rubbed out until unlocked */
+  D.erasable = it => !it.locked && (it.type === 'stroke' || it.type === 'shape' || it.type === 'edge' ||
+    !!(XT[it.type] && XT[it.type].erasable));
 
   /**
    * The things you work on top of: a PDF page or a picture. They are hit
