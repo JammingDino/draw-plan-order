@@ -386,16 +386,53 @@
         b.onclick = () => { onpick(c); this.picked(); this.buildPanel(); this.app.requestDraw(); };
         wrap.append(b);
       }
-      if (allowCustom) {
-        const off = /^#/.test(current) && !colors.includes(current);   // a colour picked by hand
-        const inp = el('input', { type: 'color', value: /^#/.test(current) ? current : '#4f6bff' });
-        inp.oninput = () => { onpick(inp.value); this.picked(); this.app.requestDraw(); };
-        wrap.append(el('button', {
-          class: 'sw custom' + (off ? ' on' : ''), title: 'Custom colour',
-          style: off ? `background:${current}` : 'background:conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)'
-        }, inp));
+      if (!allowCustom) return wrap;
+      const recent = this.recentColours();
+      const off = /^#/.test(current) && !colors.includes(current) && !recent.includes(current);   // a colour picked by hand
+      const inp = el('input', { type: 'color', value: /^#/.test(current) ? current : '#4f6bff' });
+      inp.oninput = () => { onpick(inp.value); this.picked(); this.app.requestDraw(); };
+      // kept among the recent ones once it is settled on, not at every step of the drag
+      inp.onchange = () => { this.keepColour(inp.value); this.buildPanel(); };
+      wrap.append(el('button', {
+        class: 'sw custom' + (off ? ' on' : ''), title: 'Custom colour',
+        style: off ? `background:${current}` : 'background:conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)'
+      }, inp));
+      /* A second row: the colours picked by hand lately, so a colour
+         mixed once can be had again with a tap, and the eyedropper. */
+      const dropper = typeof window.EyeDropper === 'function';
+      if (!recent.length && !dropper) return wrap;
+      const more = el('div', { class: 'swatches recent' });
+      for (const c of recent.slice(0, dropper ? 8 : 9)) {
+        const b = el('button', { class: 'sw' + (c === current ? ' on' : ''), title: c, style: `background:${c}` });
+        b.onclick = () => { onpick(c); this.picked(); this.buildPanel(); this.app.requestDraw(); };
+        more.append(b);
       }
-      return wrap;
+      for (let i = more.children.length; i < (dropper ? 8 : 9); i++) more.append(el('span', { class: 'sw blank', 'aria-hidden': 'true' }));
+      if (dropper) {
+        const b = el('button', { class: 'sw dropper', title: 'Pick a colour from the screen', 'aria-label': 'Pick a colour from the screen',
+          html: '<svg viewBox="0 0 24 24"><path d="M19.5 4.5a2.1 2.1 0 0 0-3 0L14 7l-1-1-1.5 1.5 1 1L5 16v3h3l7.5-7.5 1 1L18 11l-1-1 2.5-2.5a2.1 2.1 0 0 0 0-3z"/></svg>' });
+        b.onclick = async () => {
+          let hex;
+          try { hex = (await new window.EyeDropper().open()).sRGBHex; } catch (_) { return; }   // Escape: nothing picked
+          if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+          onpick(hex); this.keepColour(hex); this.picked(); this.buildPanel(); this.app.requestDraw();
+        };
+        more.append(b);
+      }
+      return el('div', { class: 'swatch-rows' }, wrap, more);
+    }
+
+    /** the colours picked by hand lately, newest first */
+    recentColours() {
+      const r = this.app.opts.general.recentColours;
+      return Array.isArray(r) ? r.filter(c => /^#[0-9a-f]{6}$/i.test(c)) : [];
+    }
+    /** keep a colour picked by hand among the recent ones (not one of the palette's) */
+    keepColour(c) {
+      c = String(c).toLowerCase();
+      if (!/^#[0-9a-f]{6}$/.test(c) || PALETTE.includes(c) || PALETTE_DARK.includes(c)) return;
+      this.app.opts.general.recentColours = [c, ...this.recentColours().filter(x => x.toLowerCase() !== c)].slice(0, 9);
+      this.app.savePrefs();
     }
 
     sizes(list, current, onpick, color) {

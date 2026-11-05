@@ -110,6 +110,13 @@ flow-chart nodes (process, decision, start/end, data), connectors that
 stay attached as you move things, dimensions, a measuring tool, laser
 pointer, lasso and marquee select, images by paste or drag-and-drop.
 
+Every colour row ends in a rainbow swatch for **any colour**. Colours
+picked that way are kept in a second row underneath, newest first (nine
+of them, remembered between sessions), so a colour mixed once is one tap
+away afterwards. The **eyedropper** at the end of that row picks a colour
+from anywhere on the screen — a PDF's highlight, a picture, another
+window.
+
 The paper is dots, squares, ruled lines or plain (<kbd>Ctrl</kbd>+<kbd>'</kbd>
 or the grid button), and its colour is yours to pick under **Settings →
 Canvas → Paper colour**: white, cream, a yellow legal pad, grey, a blue or

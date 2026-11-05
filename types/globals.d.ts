@@ -12,4 +12,6 @@ interface Window {
     suggestedName?: string; id?: string;
     types?: { description?: string; accept: Record<string, string[]> }[];
   }) => Promise<{ name: string; createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }> }>;
+  /* the EyeDropper API (Chromium only): a colour from anywhere on the screen */
+  EyeDropper?: new () => { open(): Promise<{ sRGBHex: string }> };
 }

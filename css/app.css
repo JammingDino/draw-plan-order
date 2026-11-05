@@ -114,11 +114,16 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 /* flex, not a fixed grid: the custom-colour button is the 9th swatch on rows
    that offer it and must sit on the same line as the palette. */
 .swatches{display:flex;gap:5px}
-.sw{flex:1 1 0;min-width:0;aspect-ratio:1;border-radius:50%;border:1px solid #0002;position:relative;transition:transform .14s var(--ease)}
+.sw{flex:1 1 0;min-width:0;padding:0;aspect-ratio:1;border-radius:50%;border:1px solid #0002;position:relative;transition:transform .14s var(--ease)}
 .sw:hover{transform:scale(1.15)}
 .sw.on{box-shadow:0 0 0 2px var(--panel-solid),0 0 0 4px var(--accent)}
 .sw.custom{display:grid;place-items:center;overflow:hidden}
 .sw.custom input{position:absolute;inset:-8px;opacity:0;cursor:pointer}
+.swatch-rows{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;width:100%;min-width:0}
+.sw.blank{display:block;border-color:transparent;background:transparent;pointer-events:none}
+.sw.blank:hover{transform:none}
+.sw.dropper{background:var(--panel-solid)}
+.sw.dropper svg{position:absolute;inset:16%;width:68%;height:68%;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round}
 .sizes{display:flex;gap:6px;align-items:center}
 .size{flex:1;height:32px;border-radius:9px;display:grid;place-items:center;transition:background .14s var(--ease)}
 .size:hover{background:var(--accent-soft)}

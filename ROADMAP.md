@@ -38,8 +38,6 @@ Roughly in order of how much each would help a student working with a pen.
   now), with the laser pointer.
 - **Ruler and protractor.** Stencils laid on the board that the pen draws
   along, as in OneNote.
-- **Any colour.** A custom colour picker and an eyedropper; the palette is
-  fixed at eight.
 - **Handwriting to text.** Generalise the handwritten-maths reader to turn
   selected writing into a text box — which would also make handwriting
   searchable (search finds typed words and PDFs' words today).

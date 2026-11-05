@@ -26,7 +26,7 @@
       this.opts = {
         /* smartGuides: a dragged selection lines up with what is near it
            (snap.js); tapUndo: two fingers tapped undo, three redo (taps.js) */
-        general: { wheel: 'pan', holdToSnap: true, scribbleErase: true, snapGrid: false, smartGuides: true, touchPan: true, tapUndo: true, stickyTools: true, lowLatency: true },
+        general: { wheel: 'pan', holdToSnap: true, scribbleErase: true, snapGrid: false, smartGuides: true, touchPan: true, tapUndo: true, stickyTools: true, lowLatency: true, recentColours: [] },
         /* The paper's colour, one for each theme ('' is the theme's own),
            so a cream page by day does not stay cream under white ink. */
         canvas: { paper: { light: '', dark: '' } },
