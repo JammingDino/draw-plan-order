@@ -232,6 +232,14 @@ more **spaces them evenly** across or down, keeping the outermost where
 they are. A group moves as one piece, and connectors follow what they
 join.
 
+**Copy style** and **Paste style** (on the long-press menu and the
+action bar, or <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> and
+<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>V</kbd>) take the look of one thing —
+colour, weight, dash, fill, arrowheads, font — and put it on whatever is
+selected next, as one undo step. Between things of the same kind it all
+carries over; across kinds only what means the same on both, so an
+arrow's red goes onto ink and text, but not onto a sticky note's paper.
+
 **Smart guides** line things up as you drag them, as Photoshop's do.
 The selection's edges and middle are held against those of the pages,
 pictures, shapes, text, notes and groups around it, and within a few
@@ -536,7 +544,7 @@ most of the rest, against one in twelve before; the notes themselves —
 `Q` laser · `Space` pan (or middle-drag; the mouse's side buttons undo and redo, and Settings can make the wheel zoom) · `Enter` finishes a polyline or a measured path
 
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
-`Ctrl+G` group · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Shift+H` / `Shift+V` flip · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
+`Ctrl+G` group · `Ctrl+Alt+C` / `Ctrl+Alt+V` copy and paste style · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Shift+H` / `Shift+V` flip · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+0` reset zoom · `Shift+1` zoom to fit · `Ctrl+'` cycle grid ·
 `Ctrl+F` search the board (`Enter` / `Shift+Enter` next and previous, `F3` too) ·
 `Ctrl+M` boards · `Alt`+drag duplicates · `Ctrl`+drag moves without
@@ -682,6 +690,7 @@ anything is written over it.
 | `js/graph.js` | Graphs of y = f(x), plotted through the maths engine |
 | `js/symbols.js` | Circuit and mechanics symbols, with terminals to wire to |
 | `js/search.js` | Search the board, PDFs' words included |
+| `js/style.js` | Copy style and paste style |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after
