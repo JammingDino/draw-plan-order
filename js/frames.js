@@ -410,7 +410,8 @@
       listEl || el('p', { class: 'frames-note' }, 'A page is a sheet on the board: what you print and export to PDF. The page tool (F) lays them down.'),
       el('div', { class: 'frames-acts' },
         el('button', { class: 'btn primary', type: 'button', onclick: () => { closePages(); addAfter(app, null); } }, pages.length ? 'Add a page' : 'Add the first page'),
-        D.exportPdf ? el('button', { class: 'btn', type: 'button', onclick: () => { closePages(); if (app.openExport) app.openExport('pdf'); else D.exportPdf(app); } }, 'Export PDF') : null));
+        D.exportPdf ? el('button', { class: 'btn', type: 'button', onclick: () => { closePages(); if (app.openExport) app.openExport('pdf'); else D.exportPdf(app); } }, 'Export PDF') : null,
+        D.present && pages.length ? el('button', { class: 'btn', type: 'button', title: 'Full screen, a page at a time · F5', onclick: () => { closePages(); D.present.start(app, now); } }, 'Present') : null));
     document.body.appendChild(box);
     const btn = document.getElementById('btn-pages');
     const r = btn && btn.getBoundingClientRect ? btn.getBoundingClientRect() : { left: 16, top: innerHeight - 60 };

@@ -354,6 +354,18 @@ is thrown away, and *Show it all* puts the whole picture back at once.
 Enter, or selecting something else, finishes. A turned picture crops
 along its own sides, and a flipped one the way it is seen.
 
+### Presenting
+
+**Present** (<kbd>F5</kbd>, the Pages list, or the long-press menu on
+the board) fills the screen with the page in view, blacks out everything
+round it and hides the rest of the app, with the laser pointer in hand.
+→, ↓, Page Down, Space and Enter go to the next page; ←, ↑, Page Up and
+Backspace back; Home and End to the first and last; the arrows that
+show in the corner when the pointer moves do the same. Escape, or
+leaving full screen, ends it and puts the view and your tool back. Any
+page works as a slide — a 16:9 page from the page tool fits a projector
+exactly — and a board with no pages is shown whole.
+
 ### PDFs
 
 Drag a PDF onto the canvas (or ☰ → **Add a PDF**) and its pages are laid out
@@ -617,7 +629,7 @@ most of the rest, against one in twelve before; the notes themselves —
 `1`–`8` colour · `Alt+1`–`Alt+8` favourite pens · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
 `Ctrl+G` group · `Ctrl+Alt+C` / `Ctrl+Alt+V` copy and paste style · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Shift+H` / `Shift+V` flip · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+0` reset zoom · `Shift+1` zoom to fit · `Ctrl+'` cycle grid ·
-`Ctrl+F` search the board (`Enter` / `Shift+Enter` next and previous, `F3` too) ·
+`F5` present · `Ctrl+F` search the board (`Enter` / `Shift+Enter` next and previous, `F3` too) ·
 `Ctrl+M` boards · `Alt`+drag duplicates · `Ctrl`+drag moves without
 smart guides · `Shift` constrains (15° steps
 for lines; square or circle for shapes) · `Alt` draws from the centre
@@ -765,6 +777,7 @@ anything is written over it.
 | `js/stencils.js` | The ruler and protractor |
 | `js/zoompad.js` | The zoom pad: write large, and it lands small |
 | `js/audio.js` | Recording sound, kept in step with the ink |
+| `js/present.js` | Presenting the pages full screen |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after

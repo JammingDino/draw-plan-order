@@ -1,0 +1,10 @@
+/* ── presenting (js/present.js): the page and nothing else ─────────────── */
+body.presenting #topbar, body.presenting #rail, body.presenting #style, body.presenting #viewbar,
+body.presenting #topbar-tab, body.presenting #rail-tab, body.presenting #style-tab, body.presenting #viewbar-tab,
+body.presenting #style-fold, body.presenting .press-bar{display:none !important}
+.present-bar{position:fixed;right:16px;bottom:16px;z-index:60;display:flex;align-items:center;gap:2px;padding:4px;
+  background:var(--panel-solid);border-radius:999px;box-shadow:var(--shadow);opacity:0;transition:opacity .3s var(--ease);pointer-events:none}
+.present-bar.shown{opacity:.92;pointer-events:auto}
+.pr-btn{width:40px;height:36px;border-radius:999px;font-size:20px;line-height:1;color:var(--text)}
+.pr-btn:hover{background:var(--accent-soft)}
+.pr-count{min-width:54px;text-align:center;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
