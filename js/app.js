@@ -26,7 +26,7 @@
       this.opts = {
         /* smartGuides: a dragged selection lines up with what is near it
            (snap.js); tapUndo: two fingers tapped undo, three redo (taps.js) */
-        general: { wheel: 'pan', holdToSnap: true, scribbleErase: true, snapGrid: false, smartGuides: true, touchPan: true, tapUndo: true, stickyTools: true, lowLatency: true, recentColours: [] },
+        general: { wheel: 'pan', holdToSnap: true, scribbleErase: true, snapGrid: false, smartGuides: true, touchPan: true, tapUndo: true, stickyTools: true, lowLatency: true, recentColours: [], pressureFeel: 'normal' },
         /* The paper's colour, one for each theme ('' is the theme's own),
            so a cream page by day does not stay cream under white ink. */
         canvas: { paper: { light: '', dark: '' } },
@@ -566,7 +566,7 @@
       const w = this.camera.toWorld(e.clientX, e.clientY);
       const ev = {
         x: w.x, y: w.y, sx: e.clientX, sy: e.clientY,
-        pressure: pressureOf(e), shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey || e.metaKey,
+        pressure: pressureOf(e, this.opts.general.pressureFeel), shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey || e.metaKey,
         pointerType: e.pointerType, e
       };
       ev.samples = samples || [ev];
@@ -2300,8 +2300,13 @@
     g.d = d; g.cx = cx; g.cy = cy;
   }
 
-  function pressureOf(e) {
-    if (e.pointerType === 'pen') return e.pressure > 0 ? e.pressure : 0.35;
+  /* Settings → Pen and touch → Pen pressure: the pen's pressure bent
+     before it is kept, so a light hand reaches a full line sooner and a
+     heavy one keeps thin lines thin. On the way in, not in the drawing,
+     so ink already written keeps the width it was written at. */
+  const PRESSURE_FEEL = { light: 0.6, normal: 1, firm: 1.6 };
+  function pressureOf(e, feel) {
+    if (e.pointerType === 'pen') return e.pressure > 0 ? Math.pow(Math.min(e.pressure, 1), PRESSURE_FEEL[feel] || 1) : 0.35;
     if (e.pointerType === 'touch') return e.pressure > 0 && e.pressure !== 0.5 ? e.pressure : 0.6;
     return 0.55;
   }

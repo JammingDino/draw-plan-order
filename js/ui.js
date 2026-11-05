@@ -1373,6 +1373,8 @@
       return [this.setGroup(
         this.setRow('Mouse wheel', 'Ctrl + wheel always zooms and Shift + wheel scrolls sideways. Middle-drag pans; right-drag selects, and a right click opens the menu; the side buttons undo and redo',
           this.setSeg([['pan', 'Scrolls'], ['zoom', 'Zooms']], g.wheel === 'zoom' ? 'zoom' : 'pan', v => set('wheel', v))),
+        this.setRow('Pen pressure', 'How hard you have to press for a thick line. A light hand gets its full width sooner; a heavy one keeps thin lines thin. Changes the ink you write from now on',
+          this.setSeg([['light', 'Light hand'], ['normal', 'Normal'], ['firm', 'Heavy hand']], g.pressureFeel || 'normal', v => set('pressureFeel', v))),
         this.setToggle('Hold to snap shapes', 'Hold the pen still at the end of a stroke to turn it into a clean line, box or circle', g.holdToSnap, v => set('holdToSnap', v)),
         this.setToggle('Scribble to erase', 'Scribble back and forth over ink to rub it out', g.scribbleErase, v => set('scribbleErase', v)),
         this.setToggle('Snap to grid', 'Shapes, notes and nodes line up with the paper', g.snapGrid, v => set('snapGrid', v)),
