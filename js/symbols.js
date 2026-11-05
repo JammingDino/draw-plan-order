@@ -171,6 +171,14 @@
    * circles kept round.
    */
   function mapper(it) {
+    const m = unmirrored(it);
+    // mirrored (flip): reflected in the box's own middle, terminals and all
+    const cx2 = 2 * it.x + it.w, cy2 = 2 * it.y + it.h;
+    if (it.mx) { const X = m.X; m.X = v => cx2 - X(v); }
+    if (it.my) { const Y = m.Y; m.Y = v => cy2 - Y(v); }
+    return m;
+  }
+  function unmirrored(it) {
     const S = SYMBOLS[it.kind] || SYMBOLS.resistor;
     if (two(S)) {
       const [b0, b1] = S.body, bodyW = b1 - b0;
@@ -185,13 +193,21 @@
     return { S, k: Math.min(Math.abs(sx), Math.abs(sy)), X: v => it.x + v * sx, Y: v => it.y + v * sy };
   }
 
+  /** an arc's start and end angles (degrees, clockwise on screen), mirrored as the part is */
+  function arcEnds(it, a0, a1) {
+    if (it.mx && it.my) return [a0 + 180, a1 + 180];
+    if (it.mx) return [180 - a1, 180 - a0];
+    if (it.my) return [-a1, -a0];
+    return [a0, a1];
+  }
+
   /** the parts in the item's box; without `marks`, no letters or bars over them */
   function placed(it, marks = true) {
     const { S, k, X, Y } = mapper(it);
     return { S, k, parts: (marks ? S.parts : S.parts.filter(p => p[0] !== 't' && p[0] !== 'o')).map(p => {
       const [t, ...a] = p;
       if (t === 'c' || t === 'd') return [t, X(a[0]), Y(a[1]), a[2] * k];
-      if (t === 'a') return [t, X(a[0]), Y(a[1]), a[2] * k, a[3], a[4]];
+      if (t === 'a') return [t, X(a[0]), Y(a[1]), a[2] * k, ...arcEnds(it, a[3], a[4])];
       if (t === 't') return [t, X(a[0]), Y(a[1]), a[2]];
       return [t, ...a.map((v, i) => i % 2 ? Y(v) : X(v))];
     }) };
@@ -238,7 +254,7 @@
    * has its name beside it rather than through it.
    */
   function labelAt(it) {
-    const { S, k, Y } = mapper(it), fs = it.textSize || 14;
+    const { S, k, Y } = unmirrored(it), fs = it.textSize || 14;   // above the part, mirrored or not
     let top = Infinity;
     for (const p of S.parts) for (let i = 2; i < p.length && p[0] !== 't'; i += 2) if (typeof p[i] === 'number') top = Math.min(top, p[i] - (p[0] === 'c' || p[0] === 'a' ? p[3] : 0));
     const cx = it.x + it.w / 2;
@@ -306,6 +322,13 @@
     },
     draw, svg,
     rotate: 'box',
+    /** mirrored in its own frame (mapper), its middle carried across */
+    flip(it, o, axis) {
+      const h = axis === 'x', k = h ? 'mx' : 'my';
+      if (h) it.x += 2 * (o.x - (it.x + it.w / 2)); else it.y += 2 * (o.y - (it.y + it.h / 2));
+      if (it.rot) it.rot = -it.rot;
+      if (it[k]) delete it[k]; else it[k] = true;
+    },
     /** the terminals, to snap and attach to; and the middle */
     snapPoints(it) {
       const { S, X, Y } = mapper(it);

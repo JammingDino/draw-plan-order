@@ -87,7 +87,6 @@ the last row: answer less often when unsure, and be right when it does.
 
 - Connectors attach to a turned node's unturned box. They should meet its
   turned outline.
-- Flip horizontally and vertically.
 - A selection of things turned to different angles is framed square; it
   could keep the angle it was last turned to after being picked up again.
 

@@ -1157,6 +1157,38 @@
       if (Math.abs(r) < 1e-9) delete item.rot; else item.rot = r;
     }
 
+    /**
+     * Mirror an item in the line through `origin`: axis 'x' swaps left and
+     * right, 'y' top and bottom. Ink, lines and a connector's loose ends
+     * have their points mirrored; a box is carried across by its centre,
+     * its turn mirrored with it, and what is in it mirrored where that
+     * reads — a picture and a triangle are, words are not. A feature's
+     * type mirrors itself (`flip`), or is carried across.
+     */
+    flipItem(item, origin, axis) {
+      const h = axis === 'x';
+      const xt = XT[item.type];
+      if (xt) {
+        this.touch(item);
+        if (typeof xt.flip === 'function') { xt.flip(item, origin, axis, this); return; }
+        const b = this.bbox(item), c = U.boxCenter(b.local || b);
+        this.translate(item, h ? 2 * (origin.x - c.x) : 0, h ? 0 : 2 * (origin.y - c.y));
+        if (item.rot && xt.rotate === 'box') item.rot = normAngle(-item.rot);
+        return;
+      }
+      this.scaleItem(item, origin, h ? -1 : 1, h ? 1 : -1);
+      if (item.type === 'stroke' || item.type === 'edge' || isLine(item)) return;
+      if (item.w < 0) { item.x += item.w; item.w = -item.w; }
+      if (item.h < 0) { item.y += item.h; item.h = -item.h; }
+      // M·R(r) = R(−r)·M: the turn goes the other way, then the box is mirrored in itself
+      let r = item.rot ? -item.rot : 0;
+      if (item.type === 'image') { const k = h ? 'flipX' : 'flipY'; if (item[k]) delete item[k]; else item[k] = true; }
+      // a triangle is its own mirror left to right; top to bottom it is itself turned half way
+      if (item.type === 'shape' && item.kind === 'triangle' && !h) r += Math.PI;
+      r = normAngle(r);
+      if (Math.abs(r) < 1e-9) delete item.rot; else item.rot = r;
+    }
+
     contentBounds() {
       let b = null;
       // an item that boxes to nothing (see bbox) has no say in where the board is

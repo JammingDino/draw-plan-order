@@ -1191,6 +1191,8 @@
       };
       const shapeMap = { r: 'rect', o: 'ellipse', l: 'line', a: 'arrow', d: 'diamond' };
       const low = k.toLowerCase();
+      // Shift+H and Shift+V mirror what is selected; without a selection they are H and V
+      if (e.shiftKey && this.selection.length && (low === 'h' || low === 'v')) { e.preventDefault(); this.flipSelection(low === 'h' ? 'x' : 'y'); return; }
       /* A registered tool's key (ext.js) is asked first, so a feature can
          have B, which is only an alias for the pen here. Taking one of
          the letters the help lists is the feature's own lookout. */
@@ -1500,6 +1502,27 @@
         this.scene.rotateItem(it, c, deg * Math.PI / 180);
       }
       this.selRot = turnOf((this.selRot || 0) + deg * Math.PI / 180);
+      this.scene.commit();
+      this.afterEdit();
+    }
+
+    /**
+     * Mirror the selection in the middle of its box: 'x' swaps left and
+     * right, 'y' top and bottom. One undo step; an arrow end attached to
+     * something outside the selection lets go, as it does in a turn.
+     */
+    flipSelection(axis) {
+      const sel = this.selection;
+      if (!sel.length) return;
+      const f = this.selectionFrame(), c = { x: f.cx, y: f.cy }, ids = new Set(sel.map(i => i.id));
+      this.scene.begin('flip');
+      for (const it of sel) {
+        this.scene.touch(it);
+        if (it.bind1 && !ids.has(it.bind1.id)) delete it.bind1;
+        if (it.bind2 && !ids.has(it.bind2.id)) delete it.bind2;
+        this.scene.flipItem(it, c, axis);
+      }
+      if (this.selRot) this.selRot = turnOf(-this.selRot);
       this.scene.commit();
       this.afterEdit();
     }

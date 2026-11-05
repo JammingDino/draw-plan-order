@@ -955,7 +955,14 @@
 
     drawImage(ctx, it) {
       const p = this.picture(it);
-      if (p.img) ctx.drawImage(p.img, it.x, it.y, it.w, it.h);
+      if (p.img && (it.flipX || it.flipY)) {
+        // mirrored in its own box (Scene.flipItem)
+        ctx.save();
+        ctx.translate(it.flipX ? 2 * it.x + it.w : 0, it.flipY ? 2 * it.y + it.h : 0);
+        ctx.scale(it.flipX ? -1 : 1, it.flipY ? -1 : 1);
+        ctx.drawImage(p.img, it.x, it.y, it.w, it.h);
+        ctx.restore();
+      } else if (p.img) ctx.drawImage(p.img, it.x, it.y, it.w, it.h);
       else { ctx.fillStyle = '#8884'; ctx.fillRect(it.x, it.y, it.w, it.h); }
     }
 
@@ -1457,7 +1464,11 @@
         return `<g${op}><path d="${d}" fill="${U.color(it.fill)}" stroke="${U.color(it.color)}" stroke-width="${it.size}"/>${tx}</g>`;
       }
       case 'text': return svgText(scene, it, op);
-      case 'image': return `<image x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" href="${U.escapeXml(hrefs.get(it) || '')}" preserveAspectRatio="none"${op}/>`;
+      case 'image': {
+        const m = it.flipX || it.flipY
+          ? ` transform="translate(${it.flipX ? 2 * it.x + it.w : 0} ${it.flipY ? 2 * it.y + it.h : 0}) scale(${it.flipX ? -1 : 1} ${it.flipY ? -1 : 1})"` : '';
+        return `<image x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" href="${U.escapeXml(hrefs.get(it) || '')}" preserveAspectRatio="none"${m}${op}/>`;
+      }
       case 'pdfpage': {
         const href = hrefs.get(it);
         return href

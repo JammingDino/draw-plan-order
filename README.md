@@ -217,6 +217,14 @@ other angle on the board. Ink, lines and arrows have their points
 turned; shapes, text, notes, nodes, pictures and PDF pages keep the
 angle and are drawn, picked, erased, snapped to and exported turned.
 
+**Flip** mirrors a selection in the middle of its box: **Shift+H** left
+to right, **Shift+V** top to bottom, or the flip buttons beside *Turn*
+(and *Flip* on the action bar and the long-press menu). Ink, lines,
+bends and moment arrows are mirrored point for point, and a turned box
+turns the other way. Pictures and circuit parts are mirrored in
+themselves — a part's terminals go with it, so its wires follow — while
+words, notes and PDF pages are carried across but stay readable.
+
 With two or more things selected, **Align** (in the style panel, or
 *Align…* on the action bar and the long-press menu) lines up their left
 edges, centres, right edges, tops, middles or bottoms, and with three or
@@ -528,7 +536,7 @@ most of the rest, against one in twelve before; the notes themselves —
 `Q` laser · `Space` pan (or middle-drag; the mouse's side buttons undo and redo, and Settings can make the wheel zoom) · `Enter` finishes a polyline or a measured path
 
 `1`–`8` colour · `[` `]` z-order · `F2` edit text · `Ctrl+D` duplicate ·
-`Ctrl+G` group · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
+`Ctrl+G` group · `Ctrl+R` / `Ctrl+Shift+R` turn 90° · `Shift+H` / `Shift+V` flip · `Ctrl+A` select all · `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo ·
 `Ctrl+0` reset zoom · `Shift+1` zoom to fit · `Ctrl+'` cycle grid ·
 `Ctrl+F` search the board (`Enter` / `Shift+Enter` next and previous, `F3` too) ·
 `Ctrl+M` boards · `Alt`+drag duplicates · `Ctrl`+drag moves without
