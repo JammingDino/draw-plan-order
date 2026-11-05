@@ -306,6 +306,16 @@ more **spaces them evenly** across or down, keeping the outermost where
 they are. A group moves as one piece, and connectors follow what they
 join.
 
+**Repeat** (under *Arrange* in the style panel, or *Repeat…* on the
+long-press menu) makes copies of the selection as one undo step: *In a
+row*, each a step across and down from the one before (the step starts
+as the selection's width and a gap, so they sit side by side), or *In a
+circle*, spread over an angle about a centre — a whole turn shares them
+out evenly, so five copies of a bolt hole make a six-hole bolt circle.
+The centre is the middle of the selection, or tap *Pick the centre* and
+then the centre of the flange (it snaps); a red cross marks it.
+Connectors between copied things join the copies.
+
 **Copy style** and **Paste style** (on the long-press menu and the
 action bar, or <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd> and
 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>V</kbd>) take the look of one thing —
@@ -804,6 +814,7 @@ anything is written over it.
 | `js/audio.js` | Recording sound, kept in step with the ink |
 | `js/present.js` | Presenting the pages full screen |
 | `js/history.js` | Board history: copies kept as you work, to restore |
+| `js/repeat.js` | Repeat: copies in a row, or round a centre |
 
 The last four rows are features: each registers with `D.ext` and touches
 no core file, so they can be worked on side by side. They load after

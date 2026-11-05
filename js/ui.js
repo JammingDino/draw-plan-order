@@ -951,7 +951,8 @@
             const b = iconBtn(ICON['al_' + k], title, () => app.alignSelection(k));
             if ((k === 'hspace' || k === 'vspace') && units < 3) b.disabled = true;
             return b;
-          }))) : null);
+          }))) : null,
+        D.repeat ? D.repeat.group(this, sel) : null);
     }
 
     /* ── boards sheet ────────────────────────────────────────────── */
