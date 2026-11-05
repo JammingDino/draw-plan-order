@@ -496,6 +496,14 @@
     }
 
     /** a line style as a little picture: solid, dashed, dotted, centre, hidden */
+    /** section hatching for a closed shape (Renderer: HATCH) */
+    hatchSeg(current, onpick) {
+      const icon = d => `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1.5" style="stroke-width:1.6"/>${d ? `<path d="${d}" style="stroke-width:1.3"/>` : ''}</svg>`;
+      const up = 'M4 12l8-8M4 20L20 4M12 20l8-8', down = 'M12 4l8 8M4 4l16 16M4 12l8 8';
+      return this.iconSeg([['none', icon(''), 'No hatching'], ['hatch', icon(up), 'Hatched'], ['back', icon(down), 'Hatched the other way'],
+        ['cross', icon(up + 'M' + down.slice(1)), 'Cross-hatched']], current || 'none', onpick);
+    }
+
     dashIcon(dash) {
       const da = { 1: '5 3.2', 2: '0.1 3.4', 3: '7 2.6 0.1 2.6', 4: '2.6 2.8' }[dash];
       return `<svg viewBox="0 0 24 24"><path d="M2 12h20" style="stroke-width:2.2"${da ? ` stroke-dasharray="${da}"` : ''}/></svg>`;
@@ -679,7 +687,7 @@
           this.iconSeg([['line', ICON.line, 'Line'], ['arrow', ICON.arrow, 'Arrow'], ['polyline', ICON.polyline, 'Polyline'], ['force', ICON.force, 'Force arrow'], ['moment', ICON.moment, 'Moment arrow']], o.kind, pick)),
         app.tools.shape.poly ? this.group('', el('button', { class: 'btn primary', onclick: () => app.tools.shape.finishPoly() }, 'Finish the line')) : null,
         this.group('Stroke', this.swatches(this.palette(), o.color, c => o.color = c)),
-        !open ? this.group('Fill', this.swatches(FILL, o.fill, c => o.fill = c, false)) : null,
+        !open ? this.group('Fill', this.swatches(FILL, o.fill, c => o.fill = c, false), this.hatchSeg(o.hatch, v => o.hatch = v)) : null,
         this.group('Weight', this.sizes([1.5, 3, 5, 8], o.size, s => o.size = s, o.color)),
         this.group('Line', this.lineStyles(o.dash, v => o.dash = v)),
         heads ? this.endsGroup(heads, setHead) : null,
@@ -799,7 +807,9 @@
       this.add(
         this.group(sel.length > 1 ? sel.length + ' items' : labelOf(first),
           this.swatches(has('note') ? NOTE : this.palette(), colorNow, c => apply(it => { it.color = c; it._path = null; }))),
-        (sel.some(i => i.type === 'shape' && !D.isOpenShape(i)) || has('node')) ? this.group('Fill', this.swatches(FILL, first.fill, c => apply(it => { if ('fill' in it) it.fill = c; }), true)) : null,
+        (sel.some(i => i.type === 'shape' && !D.isOpenShape(i)) || has('node')) ? this.group('Fill', this.swatches(FILL, first.fill, c => apply(it => { if ('fill' in it) it.fill = c; }), true),
+          sel.some(i => i.type === 'shape' && !D.isOpenShape(i)) ? this.hatchSeg(sel.find(i => i.type === 'shape' && !D.isOpenShape(i)).hatch,
+            v => apply(it => { if (it.type !== 'shape' || D.isOpenShape(it)) return; if (v === 'none') delete it.hatch; else it.hatch = v; })) : null) : null,
         this.group('Weight', this.sizes([1.5, 3, 5, 8, 14], first.size, s => apply(it => { it.size = s; it._path = null; it._b = null; }), first.color)),
         this.slider('Opacity', first.alpha ?? 1, 0.1, 1, 0.05, v => apply(it => it.alpha = v), v => Math.round(v * 100) + '%'),
         (has('text') || has('note') || has('node')) ? this.group('Text size',

@@ -151,6 +151,11 @@ drawings, and for a pen alone — nothing needs a key held down.
   or press Enter to finish), a heavy **force** arrow and a circular
   **moment** arrow (press at the centre, lift where the head goes;
   anticlockwise or clockwise in the panel).
+- **Hatching.** A rectangle, ellipse, diamond or triangle can be
+  hatched as a cut face is — 45° one way, the other way (for the part
+  beside it), or cross-hatched — under *Fill* in its panel. The lines are
+  in the shape's colour, spaced by the board and a little wider for a
+  heavier outline, and turn with the shape.
 - **Snapping.** Ends, corners, midpoints, centres, quadrant points,
   intersections and the edges of things, then 15° steps, then the
   grid — with a marker and a word saying what it caught. An arrow end

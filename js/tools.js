@@ -367,7 +367,10 @@
       const base = { x: s.x, y: s.y, w: 0, h: 0, color: o.color, size: o.size, alpha: o.alpha, dash: o.dash };
       if (lineish) this.item = mk.shape({ ...base, ...lineStyle(o, o.kind), fill: 'none' });
       else if (o.kind === 'moment') this.item = mk.shape({ ...base, kind: 'moment', fill: 'none', head1: 'none', head2: 'filled', headScale: o.headScale || 1, a0: 0, sweep: o.ccw === false ? -270 : 270 });
-      else this.item = mk.shape({ ...base, kind: o.kind, fill: o.fill, radius: o.radius });
+      else {
+        this.item = mk.shape({ ...base, kind: o.kind, fill: o.fill, radius: o.radius });
+        if (o.hatch && o.hatch !== 'none') this.item.hatch = o.hatch;
+      }
       if (lineish && s.ref) this.item.bind1 = s.ref;
       this.app.requestDrawLive();
     }

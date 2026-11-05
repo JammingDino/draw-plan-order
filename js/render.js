@@ -804,6 +804,16 @@
       if (D.isLine(it) || it.kind === 'moment') return this.drawLine(ctx, it);
       const p = this.shapePath(it);
       if (it.fill && it.fill !== 'none') { ctx.fillStyle = U.color(it.fill); ctx.fill(p); }
+      if (it.hatch && HATCH[it.hatch]) {
+        const H = hatchOf(it);
+        ctx.save();
+        ctx.clip(p);
+        ctx.beginPath();
+        for (let i = 0; i < H.segs.length; i += 4) { ctx.moveTo(H.segs[i], H.segs[i + 1]); ctx.lineTo(H.segs[i + 2], H.segs[i + 3]); }
+        ctx.strokeStyle = U.color(it.color); ctx.lineWidth = H.width; ctx.lineCap = 'butt'; ctx.setLineDash([]);
+        ctx.stroke();
+        ctx.restore();
+      }
       this.strokeStyleFor(ctx, it);
       ctx.stroke(p);
       ctx.setLineDash([]);
@@ -1416,6 +1426,30 @@
     return { x: pts[0], y: pts[1] };
   }
 
+  /* ── hatching ─────────────────────────────────────────────────────
+     A closed shape's `hatch`: section lines across it, in its own
+     colour, as a cut face is drawn. 'hatch' runs up to the right at 45°,
+     'back' the other way (for the part beside it), 'cross' both. Spaced
+     by the board, not the screen, and a little wider apart for a
+     heavier outline; clipped to the outline by whoever paints them. */
+  const HATCH = { hatch: [Math.PI / 4], back: [-Math.PI / 4], cross: [Math.PI / 4, -Math.PI / 4] };
+  /** the hatch lines over a shape's box, in its own (unturned) frame: { segs: [x0,y0,x1,y1,…], width } */
+  function hatchOf(it) {
+    const x = Math.min(it.x, it.x + it.w), y = Math.min(it.y, it.y + it.h), w = Math.abs(it.w), h = Math.abs(it.h);
+    const size = it.size || 2, gap = 9 + size * 1.5, segs = [];
+    const cx = x + w / 2, cy = y + h / 2, R = Math.hypot(w, h) / 2 + 1;
+    for (const a of HATCH[it.hatch] || []) {
+      // lines at angle a (up the page is −y), stepped across from one side of the box to the other
+      const ux = Math.cos(a), uy = -Math.sin(a), nx = -uy, ny = ux;
+      const n = Math.ceil(R / gap);
+      for (let k = -n; k <= n; k++) {
+        const ox = cx + nx * k * gap, oy = cy + ny * k * gap;
+        segs.push(ox - ux * R, oy - uy * R, ox + ux * R, oy + uy * R);
+      }
+    }
+    return { segs, width: Math.max(0.75, size * 0.45) };
+  }
+
   function svgItem(r, scene, it, hrefs) {
     const a = it.alpha ?? 1;
     const op = a < 1 ? ` opacity="${a}"` : '';
@@ -1440,7 +1474,16 @@
         const pts = scene.outlinePoints(it, true).map(v => U.round(v, 1));
         const d = 'M' + pts.filter((_, i) => i % 2 === 0).map((x, i) => `${x},${pts[i * 2 + 1]}`).join('L');
         const fill = it.fill && it.fill !== 'none' ? U.color(it.fill) : 'none';
-        return `<path d="${d}" fill="${fill}" stroke="${col}" stroke-width="${it.size}" stroke-linejoin="round" stroke-linecap="round"${dash}${op}/>`;
+        const outline = `<path d="${d}" fill="${fill}" stroke="${col}" stroke-width="${it.size}" stroke-linejoin="round" stroke-linecap="round"${dash}${op}/>`;
+        if (!it.hatch || !HATCH[it.hatch]) return outline;
+        // unturned, like the outline: the export turns the lot about the shape's middle
+        const H = hatchOf(it), id = 'h' + String(it.id).replace(/[^\w-]/g, '');
+        let lines = '';
+        for (let i = 0; i < H.segs.length; i += 4) lines += `M${U.round(H.segs[i], 1)} ${U.round(H.segs[i + 1], 1)}L${U.round(H.segs[i + 2], 1)} ${U.round(H.segs[i + 3], 1)}`;
+        return `<g${op}><clipPath id="${id}"><path d="${d}"/></clipPath>` +
+          `<path d="${d}" fill="${fill}" stroke="none"/>` +
+          `<g clip-path="url(#${id})"><path d="${lines}" fill="none" stroke="${col}" stroke-width="${U.round(H.width, 2)}"/></g>` +
+          `<path d="${d}" fill="none" stroke="${col}" stroke-width="${it.size}" stroke-linejoin="round" stroke-linecap="round"${dash}/></g>`;
       }
       case 'edge': {
         const raw = scene.edgePath(it), pts = raw.map(v => U.round(v, 1)), n = raw.length;
