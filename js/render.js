@@ -789,6 +789,11 @@
       if (kind === 'ellipse') p.ellipse(x + w / 2, y + h / 2, Math.abs(w / 2), Math.abs(h / 2), 0, 0, 6.2832);
       else if (kind === 'diamond') { p.moveTo(x + w / 2, y); p.lineTo(x + w, y + h / 2); p.lineTo(x + w / 2, y + h); p.lineTo(x, y + h / 2); p.closePath(); }
       else if (kind === 'triangle') { p.moveTo(x + w / 2, y); p.lineTo(x + w, y + h); p.lineTo(x, y + h); p.closePath(); }
+      else if (kind === 'polygon') {
+        const v = D.polygonPoints(it);
+        for (let i = 0; i < v.length - 2; i += 2) i ? p.lineTo(v[i], v[i + 1]) : p.moveTo(v[i], v[i + 1]);
+        p.closePath();
+      }
       else if (kind === 'rect') p.roundRect(x, y, w, h, Math.min(it.radius || 0, w / 2, h / 2));
       return p;
     }

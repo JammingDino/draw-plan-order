@@ -35,7 +35,7 @@
         eraser: { mode: 'object', size: 26 },
         /* Pens kept to come back to: [{ tool: 'pen' | 'highlighter', o: { …that tool's opts } }] (UI.favourites) */
         favourites: { pens: [] },
-        shape: { kind: 'rect', color: 'ink', size: 3, alpha: 1, fill: 'none', hatch: 'none', dash: 0, radius: 10 },
+        shape: { kind: 'rect', color: 'ink', size: 3, alpha: 1, fill: 'none', hatch: 'none', dash: 0, radius: 10, sides: 6 },
         text: { color: 'ink', size: 20, font: 'sans', align: 'left' },
         note: { color: '#ffe58a', size: 16 },
         node: { kind: 'process', color: 'ink', fill: 'paper', size: 2, textSize: 15 },

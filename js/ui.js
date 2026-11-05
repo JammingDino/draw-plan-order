@@ -50,6 +50,7 @@
     moment: svg('M17.6 15.4A7 7 0 1 1 18.4 9|M19.4 4.4l-.6 5-4.8-1.2'),
     diamond: svg('M12 3l9 9-9 9-9-9z'),
     triangle: svg('M12 4l8 15H4z'),
+    polygon: svg('M12 3.5l7.4 4.25v8.5L12 20.5l-7.4-4.25v-8.5z'),
     text: svg('M5 6V4h14v2|M12 4v16|M9 20h6'),
     note: svg('M5 4h14v10l-5 6H5z|M19 14h-5v6'),
     node: svg('M9 3.2h6v4.4H9z|M2.6 16h5v4.4h-5z|M16.4 16h5v4.4h-5z|M12 7.6v2.9|M5.1 16v-5.5h13.8V16'),
@@ -114,7 +115,7 @@
         {
           id: 'shape', icon: ICON.shape, key: 'R', title: 'Shapes and arrows · R', flyout: [
             ['rect', ICON.rect, 'Rectangle · R'], ['ellipse', ICON.ellipse, 'Ellipse · O'],
-            ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle'],
+            ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle'], ['polygon', ICON.polygon, 'Polygon'],
             ['line', ICON.line, 'Line · L'], ['arrow', ICON.arrow, 'Arrow · A'],
             ['polyline', ICON.polyline, 'Polyline — tap the last point to finish'],
             ['force', ICON.force, 'Force arrow'], ['moment', ICON.moment, 'Moment arrow']
@@ -683,7 +684,7 @@
       const setHead = (i, v) => { const h = heads.slice(); h[i] = v; o.heads[o.kind] = h; };
       this.add(
         this.group('Shape',
-          this.iconSeg([['rect', ICON.rect, 'Rectangle'], ['ellipse', ICON.ellipse, 'Ellipse'], ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle']], o.kind, pick),
+          this.iconSeg([['rect', ICON.rect, 'Rectangle'], ['ellipse', ICON.ellipse, 'Ellipse'], ['diamond', ICON.diamond, 'Diamond'], ['triangle', ICON.triangle, 'Triangle'], ['polygon', ICON.polygon, 'Polygon']], o.kind, pick),
           this.iconSeg([['line', ICON.line, 'Line'], ['arrow', ICON.arrow, 'Arrow'], ['polyline', ICON.polyline, 'Polyline'], ['force', ICON.force, 'Force arrow'], ['moment', ICON.moment, 'Moment arrow']], o.kind, pick)),
         app.tools.shape.poly ? this.group('', el('button', { class: 'btn primary', onclick: () => app.tools.shape.finishPoly() }, 'Finish the line')) : null,
         this.group('Stroke', this.swatches(this.palette(), o.color, c => o.color = c)),
@@ -699,6 +700,7 @@
         lineish && cad ? this.group('Angles', this.check('Only 15° steps', !!cad.ortho, v => { cad.ortho = v; })) : null,
         this.slider('Opacity', o.alpha, 0.1, 1, 0.05, v => o.alpha = v, v => Math.round(v * 100) + '%'),
         o.kind === 'rect' ? this.slider('Corners', o.radius, 0, 40, 1, v => o.radius = v) : null,
+        o.kind === 'polygon' ? this.slider('Sides', o.sides || 6, 3, 12, 1, v => o.sides = v) : null,
         D.cad ? D.cad.snapGroup(this) : null,
         o.kind === 'polyline' ? this.hintText('Lift the pen at each corner. Tap the last point again — or press Enter — to finish.') : null
       );
@@ -811,6 +813,8 @@
           sel.some(i => i.type === 'shape' && !D.isOpenShape(i)) ? this.hatchSeg(sel.find(i => i.type === 'shape' && !D.isOpenShape(i)).hatch,
             v => apply(it => { if (it.type !== 'shape' || D.isOpenShape(it)) return; if (v === 'none') delete it.hatch; else it.hatch = v; })) : null) : null,
         this.group('Weight', this.sizes([1.5, 3, 5, 8, 14], first.size, s => apply(it => { it.size = s; it._path = null; it._b = null; }), first.color)),
+        sel.some(i => i.kind === 'polygon' && i.type === 'shape') ? this.slider('Sides', sel.find(i => i.kind === 'polygon').sides || 6, 3, 12, 1,
+          v => apply(it => { if (it.type === 'shape' && it.kind === 'polygon') it.sides = v; })) : null,
         this.slider('Opacity', first.alpha ?? 1, 0.1, 1, 0.05, v => apply(it => it.alpha = v), v => Math.round(v * 100) + '%'),
         (has('text') || has('note') || has('node')) ? this.group('Text size',
           this.seg([[13, 'S'], [17, 'M'], [24, 'L'], [34, 'XL']], first.textSize || first.size,

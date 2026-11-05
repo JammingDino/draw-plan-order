@@ -153,6 +153,22 @@
   }
   const arcPoint = (A, t) => ({ x: A.cx + A.rx * Math.cos(t), y: A.cy - A.ry * Math.sin(t) });
 
+  /* A regular polygon, kind 'polygon': `sides` corners (3–12, six by
+     default) on the ellipse in its box, the first straight up — so a
+     square box gives a true hexagon, and the box's own handles stretch
+     it. Flat-topped is a turn of 180°/sides. */
+  const sidesOf = it => Math.max(3, Math.min(12, Math.round(it.sides || 6)));
+  /** its corners [x,y,…], closed, in its box as it stands (unturned) */
+  function polygonPoints(it) {
+    const n = sidesOf(it), w = Math.abs(it.w), h = Math.abs(it.h);
+    const cx = Math.min(it.x, it.x + it.w) + w / 2, cy = Math.min(it.y, it.y + it.h) + h / 2, out = [];
+    for (let k = 0; k <= n; k++) {
+      const a = -Math.PI / 2 + 2 * Math.PI * (k % n) / n;
+      out.push(cx + w / 2 * Math.cos(a), cy + h / 2 * Math.sin(a));
+    }
+    return out;
+  }
+
   /* The rectangle a thing really occupies, as opposed to its bbox, which
      is padded for the stroke and the shadow. Snap points and box-relative
      attachments are measured against this. */
@@ -824,6 +840,13 @@
             P('n', mx, g.y, 'end'); P('se', g.x2, g.y2, 'end'); P('sw', g.x, g.y2, 'end');
             P('s', mx, g.y2, 'mid'); P('e', (mx + g.x2) / 2, my, 'mid'); P('w', (g.x + mx) / 2, my, 'mid');
             P('c', mx, g.y + g.h * 2 / 3, 'centre');
+          } else if (it.kind === 'polygon') {
+            const v = polygonPoints(it);
+            for (let i = 0; i + 3 < v.length; i += 2) {
+              P('v' + i / 2, v[i], v[i + 1], 'end');
+              P('m' + i / 2, (v[i] + v[i + 2]) / 2, (v[i + 1] + v[i + 3]) / 2, 'mid');
+            }
+            P('c', mx, my, 'centre');
           } else rect(g);
           break;
         }
@@ -959,6 +982,7 @@
           }
           if (kind === 'diamond') return [x + w / 2, y, x + w, y + h / 2, x + w / 2, y + h, x, y + h / 2, x + w / 2, y];
           if (kind === 'triangle') return [x + w / 2, y, x + w, y + h, x, y + h, x + w / 2, y];
+          if (kind === 'polygon') return polygonPoints(item);
           return [x, y, x + w, y, x + w, y + h, x, y + h, x, y];
         }
         default: {
@@ -1185,6 +1209,8 @@
       if (item.type === 'image') { const k = h ? 'flipX' : 'flipY'; if (item[k]) delete item[k]; else item[k] = true; }
       // a triangle is its own mirror left to right; top to bottom it is itself turned half way
       if (item.type === 'shape' && item.kind === 'triangle' && !h) r += Math.PI;
+      // so is a polygon, and one with an even number of sides top to bottom too
+      if (item.type === 'shape' && item.kind === 'polygon' && !h && sidesOf(item) % 2) r += Math.PI;
       r = normAngle(r);
       if (Math.abs(r) < 1e-9) delete item.rot; else item.rot = r;
     }
@@ -1460,6 +1486,7 @@
   D.headLen = headLen;
   D.curveCtrl = curveCtrl;
   D.arcOf = arcOf;
+  D.polygonPoints = polygonPoints;
   D.arcPoint = arcPoint;
   D.pointAlong = pointAlong;
   D.nearestAlong = nearestAlong;

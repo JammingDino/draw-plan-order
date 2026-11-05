@@ -202,7 +202,7 @@
   }
 
   function labelFor(k) {
-    return { line: 'Straight line', arrow: 'Arrow', rect: 'Rectangle', ellipse: 'Ellipse', diamond: 'Diamond', triangle: 'Triangle' }[k] || 'Shape';
+    return { line: 'Straight line', arrow: 'Arrow', rect: 'Rectangle', ellipse: 'Ellipse', diamond: 'Diamond', triangle: 'Triangle', polygon: 'Polygon' }[k] || 'Shape';
   }
 
   function shapeFromRecognised(s, o) {
@@ -369,6 +369,7 @@
       else if (o.kind === 'moment') this.item = mk.shape({ ...base, kind: 'moment', fill: 'none', head1: 'none', head2: 'filled', headScale: o.headScale || 1, a0: 0, sweep: o.ccw === false ? -270 : 270 });
       else {
         this.item = mk.shape({ ...base, kind: o.kind, fill: o.fill, radius: o.radius });
+        if (o.kind === 'polygon') this.item.sides = o.sides || 6;
         if (o.hatch && o.hatch !== 'none') this.item.hatch = o.hatch;
       }
       if (lineish && s.ref) this.item.bind1 = s.ref;

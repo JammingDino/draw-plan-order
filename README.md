@@ -106,7 +106,7 @@ what they are handed.
 ## Tools
 
 Pen (pressure-sensitive, tapered), highlighter, eraser (whole-stroke or
-pixel), rectangle/ellipse/diamond/triangle, lines and arrows (straight,
+pixel), rectangle/ellipse/diamond/triangle/polygon, lines and arrows (straight,
 bent, polyline, force and moment arrows), text boxes, sticky notes,
 flow-chart nodes (process, decision, start/end, data), connectors that
 stay attached as you move things, dimensions, a measuring tool, laser
@@ -151,7 +151,12 @@ drawings, and for a pen alone — nothing needs a key held down.
   or press Enter to finish), a heavy **force** arrow and a circular
   **moment** arrow (press at the centre, lift where the head goes;
   anticlockwise or clockwise in the panel).
-- **Hatching.** A rectangle, ellipse, diamond or triangle can be
+- **Polygons.** The shapes flyout has a regular polygon — a hexagon to
+  start with, and 3 to 12 sides on the *Sides* slider in its panel. In a
+  square box (Shift, or *Square / circle*) it is regular, with a corner
+  straight up; turn it 30° for a flat-topped hex nut. Its corners and the
+  middles of its sides are snap points.
+- **Hatching.** A rectangle, ellipse, diamond, triangle or polygon can be
   hatched as a cut face is — 45° one way, the other way (for the part
   beside it), or cross-hatched — under *Fill* in its panel. The lines are
   in the shape's colour, spaced by the board and a little wider for a
